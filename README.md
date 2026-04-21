@@ -137,9 +137,10 @@ Install [HomeBrew](https://docs.brew.sh/Installation) if not installed.
 
 ```sh
 git clone "<your-fork-url>" && cd ./ani-cli-mx
-mkdir -p "$(brew --prefix)"/bin "$(brew --prefix)"/libexec
+mkdir -p "$(brew --prefix)"/bin "$(brew --prefix)"/libexec "$(brew --prefix)"/share/man/man1
 install -m 755 ./ani-cli "$(brew --prefix)"/libexec/ani-cli-mx
 install -m 755 ./ani-cli-mx "$(brew --prefix)"/bin/ani-cli-mx
+install -m 644 ./ani-cli-mx.1 "$(brew --prefix)"/share/man/man1/ani-cli-mx.1
 cd .. && rm -rf ./ani-cli-mx
 ```
 
@@ -401,6 +402,8 @@ git clone "https://github.com/Gildedboy/ani-cli-mx.git"
 sudo install -d /usr/local/bin /usr/local/libexec
 sudo install -m 755 ani-cli-mx/ani-cli /usr/local/libexec/ani-cli-mx
 sudo install -m 755 ani-cli-mx/ani-cli-mx /usr/local/bin/ani-cli-mx
+sudo install -d /usr/local/share/man/man1
+sudo install -m 644 ani-cli-mx/ani-cli-mx.1 /usr/local/share/man/man1/ani-cli-mx.1
 rm -rf ani-cli-mx
 ```
 
@@ -427,6 +430,8 @@ git clone "https://github.com/Gildedboy/ani-cli-mx.git"
 sudo install -d /usr/local/bin /usr/local/libexec
 sudo install -m 755 ani-cli-mx/ani-cli /usr/local/libexec/ani-cli-mx
 sudo install -m 755 ani-cli-mx/ani-cli-mx /usr/local/bin/ani-cli-mx
+sudo install -d /usr/local/share/man/man1
+sudo install -m 644 ani-cli-mx/ani-cli-mx.1 /usr/local/share/man/man1/ani-cli-mx.1
 rm -rf ani-cli-mx
 ```
 
@@ -445,6 +450,7 @@ git clone "<your-fork-url>"
 cd ani-cli-mx
 sudo install -Dm755 ani-cli /usr/local/libexec/ani-cli-mx
 sudo install -Dm755 ani-cli-mx /usr/local/bin/ani-cli-mx
+sudo install -Dm644 ani-cli-mx.1 /usr/local/share/man/man1/ani-cli-mx.1
 ```
 
 If you want `ani-cli-mx -U` to work, also set `ANI_CLI_UPDATE_URL` to the raw URL of your forked `ani-cli` script.
@@ -482,11 +488,11 @@ scoop uninstall ani-cli
 ```
 * Linux:
 ```sh
-sudo rm -f "/usr/local/bin/ani-cli-mx" "/usr/local/libexec/ani-cli-mx"
+sudo rm -f "/usr/local/bin/ani-cli-mx" "/usr/local/libexec/ani-cli-mx" "/usr/local/share/man/man1/ani-cli-mx.1"
 ```
 * Mac:
 ```sh
-rm -f "$(brew --prefix)/bin/ani-cli-mx" "$(brew --prefix)/libexec/ani-cli-mx"
+rm -f "$(brew --prefix)/bin/ani-cli-mx" "$(brew --prefix)/libexec/ani-cli-mx" "$(brew --prefix)/share/man/man1/ani-cli-mx.1"
 ```
 * Windows:
 In **Git Bash** run (as administrator):
