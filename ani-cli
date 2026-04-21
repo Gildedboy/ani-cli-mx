@@ -279,9 +279,16 @@ extract_hqq_link() {
 }
 
 extract_yourupload_link() {
+    direct_link="$(extract_with_ytdlp "$1")"
+    [ -n "$direct_link" ] && printf '%s\n' "$direct_link" && return 0
+
     yourupload_page="$(curl -L --connect-timeout 10 --max-time "$resolver_timeout" -s "$1" -A "$agent")" || return 1
+    direct_link="$(printf '%s' "$yourupload_page" | tr '\n' ' ' |
+        grep -oE "file:[[:space:]]*'[^']+'" | head -n1 | sed -E "s|file:[[:space:]]*'([^']+)'|\\1|")"
+    [ -n "$direct_link" ] && printf '%s\n' "$direct_link" && return 0
+
     printf '%s' "$yourupload_page" | tr '\n' ' ' |
-        grep -oE "file:[[:space:]]*'[^']+'" | head -n1 | sed -E "s|file:[[:space:]]*'([^']+)'|\\1|"
+        grep -oE 'file:[[:space:]]*"[^"]+"' | head -n1 | sed -E 's|file:[[:space:]]*"([^"]+)"|\1|'
 }
 
 search_jkanime() {
@@ -636,7 +643,7 @@ source >${direct_link}>${server_name}
                 ;;
             yu)
                 direct_link="$(extract_yourupload_link "$code")"
-                if [ -n "$direct_link" ]; then
+                if [ -n "$direct_link" ] && probe_link_with_mpv "$direct_link" "$code"; then
                     primary_links="${primary_links}910 >${direct_link}
 referrer >${direct_link}>${code}
 source >${direct_link}>${server_name}
