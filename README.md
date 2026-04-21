@@ -22,8 +22,12 @@
 </p>
 
 <h3 align="center">
-A cli to browse and watch anime (alone AND with friends). This tool scrapes the site <a href="https://allmanga.to/">allmanga.</a>
+A cli to browse and watch anime (alone AND with friends). This fork uses <a href="https://www4.animeflv.net/">AnimeFLV</a> first, falls back to <a href="https://jkanime.net/">JKAnime</a>, and finally tries the original English source when Spanish sources fail.
 </h3>
+
+<p align="center">
+This fork is intended to be installed and shared as <code>ani-cli-mx</code>.
+</p>
 
 <h1 align="center">
 	Showcase
@@ -49,10 +53,12 @@ A cli to browse and watch anime (alone AND with friends). This tool scrapes the 
 ## Fixing errors
 
 If you encounter `No results found` (and are sure the prompt was correct) or any breaking issue, then make sure you are on **latest version** by typing
-`sudo ani-cli -U` to update on Linux, Mac and Android. On Windows, run `ani-cli -U`.
+`ANI_CLI_UPDATE_URL=<raw-script-url> sudo ani-cli-mx -U` to update on Linux, Mac and Android. On Windows, run `ANI_CLI_UPDATE_URL=<raw-script-url> ani-cli-mx -U`.
 If after this the issue persists then open an issue.
 
 ## Install
+
+For this fork, the supported install path is `ani-cli-mx`. The package-manager commands below are upstream `ani-cli` instructions and do not install this fork unless you package it yourself.
 
 [![Packaging status](https://repology.org/badge/vertical-allrepos/ani-cli.svg?minversion=4.0)](https://repology.org/project/ani-cli/versions)
 
@@ -417,13 +423,18 @@ rm -rf ani-cli
 
 *This method works for any unix-like operating system and is a baseline for porting efforts.*
 
+For this fork, prefer installing the command as `ani-cli-mx`.
+
 Install dependencies [(See below)](#dependencies)
 
 ```sh
-git clone "https://github.com/pystardust/ani-cli.git"
-sudo cp ani-cli/ani-cli /usr/local/bin
-rm -rf ani-cli
+git clone "<your-fork-url>"
+cd ani-cli-flv
+sudo install -Dm755 ani-cli /usr/local/libexec/ani-cli-mx
+sudo install -Dm755 ani-cli-mx /usr/local/bin/ani-cli-mx
 ```
+
+If you want `ani-cli-mx -U` to work, also set `ANI_CLI_UPDATE_URL` to the raw URL of your forked `ani-cli` script.
 
 ## Uninstall
 
@@ -458,7 +469,7 @@ scoop uninstall ani-cli
 ```
 * Linux:
 ```sh
-sudo rm "/usr/local/bin/ani-cli"
+sudo rm -f "/usr/local/bin/ani-cli-mx" "/usr/local/libexec/ani-cli-mx"
 ```
 * Mac:
 ```sh
@@ -536,12 +547,12 @@ Ani-skip uses the external lua script function of mpv and as such â€“ for now â€
 * Can I change dub language? - No.
 * Can I change media source? - No (unless you can scrape that source yourself).
 * Can I use vlc? - Yes, use `--vlc` or `export ANI_CLI_PLAYER=vlc`.
-* Can I adjust resolution? - Yes, use `-q resolution`, for example `ani-cli -q 1080`.
+* Can I adjust resolution? - Yes, use `-q resolution`, for example `ani-cli-mx -q 1080`.
 * How can I download? - Use `-d`, it will download into your working directory.
 * Can i change download folder? - Yes, set the `ANI_CLI_DOWNLOAD_DIR` to your desired location.
-* How can I bulk download? - `Use -d -e firstepisode-lastepisode`, for example `ani-cli onepiece -d -e 1-1000`.
+* How can I bulk download? - `Use -d -e firstepisode-lastepisode`, for example `ani-cli-mx onepiece -d -e 1-1000`.
 
-**Note:** All features are documented in `ani-cli --help`.
+**Note:** All features are documented in `ani-cli-mx --help`.
 
 </details>
 
