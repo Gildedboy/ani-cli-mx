@@ -22,8 +22,12 @@
 </p>
 
 <h3 align="center">
-A cli to browse and watch anime (alone AND with friends). This tool scrapes the site <a href="https://allmanga.to/">allmanga.</a>
+A cli to browse and watch anime (alone AND with friends). This fork uses <a href="https://www4.animeflv.net/">AnimeFLV</a> first, falls back to <a href="https://jkanime.net/">JKAnime</a>, and finally tries the original English source when Spanish sources fail.
 </h3>
+
+<p align="center">
+This fork is intended to be installed and shared as <code>ani-cli-mx</code>.
+</p>
 
 <h1 align="center">
 	Showcase
@@ -49,10 +53,14 @@ A cli to browse and watch anime (alone AND with friends). This tool scrapes the 
 ## Fixing errors
 
 If you encounter `No results found` (and are sure the prompt was correct) or any breaking issue, then make sure you are on **latest version** by typing
-`sudo ani-cli -U` to update on Linux, Mac and Android. On Windows, run `ani-cli -U`.
+`ANI_CLI_UPDATE_URL=<raw-script-url> sudo ani-cli-mx -U` to update on Linux, Mac and Android. On Windows, run `ANI_CLI_UPDATE_URL=<raw-script-url> ani-cli-mx -U`.
 If after this the issue persists then open an issue.
 
 ## Install
+
+For this fork, the supported install path is `ani-cli-mx`.
+Do not install this fork as `/usr/local/bin/ani-cli` unless you explicitly want it to replace upstream `ani-cli`.
+The package-manager commands below are upstream `ani-cli` references and do not install this fork unless you package it yourself under a separate name.
 
 [![Packaging status](https://repology.org/badge/vertical-allrepos/ani-cli.svg?minversion=4.0)](https://repology.org/project/ani-cli/versions)
 
@@ -62,10 +70,9 @@ If after this the issue persists then open an issue.
 
 <details><summary><b>Linux</b></summary>
 
-#### Native Packages
+#### Upstream Package References
 
-*Native packages have a more robust update cycle, but sometimes they are slow to upgrade. \
-If the one for your platform is up-to-date we suggest going with it.*
+*These package-manager entries install upstream `ani-cli`, not this fork. If you want this fork to coexist with upstream, install it from source as `ani-cli-mx`.*
 
 <details><summary>Debian 13/unstable</summary>
 
@@ -129,9 +136,12 @@ Install dependencies [(See below)](#dependencies)
 Install [HomeBrew](https://docs.brew.sh/Installation) if not installed.
 
 ```sh
-git clone "https://github.com/pystardust/ani-cli.git" && cd ./ani-cli
-cp ./ani-cli "$(brew --prefix)"/bin
-cd .. && rm -rf ./ani-cli
+git clone "<your-fork-url>" && cd ./ani-cli-mx
+mkdir -p "$(brew --prefix)"/bin "$(brew --prefix)"/libexec "$(brew --prefix)"/share/man/man1
+install -m 755 ./ani-cli "$(brew --prefix)"/libexec/ani-cli-mx
+install -m 755 ./ani-cli-mx "$(brew --prefix)"/bin/ani-cli-mx
+install -m 644 ./ani-cli-mx.1 "$(brew --prefix)"/share/man/man1/ani-cli-mx.1
+cd .. && rm -rf ./ani-cli-mx
 ```
 
 *To install (with Homebrew) the dependencies required on Mac OS, you can run:*
@@ -263,10 +273,12 @@ then run this:
 ```sh
 apk add grep sed curl fzf git aria2 ncurses patch
 apk add ffmpeg
-git clone --depth 1 https://github.com/pystardust/ani-cli ~/.ani-cli
-cp ~/.ani-cli/ani-cli /usr/local/bin/ani-cli
-chmod +x /usr/local/bin/ani-cli
-rm -rf ~/.ani-cli
+git clone --depth 1 https://github.com/Gildedboy/ani-cli-mx.git ~/.ani-cli-mx
+mkdir -p /usr/local/libexec
+cp ~/.ani-cli-mx/ani-cli /usr/local/libexec/ani-cli-mx
+cp ~/.ani-cli-mx/ani-cli-mx /usr/local/bin/ani-cli-mx
+chmod +x /usr/local/libexec/ani-cli-mx /usr/local/bin/ani-cli-mx
+rm -rf ~/.ani-cli-mx
 ```
 note that downloading is going to be very slow. This is an iSH issue, not an ani-cli issue.
 </details>
@@ -299,8 +311,10 @@ curl -o ~/.patch/patch.tar.zst https://mirror.sunred.org/archlinux/core/os/x86_6
 tar xvf ~/.patch/patch.tar.zst -C ~/.patch/
 cp ~/.patch/usr/bin/patch ~/.local/bin/
 
-git clone https://github.com/pystardust/ani-cli.git ~/.ani-cli
-cp ~/.ani-cli/ani-cli ~/.local/bin/
+mkdir -p ~/.local/bin ~/.local/libexec
+git clone https://github.com/Gildedboy/ani-cli-mx.git ~/.ani-cli-mx
+cp ~/.ani-cli-mx/ani-cli ~/.local/libexec/ani-cli-mx
+cp ~/.ani-cli-mx/ani-cli-mx ~/.local/bin/ani-cli-mx
 
 flatpak install io.mpv.Mpv
 ```
@@ -355,11 +369,13 @@ tar xvf ~/.patch/patch.tar.zst -C ~/.patch/
 cp ~/.patch/usr/bin/patch ~/.local/bin/
 ```
 
-##### Install ani-cli:
+##### Install ani-cli-mx:
 
 ```sh
-git clone https://github.com/pystardust/ani-cli.git ~/.ani-cli
-cp ~/.ani-cli/ani-cli ~/.local/bin/
+mkdir -p ~/.local/bin ~/.local/libexec
+git clone https://github.com/Gildedboy/ani-cli-mx.git ~/.ani-cli-mx
+cp ~/.ani-cli-mx/ani-cli ~/.local/libexec/ani-cli-mx
+cp ~/.ani-cli-mx/ani-cli-mx ~/.local/bin/ani-cli-mx
 ```
 
 ##### Optional: add desktop entry:
@@ -368,12 +384,12 @@ cp ~/.ani-cli/ani-cli ~/.local/bin/
 echo '[Desktop Entry]
 Encoding=UTF-8
 Type=Application
-Exec=bash -c "source $HOME/.'$(echo $SHELL | sed -nE "s|.*/(.*)\$|\1|p")'rc && konsole --fullscreen -e ani-cli"
-Name=ani-cli' > $HOME/.local/share/applications/ani-cli.desktop
+Exec=bash -c "source $HOME/.'$(echo $SHELL | sed -nE "s|.*/(.*)\$|\1|p")'rc && konsole --fullscreen -e ani-cli-mx"
+Name=ani-cli-mx' > $HOME/.local/share/applications/ani-cli-mx.desktop
 ```
-The .desktop entry will allow to start ani-cli in Konsole directly from "Gaming Mode"
+The .desktop entry will allow to start ani-cli-mx in Konsole directly from "Gaming Mode"
 In Steam Desktop app:
-`Add game` > `Add a non-steam game` > tick a box for `ani-cli` > `Add selected programs`
+`Add game` > `Add a non-steam game` > tick a box for `ani-cli-mx` > `Add selected programs`
 </details>
 
 <details><summary><b>FreeBSD</b></summary>
@@ -382,9 +398,13 @@ In Steam Desktop app:
 
 ```sh
 sudo pkg install mpv fzf aria2 yt-dlp patch git
-git clone "https://github.com/pystardust/ani-cli.git"
-sudo cp ani-cli/ani-cli /usr/local/bin
-rm -rf ani-cli
+git clone "https://github.com/Gildedboy/ani-cli-mx.git"
+sudo install -d /usr/local/bin /usr/local/libexec
+sudo install -m 755 ani-cli-mx/ani-cli /usr/local/libexec/ani-cli-mx
+sudo install -m 755 ani-cli-mx/ani-cli-mx /usr/local/bin/ani-cli-mx
+sudo install -d /usr/local/share/man/man1
+sudo install -m 644 ani-cli-mx/ani-cli-mx.1 /usr/local/share/man/man1/ani-cli-mx.1
+rm -rf ani-cli-mx
 ```
 
 #### Installation in steps:
@@ -395,7 +415,7 @@ rm -rf ani-cli
 sudo pkg install mpv fzf aria2 yt-dlp patch
 ```
 
-##### Install ani-cli:
+##### Install ani-cli-mx:
 
 install git if you haven't already
 
@@ -406,9 +426,13 @@ sudo pkg install git
 install from source:
 
 ```sh
-git clone "https://github.com/pystardust/ani-cli.git"
-sudo cp ani-cli/ani-cli /usr/local/bin
-rm -rf ani-cli
+git clone "https://github.com/Gildedboy/ani-cli-mx.git"
+sudo install -d /usr/local/bin /usr/local/libexec
+sudo install -m 755 ani-cli-mx/ani-cli /usr/local/libexec/ani-cli-mx
+sudo install -m 755 ani-cli-mx/ani-cli-mx /usr/local/bin/ani-cli-mx
+sudo install -d /usr/local/share/man/man1
+sudo install -m 644 ani-cli-mx/ani-cli-mx.1 /usr/local/share/man/man1/ani-cli-mx.1
+rm -rf ani-cli-mx
 ```
 
 </details>
@@ -417,13 +441,19 @@ rm -rf ani-cli
 
 *This method works for any unix-like operating system and is a baseline for porting efforts.*
 
+For this fork, prefer installing the command as `ani-cli-mx`.
+
 Install dependencies [(See below)](#dependencies)
 
 ```sh
-git clone "https://github.com/pystardust/ani-cli.git"
-sudo cp ani-cli/ani-cli /usr/local/bin
-rm -rf ani-cli
+git clone "<your-fork-url>"
+cd ani-cli-mx
+sudo install -Dm755 ani-cli /usr/local/libexec/ani-cli-mx
+sudo install -Dm755 ani-cli-mx /usr/local/bin/ani-cli-mx
+sudo install -Dm644 ani-cli-mx.1 /usr/local/share/man/man1/ani-cli-mx.1
 ```
+
+If you want `ani-cli-mx -U` to work, also set `ANI_CLI_UPDATE_URL` to the raw URL of your forked `ani-cli` script.
 
 ## Uninstall
 
@@ -458,16 +488,16 @@ scoop uninstall ani-cli
 ```
 * Linux:
 ```sh
-sudo rm "/usr/local/bin/ani-cli"
+sudo rm -f "/usr/local/bin/ani-cli-mx" "/usr/local/libexec/ani-cli-mx" "/usr/local/share/man/man1/ani-cli-mx.1"
 ```
 * Mac:
 ```sh
-rm "$(brew --prefix)/bin/ani-cli"
+rm -f "$(brew --prefix)/bin/ani-cli-mx" "$(brew --prefix)/libexec/ani-cli-mx" "$(brew --prefix)/share/man/man1/ani-cli-mx.1"
 ```
 * Windows:
 In **Git Bash** run (as administrator):
 ```sh
-rm "/usr/bin/ani-cli"
+rm -f "/usr/bin/ani-cli-mx"
 ```
 * Termux package
 ```sh
@@ -475,12 +505,12 @@ pkg remove ani-cli
 ```
 * Android:
 ```sh
-rm "$PREFIX/bin/ani-cli"
+rm -f "$PREFIX/bin/ani-cli-mx" "$PREFIX/libexec/ani-cli-mx"
 ```
 * Steam Deck
 ```sh
-rm "~/.local/bin/ani-cli"
-rm -rf ~/.ani-cli
+rm -f ~/.local/bin/ani-cli-mx ~/.local/libexec/ani-cli-mx
+rm -rf ~/.ani-cli-mx
 ```
 optionally: remove dependencies:
 ```sh
@@ -492,7 +522,7 @@ flatpak uninstall io.mpv.Mpv
 ```
 * iOS
 ```
-rm -rf /usr/local/bin/ani-cli
+rm -f /usr/local/bin/ani-cli-mx /usr/local/libexec/ani-cli-mx
 ```
 To uninstall other dependencies:
 ```
@@ -536,12 +566,12 @@ Ani-skip uses the external lua script function of mpv and as such â€“ for now â€
 * Can I change dub language? - No.
 * Can I change media source? - No (unless you can scrape that source yourself).
 * Can I use vlc? - Yes, use `--vlc` or `export ANI_CLI_PLAYER=vlc`.
-* Can I adjust resolution? - Yes, use `-q resolution`, for example `ani-cli -q 1080`.
+* Can I adjust resolution? - Yes, use `-q resolution`, for example `ani-cli-mx -q 1080`.
 * How can I download? - Use `-d`, it will download into your working directory.
 * Can i change download folder? - Yes, set the `ANI_CLI_DOWNLOAD_DIR` to your desired location.
-* How can I bulk download? - `Use -d -e firstepisode-lastepisode`, for example `ani-cli onepiece -d -e 1-1000`.
+* How can I bulk download? - `Use -d -e firstepisode-lastepisode`, for example `ani-cli-mx onepiece -d -e 1-1000`.
 
-**Note:** All features are documented in `ani-cli --help`.
+**Note:** All features are documented in `ani-cli-mx --help`.
 
 </details>
 

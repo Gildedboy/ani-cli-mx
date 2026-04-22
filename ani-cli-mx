@@ -1,0 +1,16 @@
+#!/bin/sh
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+if [ -x "$script_dir/ani-cli" ]; then
+    target="$script_dir/ani-cli"
+elif [ -x "$script_dir/../libexec/ani-cli-mx" ]; then
+    target="$script_dir/../libexec/ani-cli-mx"
+else
+    printf '%s\n' "No se encontro el script principal de ani-cli-mx." >&2
+    exit 1
+fi
+
+export ANI_CLI_NAME="ani-cli-mx"
+export ANI_CLI_LOG_TAG="ani-cli-mx"
+export ANI_CLI_STATE_NAME="ani-cli-mx"
+exec "$target" "$@"
