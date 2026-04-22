@@ -277,6 +277,18 @@ cross_source_match_is_confident() {
     [ "$1" -ge 140 ]
 }
 
+site_name_from_ref() {
+    case "$1" in
+        animeflv:*) printf '%s\n' "animeflv" ;;
+        jkanime:*) printf '%s\n' "jkanime" ;;
+        animeav1:*) printf '%s\n' "animeav1" ;;
+        allanime:*) printf '%s\n' "allanime" ;;
+        *:*) return 1 ;;
+        "") return 1 ;;
+        *) printf '%s\n' "animeflv" ;;
+    esac
+}
+
 show_ref_value_for_site() {
     case "$1" in
         "$2":*) printf '%s\n' "${1#"$2:"}" ;;
@@ -1275,6 +1287,10 @@ get_episode_url() {
     jkanime_links=""
     animeav1_links=""
     unset selected_spanish_site selected_site selected_source selected_origin
+    authoritative_site="$(site_name_from_ref "$id" 2>/dev/null || true)"
+    authoritative_ep_list=""
+    [ -n "$authoritative_site" ] && authoritative_ep_list="$(episodes_list_for_source "$authoritative_site" "$id" "$title")"
+    [ -z "$authoritative_ep_list" ] && authoritative_ep_list="$ep_list"
 
     animeflv_id="$(show_ref_value_for_site "$id" "animeflv")"
     [ -z "$animeflv_id" ] && [ "$id" = "${id#*:}" ] && animeflv_id="$id"
@@ -1292,6 +1308,7 @@ get_episode_url() {
             [ "$mode" = "dub" ] && [ "$selected_lang" = "SUB" ] && printf "No hay doblaje disponible en AnimeFLV, usando subtitulado\n" 1>&2
             animeflv_links="$(extract_animeflv_links "$videos_json" "$selected_lang" | sort -g -r -s)"
             animeflv_links="$(filter_playable_links "$animeflv_links")"
+            animeflv_links="$(filter_links_by_episode_catalog "animeflv" "$animeflv_links" "$authoritative_site" "$authoritative_ep_list")"
         else
             printf "AnimeFLV sin idioma reproducible.\n" 1>&2
         fi
@@ -1301,9 +1318,11 @@ get_episode_url() {
 
     jkanime_links="$(resolve_jkanime_episode "$title" "$ep_no" | sort -g -r -s)"
     jkanime_links="$(filter_playable_links "$jkanime_links")"
+    jkanime_links="$(filter_links_by_episode_catalog "jkanime" "$jkanime_links" "$authoritative_site" "$authoritative_ep_list")"
 
     animeav1_links="$(resolve_animeav1_episode "$title" "$ep_no" | sort -g -r -s)"
     animeav1_links="$(filter_playable_links "$animeav1_links")"
+    animeav1_links="$(filter_links_by_episode_catalog "animeav1" "$animeav1_links" "$authoritative_site" "$authoritative_ep_list")"
 
     if pick_spanish_source_links "$animeflv_links" "$jkanime_links" "$animeav1_links"; then
         [ -n "$selected_spanish_site" ] && printf "Fuente elegida: %s\n" "$selected_spanish_site" 1>&2
@@ -1447,6 +1466,57 @@ episodes_list_for_source() {
     esac
 }
 
+latest_episode_number() {
+    printf '%s\n' "$1" | sed '/^$/d' | tail -n1 | tr -d '[:space:]'
+}
+
+episode_number_delta() {
+    awk -v a="$1" -v b="$2" 'BEGIN { diff = a - b; if (diff < 0) diff = -diff; printf "%d\n", diff }'
+}
+
+episode_catalog_matches_authoritative() {
+    authoritative_list="$1"
+    candidate_list="$2"
+
+    [ -n "$candidate_list" ] || return 1
+    [ -n "$authoritative_list" ] || return 0
+
+    authoritative_latest="$(latest_episode_number "$authoritative_list")"
+    candidate_latest="$(latest_episode_number "$candidate_list")"
+    [ -n "$authoritative_latest" ] || return 0
+    [ -n "$candidate_latest" ] || return 0
+
+    case "$authoritative_latest:$candidate_latest" in
+        *[!0-9.:]*)
+            [ -n "$ep_no" ] && printf '%s\n' "$candidate_list" | grep -qx "$ep_no"
+            return $?
+            ;;
+    esac
+
+    [ -n "$ep_no" ] && ! printf '%s\n' "$candidate_list" | grep -qx "$ep_no" && return 1
+    delta="$(episode_number_delta "$authoritative_latest" "$candidate_latest")"
+    [ "$delta" -le 2 ]
+}
+
+filter_links_by_episode_catalog() {
+    site_name="$1"
+    site_links="$2"
+    authoritative_site="$3"
+    authoritative_list="$4"
+
+    [ -n "$site_links" ] || return 1
+    [ -z "$authoritative_site" ] && printf '%s' "$site_links" && return 0
+    [ "$site_name" = "$authoritative_site" ] && printf '%s' "$site_links" && return 0
+
+    candidate_list="$(episodes_list_for_source "$site_name" "$id" "$title")"
+    if episode_catalog_matches_authoritative "$authoritative_list" "$candidate_list"; then
+        printf '%s' "$site_links"
+    else
+        printf "Descartando %s: catalogo no coincide con %s\n" "$(info_source_label "$site_name")" "$(info_source_label "$authoritative_site")" 1>&2
+        return 1
+    fi
+}
+
 episodes_list() {
     if [ "$preferred_info_source" != "auto" ]; then
         episodes="$(episodes_list_for_source "$preferred_info_source" "$1" "$2")"
@@ -1454,15 +1524,13 @@ episodes_list() {
         return 0
     fi
 
-    animeflv_id="$(show_ref_value_for_site "$1" "animeflv")"
-    [ -z "$animeflv_id" ] && [ "$1" = "${1#*:}" ] && animeflv_id="$1"
-    [ -z "$animeflv_id" ] && animeflv_id="$(select_animeflv_id "$2")"
-    [ -n "$animeflv_id" ] && episodes="$(episodes_list_animeflv "$animeflv_id")" || episodes=""
-    [ -z "$episodes" ] && episodes="$(episodes_list_animeav1 "$1" "$2")"
-    [ -z "$episodes" ] && episodes="$(episodes_list_jkanime "$1" "$2")"
-    [ -z "$episodes" ] && allanime_ref="$(show_ref_value_for_site "$1" "allanime")"
-    [ -z "$episodes" ] && [ -z "$allanime_ref" ] && allanime_ref="$(select_allanime_ref "$2")"
-    [ -z "$episodes" ] && [ -n "$allanime_ref" ] && episodes="$(episodes_list_allanime "allanime:${allanime_ref}")"
+    selected_site="$(site_name_from_ref "$1" 2>/dev/null || true)"
+    episodes=""
+    for site_name in "$selected_site" animeflv animeav1 jkanime allanime; do
+        [ -n "$site_name" ] || continue
+        [ -n "$episodes" ] && break
+        episodes="$(episodes_list_for_source "$site_name" "$1" "$2")"
+    done
     [ -n "$episodes" ] && printf '%s\n' "$episodes"
 }
 
