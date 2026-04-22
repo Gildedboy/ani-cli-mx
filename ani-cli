@@ -272,6 +272,11 @@ title_match_score() {
     printf '%s\n' "$score"
 }
 
+cross_source_match_is_confident() {
+    [ -n "$1" ] || return 1
+    [ "$1" -ge 140 ]
+}
+
 show_ref_value_for_site() {
     case "$1" in
         "$2":*) printf '%s\n' "${1#"$2:"}" ;;
@@ -632,7 +637,8 @@ search_animeflv() {
 }
 
 select_animeflv_id() {
-    [ -n "$animeflv_selected_id" ] && printf '%s\n' "$animeflv_selected_id" && return 0
+    cache_key="$1|$id"
+    [ "$animeflv_selected_id_key" = "$cache_key" ] && [ -n "$animeflv_selected_id" ] && printf '%s\n' "$animeflv_selected_id" && return 0
 
     animeflv_results="$(search_animeflv "$(printf '%s' "$1" | sed 's| |+|g')")"
     [ -z "$animeflv_results" ] && return 1
@@ -651,17 +657,25 @@ select_animeflv_id() {
     done
     IFS=$old_ifs
 
+    cross_source_match_is_confident "$best_score" || return 1
     [ -z "$best_id" ] && best_id="$(printf '%s\n' "$animeflv_results" | sed -n '1p' | cut -f1)"
     [ -z "$best_id" ] && return 1
 
     animeflv_selected_id="$best_id"
+    animeflv_selected_id_key="$cache_key"
     printf '%s\n' "$animeflv_selected_id"
 }
 
 select_jkanime_slug() {
     explicit_slug="$(show_ref_value_for_site "$id" "jkanime")"
-    [ -n "$explicit_slug" ] && jkanime_slug="$explicit_slug"
-    [ -n "$jkanime_slug" ] && printf '%s\n' "$jkanime_slug" && return 0
+    if [ -n "$explicit_slug" ]; then
+        jkanime_slug="$explicit_slug"
+        jkanime_slug_key="explicit:$id"
+    fi
+    [ -n "$explicit_slug" ] && printf '%s\n' "$jkanime_slug" && return 0
+
+    cache_key="$1|$id"
+    [ "$jkanime_slug_key" = "$cache_key" ] && [ -n "$jkanime_slug" ] && printf '%s\n' "$jkanime_slug" && return 0
 
     jkanime_results="$(search_jkanime "$(printf '%s' "$1" | sed 's| |+|g')")"
     [ -z "$jkanime_results" ] && return 1
@@ -681,10 +695,12 @@ select_jkanime_slug() {
     done
     IFS=$old_ifs
 
+    cross_source_match_is_confident "$best_score" || return 1
     [ -z "$best_slug" ] && best_slug="$(printf '%s\n' "$jkanime_results" | sed -n '1p' | cut -f1)"
     [ -z "$best_slug" ] && return 1
 
     jkanime_slug="$best_slug"
+    jkanime_slug_key="$cache_key"
     printf '%s\n' "$jkanime_slug"
 }
 
@@ -835,8 +851,14 @@ search_animeav1() {
 
 select_animeav1_slug() {
     explicit_slug="$(show_ref_value_for_site "$id" "animeav1")"
-    [ -n "$explicit_slug" ] && animeav1_slug="$explicit_slug"
-    [ -n "$animeav1_slug" ] && printf '%s\n' "$animeav1_slug" && return 0
+    if [ -n "$explicit_slug" ]; then
+        animeav1_slug="$explicit_slug"
+        animeav1_slug_key="explicit:$id"
+    fi
+    [ -n "$explicit_slug" ] && printf '%s\n' "$animeav1_slug" && return 0
+
+    cache_key="$1|$id"
+    [ "$animeav1_slug_key" = "$cache_key" ] && [ -n "$animeav1_slug" ] && printf '%s\n' "$animeav1_slug" && return 0
 
     animeav1_results="$(search_animeav1 "$(printf '%s' "$1" | sed 's| |+|g')")"
     [ -z "$animeav1_results" ] && return 1
@@ -855,10 +877,12 @@ select_animeav1_slug() {
     done
     IFS=$old_ifs
 
+    cross_source_match_is_confident "$best_score" || return 1
     [ -z "$best_slug" ] && best_slug="$(printf '%s\n' "$animeav1_results" | sed -n '1p' | cut -f1)"
     [ -z "$best_slug" ] && return 1
 
     animeav1_slug="$best_slug"
+    animeav1_slug_key="$cache_key"
     printf '%s\n' "$animeav1_slug"
 }
 
@@ -1043,12 +1067,14 @@ search_allanime_catalog() {
 }
 
 select_allanime_ref() {
-    [ -n "$allanime_fallback_ref" ] && printf '%s\n' "$allanime_fallback_ref" && return 0
+    cache_key="$1|$id"
+    [ "$allanime_fallback_ref_key" = "$cache_key" ] && [ -n "$allanime_fallback_ref" ] && printf '%s\n' "$allanime_fallback_ref" && return 0
 
     explicit_allanime_id="$(allanime_id_from_ref "$id")"
     explicit_allanime_count="$(allanime_count_from_ref "$id")"
     if [ -n "$explicit_allanime_id" ] && [ -n "$explicit_allanime_count" ]; then
         allanime_fallback_ref="${explicit_allanime_id}|${explicit_allanime_count}"
+        allanime_fallback_ref_key="explicit:$id"
         printf '%s\n' "$allanime_fallback_ref"
         return 0
     fi
@@ -1072,10 +1098,12 @@ select_allanime_ref() {
     done
     IFS=$old_ifs
 
+    cross_source_match_is_confident "$best_score" || return 1
     [ -z "$best_ref" ] && best_ref="$(printf '%s\n' "$fallback_results" | sed -n '1p' | cut -f1,3 | tr '\t' '|')"
     [ -z "$best_ref" ] && return 1
 
     allanime_fallback_ref="$best_ref"
+    allanime_fallback_ref_key="$cache_key"
     printf '%s\n' "$allanime_fallback_ref"
 }
 
@@ -1587,15 +1615,19 @@ allanime_base="www4.animeflv.net"
 allanime_api=""
 allanime_key=""
 animeflv_selected_id=""
+animeflv_selected_id_key=""
 jkanime_refr="https://jkanime.net"
 jkanime_slug=""
+jkanime_slug_key=""
 animeav1_refr="https://animeav1.com"
 animeav1_slug=""
+animeav1_slug_key=""
 english_source_refr="https://allmanga.to"
 english_source_base="allanime.day"
 english_source_api="https://api.${english_source_base}"
 english_source_key="$(printf '%s' 'SimtVuagFbGR2K7P' | openssl dgst -sha256 -binary | od -A n -t x1 | tr -d ' \n')"
 allanime_fallback_ref=""
+allanime_fallback_ref_key=""
 update_url="${ANI_CLI_UPDATE_URL:-}"
 mode="${ANI_CLI_MODE:-sub}"
 download_dir="${ANI_CLI_DOWNLOAD_DIR:-.}"
