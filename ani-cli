@@ -193,6 +193,85 @@ normalize_match_key() {
     printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -cd '[:alnum:]'
 }
 
+normalize_match_words() {
+    printf '%s' "$1" | tr '[:upper:]' '[:lower:]' |
+        sed 's/[^[:alnum:]]\+/ /g; s/^ *//; s/ *$//; s/[[:space:]][[:space:]]*/ /g'
+}
+
+extract_season_hint() {
+    normalized_words=" $(normalize_match_words "$1") "
+    season_hint="$(printf '%s\n' "$normalized_words" | sed -nE '
+        s|.* season ([0-9]+) .*|\1|p
+        s|.* ([0-9]+)(st|nd|rd|th) season .*|\1|p
+        s|.* temporada ([0-9]+) .*|\1|p
+        s|.* ([0-9]+)(a|da|ra) temporada .*|\1|p
+        s|.* part ([0-9]+) .*|\1|p
+        s|.* cour ([0-9]+) .*|\1|p
+        s|.* stage ([0-9]+) .*|\1|p
+        s|.* s([0-9]+) .*|\1|p
+    ' | head -n1)"
+    [ -n "$season_hint" ] && printf '%s\n' "$season_hint" && return 0
+
+    case "$normalized_words" in
+        *" first season "* | *" primera temporada "* | *" ichi gakki "*) printf '1\n' ;;
+        *" second season "* | *" segunda temporada "* | *" 2nd season "* | *" 2da temporada "* | *" 2a temporada "* | *" ni gakki "*) printf '2\n' ;;
+        *" third season "* | *" tercera temporada "* | *" 3rd season "* | *" 3ra temporada "* | *" 3a temporada "* | *" san gakki "*) printf '3\n' ;;
+        *" fourth season "* | *" cuarta temporada "* | *" 4th season "* | *" 4ta temporada "* | *" 4a temporada "* | *" yon gakki "*) printf '4\n' ;;
+        *" fifth season "* | *" quinta temporada "* | *" 5th season "* | *" 5ta temporada "* | *" 5a temporada "* | *" go gakki "*) printf '5\n' ;;
+        *) return 1 ;;
+    esac
+}
+
+match_token_overlap_score() {
+    query_words="$(normalize_match_words "$1")"
+    candidate_words=" $(normalize_match_words "$2") "
+    overlap_score=0
+    for word in $query_words; do
+        [ "${#word}" -lt 3 ] && continue
+        case "$candidate_words" in
+            *" $word "*) overlap_score=$((overlap_score + 35)) ;;
+        esac
+    done
+    printf '%s\n' "$overlap_score"
+}
+
+title_match_score() {
+    query_title="$1"
+    candidate_id="$2"
+    candidate_title="$3"
+    query_key="$(normalize_match_key "$query_title")"
+    candidate_key="$(normalize_match_key "$candidate_title")"
+    query_context="$(normalize_match_words "$query_title $(printf '%s' "$id" | tr ':|_-' '     ')")"
+    candidate_context="$(normalize_match_words "$candidate_title $(printf '%s' "$candidate_id" | tr ':|_-' '     ')")"
+    score=0
+
+    [ "$candidate_key" = "$query_key" ] && score=$((score + 1000))
+    case "$candidate_key" in
+        *"$query_key"*) score=$((score + 400)) ;;
+    esac
+    case "$query_key" in
+        *"$candidate_key"*) score=$((score + 200)) ;;
+    esac
+
+    score=$((score + $(match_token_overlap_score "$query_context" "$candidate_context")))
+
+    query_season="$(extract_season_hint "$query_context" 2>/dev/null || true)"
+    candidate_season="$(extract_season_hint "$candidate_context" 2>/dev/null || true)"
+    if [ -n "$query_season" ]; then
+        if [ "$candidate_season" = "$query_season" ]; then
+            score=$((score + 350))
+        elif [ -n "$candidate_season" ]; then
+            score=$((score - 900))
+        else
+            score=$((score - 450))
+        fi
+    elif [ -n "$candidate_season" ]; then
+        score=$((score - 120))
+    fi
+
+    printf '%s\n' "$score"
+}
+
 show_ref_value_for_site() {
     case "$1" in
         "$2":*) printf '%s\n' "${1#"$2:"}" ;;
@@ -558,9 +637,8 @@ select_animeflv_id() {
     animeflv_results="$(search_animeflv "$(printf '%s' "$1" | sed 's| |+|g')")"
     [ -z "$animeflv_results" ] && return 1
 
-    query_key="$(normalize_match_key "$1")"
     best_id=""
-    best_score=-1
+    best_score=-999999
     old_ifs=$IFS
     IFS='
 '
@@ -568,15 +646,7 @@ select_animeflv_id() {
         candidate_id="$(printf '%s' "$entry" | cut -f1)"
         candidate_title="$(printf '%s' "$entry" | cut -f2)"
         [ -z "$candidate_id" ] && continue
-        title_key="$(normalize_match_key "$candidate_title")"
-        score=0
-        [ "$title_key" = "$query_key" ] && score=$((score + 1000))
-        case "$title_key" in
-            *"$query_key"*) score=$((score + 400)) ;;
-        esac
-        case "$query_key" in
-            *"$title_key"*) score=$((score + 200)) ;;
-        esac
+        score="$(title_match_score "$1" "$candidate_id" "$candidate_title")"
         [ "$score" -gt "$best_score" ] && best_score="$score" && best_id="$candidate_id"
     done
     IFS=$old_ifs
@@ -596,9 +666,8 @@ select_jkanime_slug() {
     jkanime_results="$(search_jkanime "$(printf '%s' "$1" | sed 's| |+|g')")"
     [ -z "$jkanime_results" ] && return 1
 
-    query_key="$(normalize_match_key "$1")"
     best_slug=""
-    best_score=-1
+    best_score=-999999
     old_ifs=$IFS
     IFS='
 '
@@ -606,15 +675,7 @@ select_jkanime_slug() {
         slug="$(printf '%s' "$entry" | cut -f1)"
         name="$(printf '%s' "$entry" | cut -f2)"
         [ -z "$slug" ] && continue
-        name_key="$(normalize_match_key "$name")"
-        score=0
-        [ "$name_key" = "$query_key" ] && score=$((score + 1000))
-        case "$name_key" in
-            *"$query_key"*) score=$((score + 400)) ;;
-        esac
-        case "$query_key" in
-            *"$name_key"*) score=$((score + 200)) ;;
-        esac
+        score="$(title_match_score "$1" "$slug" "$name")"
         [ "$slug" = "$id" ] && score=$((score + 100))
         [ "$score" -gt "$best_score" ] && best_score="$score" && best_slug="$slug"
     done
@@ -780,9 +841,8 @@ select_animeav1_slug() {
     animeav1_results="$(search_animeav1 "$(printf '%s' "$1" | sed 's| |+|g')")"
     [ -z "$animeav1_results" ] && return 1
 
-    query_key="$(normalize_match_key "$1")"
     best_slug=""
-    best_score=-1
+    best_score=-999999
     old_ifs=$IFS
     IFS='
 '
@@ -790,15 +850,7 @@ select_animeav1_slug() {
         slug="$(printf '%s' "$entry" | cut -f1)"
         name="$(printf '%s' "$entry" | cut -f2)"
         [ -z "$slug" ] && continue
-        name_key="$(normalize_match_key "$name")"
-        score=0
-        [ "$name_key" = "$query_key" ] && score=$((score + 1000))
-        case "$name_key" in
-            *"$query_key"*) score=$((score + 400)) ;;
-        esac
-        case "$query_key" in
-            *"$name_key"*) score=$((score + 200)) ;;
-        esac
+        score="$(title_match_score "$1" "$slug" "$name")"
         [ "$score" -gt "$best_score" ] && best_score="$score" && best_slug="$slug"
     done
     IFS=$old_ifs
@@ -1004,9 +1056,8 @@ select_allanime_ref() {
     fallback_results="$(search_allanime_catalog "$1")"
     [ -z "$fallback_results" ] && return 1
 
-    query_key="$(normalize_match_key "$1")"
     best_ref=""
-    best_score=-1
+    best_score=-999999
     old_ifs=$IFS
     IFS='
 '
@@ -1016,15 +1067,7 @@ select_allanime_ref() {
         candidate_count="$(printf '%s' "$entry" | cut -f3)"
         [ -z "$candidate_id" ] && continue
         [ -z "$candidate_count" ] && continue
-        title_key="$(normalize_match_key "$candidate_title")"
-        score=0
-        [ "$title_key" = "$query_key" ] && score=$((score + 1000))
-        case "$title_key" in
-            *"$query_key"*) score=$((score + 400)) ;;
-        esac
-        case "$query_key" in
-            *"$title_key"*) score=$((score + 200)) ;;
-        esac
+        score="$(title_match_score "$1" "$candidate_id" "$candidate_title")"
         [ "$score" -gt "$best_score" ] && best_score="$score" && best_ref="${candidate_id}|${candidate_count}"
     done
     IFS=$old_ifs
