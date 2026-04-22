@@ -351,23 +351,36 @@ select_ytdlp_url() {
 }
 
 probe_link_with_mpv() {
-    probe_cmd=""
-    if command -v mpv >/dev/null 2>&1; then
-        probe_cmd="mpv"
-    elif [ "$player_function" = "flatpak_mpv" ] && command -v flatpak >/dev/null 2>&1; then
-        probe_cmd="flatpak run io.mpv.Mpv"
-    else
-        return 0
-    fi
-
     probe_referrer=""
     [ -n "$2" ] && probe_referrer="--referrer=$2"
 
     # Probe candidates with a silent one-frame decode, so only actually playable
     # sources survive selection.
-    # shellcheck disable=SC2086
-    timeout "${probe_timeout}s" $probe_cmd --no-config --ao=null --vo=null --frames=1 \
-        --really-quiet $probe_referrer "$1" >/dev/null 2>&1
+    case "$player_function" in
+        flatpak_mpv)
+            timeout "${probe_timeout}s" flatpak run io.mpv.Mpv --no-config --ao=null --vo=null --frames=1 \
+                --really-quiet $probe_referrer "$1" >/dev/null 2>&1
+            ;;
+        mpv.exe | */mpv.exe)
+            timeout "${probe_timeout}s" "$player_function" --no-config --ao=null --vo=null --frames=1 \
+                --really-quiet $probe_referrer "$1" >/dev/null 2>&1
+            ;;
+        mpv | */mpv)
+            timeout "${probe_timeout}s" "$player_function" --no-config --ao=null --vo=null --frames=1 \
+                --really-quiet $probe_referrer "$1" >/dev/null 2>&1
+            ;;
+        *)
+            if command -v mpv >/dev/null 2>&1; then
+                timeout "${probe_timeout}s" mpv --no-config --ao=null --vo=null --frames=1 \
+                    --really-quiet $probe_referrer "$1" >/dev/null 2>&1
+            elif command -v flatpak >/dev/null 2>&1 && flatpak info io.mpv.Mpv >/dev/null 2>&1; then
+                timeout "${probe_timeout}s" flatpak run io.mpv.Mpv --no-config --ao=null --vo=null --frames=1 \
+                    --really-quiet $probe_referrer "$1" >/dev/null 2>&1
+            else
+                return 0
+            fi
+            ;;
+    esac
 }
 
 filter_playable_links() {
