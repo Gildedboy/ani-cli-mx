@@ -222,6 +222,23 @@ extract_season_hint() {
     esac
 }
 
+extract_slug_season_hint() {
+    raw_slug="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+    printf '%s\n' "$raw_slug" | sed -nE '
+        s#.*[-_/]s([0-9]+)$#\1#p
+        s#.*[-_/](1st|2nd|3rd|4th|5th)[-_/]season$#\1#p
+        s#.*[-_/]season[-_/]?([0-9]+)$#\1#p
+        s#.*[-_/]part[-_/]?([0-9]+)$#\1#p
+        s#.*[-_/]([1-9])$#\1#p
+    ' | sed '
+        s/^1st$/1/
+        s/^2nd$/2/
+        s/^3rd$/3/
+        s/^4th$/4/
+        s/^5th$/5/
+    ' | head -n1
+}
+
 match_token_overlap_score() {
     query_words="$(normalize_match_words "$1")"
     candidate_words=" $(normalize_match_words "$2") "
@@ -301,7 +318,9 @@ title_match_score() {
     fi
 
     query_season="$(extract_season_hint "$query_context" 2>/dev/null || true)"
+    [ -z "$query_season" ] && query_season="$(extract_slug_season_hint "${id#*:}" 2>/dev/null || true)"
     candidate_season="$(extract_season_hint "$candidate_context" 2>/dev/null || true)"
+    [ -z "$candidate_season" ] && candidate_season="$(extract_slug_season_hint "$candidate_id" 2>/dev/null || true)"
     if [ -n "$query_season" ]; then
         if [ "$candidate_season" = "$query_season" ]; then
             score=$((score + 350))
@@ -311,7 +330,11 @@ title_match_score() {
             score=$((score - 450))
         fi
     elif [ -n "$candidate_season" ]; then
-        score=$((score - 120))
+        if [ "$candidate_season" = "1" ]; then
+            score=$((score + 60))
+        else
+            score=$((score - 260))
+        fi
     fi
 
     printf '%s\n' "$score"
@@ -1465,10 +1488,63 @@ episodes_list_animeav1() {
         grep -oE 'number:[0-9]+(\.[0-9]+)?' | cut -d: -f2 | awk '!seen[$0]++' | sort -n -k 1
 }
 
+jkanime_page_anime_id() {
+    printf '%s' "$1" | tr '\n' ' ' |
+        sed -nE "s|.*anime_checks\\('[^']*', '([0-9]+)'.*|\\1|p" | head -n1
+}
+
+jkanime_page_csrf_token() {
+    printf '%s' "$1" | tr '\n' ' ' |
+        sed -nE 's|.*<meta name="csrf-token" content="([^"]+)".*|\1|p' | head -n1
+}
+
+jkanime_ajax_episode_numbers() {
+    slug="$1"
+    cookie_jar="$(mktemp)"
+    page_html="$(curl -L --connect-timeout 10 --max-time "$resolver_timeout" -s -c "$cookie_jar" "${jkanime_refr}/${slug}/" -A "$agent")" || {
+        rm -f "$cookie_jar"
+        return 1
+    }
+
+    anime_id="$(jkanime_page_anime_id "$page_html")"
+    csrf_token="$(jkanime_page_csrf_token "$page_html")"
+    if [ -z "$anime_id" ] || [ -z "$csrf_token" ]; then
+        rm -f "$cookie_jar"
+        return 1
+    fi
+
+    first_page="$(curl -L --connect-timeout 10 --max-time "$resolver_timeout" -s -b "$cookie_jar" -c "$cookie_jar" \
+        -X POST "${jkanime_refr}/ajax/episodes/${anime_id}/1" --data "_token=${csrf_token}" \
+        -H "X-Requested-With: XMLHttpRequest" -A "$agent")" || {
+        rm -f "$cookie_jar"
+        return 1
+    }
+
+    last_page="$(printf '%s' "$first_page" | sed -nE 's|.*"last_page":([0-9]+).*|\1|p' | head -n1)"
+    [ -z "$last_page" ] && last_page=1
+
+    episode_numbers="$(printf '%s' "$first_page" | grep -oE '"number":[0-9]+(\.[0-9]+)?' | cut -d: -f2)"
+    page_no=2
+    while [ "$page_no" -le "$last_page" ]; do
+        page_json="$(curl -L --connect-timeout 10 --max-time "$resolver_timeout" -s -b "$cookie_jar" -c "$cookie_jar" \
+            -X POST "${jkanime_refr}/ajax/episodes/${anime_id}/${page_no}" --data "_token=${csrf_token}" \
+            -H "X-Requested-With: XMLHttpRequest" -A "$agent")" || break
+        episode_numbers="${episode_numbers}
+$(printf '%s' "$page_json" | grep -oE '\"number\":[0-9]+(\.[0-9]+)?' | cut -d: -f2)"
+        page_no=$((page_no + 1))
+    done
+
+    rm -f "$cookie_jar"
+    printf '%s\n' "$episode_numbers" | sed '/^$/d' | awk '!seen[$0]++' | sort -n -k 1
+}
+
 episodes_list_jkanime() {
     jkanime_match="$(show_ref_value_for_site "$1" "jkanime")"
     [ -z "$jkanime_match" ] && jkanime_match="$(select_jkanime_slug "$2")"
     [ -z "$jkanime_match" ] && return 1
+
+    ajax_episode_numbers="$(jkanime_ajax_episode_numbers "$jkanime_match")"
+    [ -n "$ajax_episode_numbers" ] && printf '%s\n' "$ajax_episode_numbers" && return 0
 
     jkanime_page="$(jkanime_request "${jkanime_refr}/${jkanime_match}/")" || return 1
     latest_ep="$(printf '%s' "$jkanime_page" | tr '\n' ' ' |
