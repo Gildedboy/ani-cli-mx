@@ -1,6 +1,6 @@
 #!/bin/sh
 
-version_number="4.12.1"
+version_number="4.12.2"
 app_name="${ANI_CLI_NAME:-${0##*/}}"
 log_tag="${ANI_CLI_LOG_TAG:-$app_name}"
 hist_state_name="${ANI_CLI_STATE_NAME:-$app_name}"
@@ -73,6 +73,8 @@ help_info() {
         Show this help message and exit
       -e, --episode, -r, --range
         Specify the number of episodes to watch
+      --source <source>
+        Source to use for search and episode info: auto, animeflv, jkanime, animeav1, allanime
       --dub
         Play dubbed version
       --rofi
@@ -189,6 +191,81 @@ extract_with_ytdlp() {
 
 normalize_match_key() {
     printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -cd '[:alnum:]'
+}
+
+show_ref_value_for_site() {
+    case "$1" in
+        "$2":*) printf '%s\n' "${1#"$2:"}" ;;
+        *)
+            [ "$2" = "animeflv" ] && case "$1" in
+                *:*) return 1 ;;
+                *) printf '%s\n' "$1" ;;
+            esac
+            ;;
+    esac
+}
+
+allanime_id_from_ref() {
+    allanime_payload="$(show_ref_value_for_site "$1" "allanime")" || return 1
+    printf '%s\n' "$allanime_payload" | cut -d'|' -f1
+}
+
+allanime_count_from_ref() {
+    allanime_payload="$(show_ref_value_for_site "$1" "allanime")" || return 1
+    printf '%s\n' "$allanime_payload" | cut -d'|' -f2
+}
+
+prefix_search_results() {
+    site_name="$1"
+    old_ifs=$IFS
+    IFS='
+'
+    for entry in $2; do
+        result_id="$(printf '%s' "$entry" | cut -f1)"
+        result_title="$(printf '%s' "$entry" | cut -f2)"
+        [ -z "$result_id" ] && continue
+        [ -z "$result_title" ] && continue
+        printf '%s:%s\t%s\t%s [%s]\n' "$site_name" "$result_id" "$result_title" "$result_title" "$(info_source_label "$site_name")"
+    done
+    IFS=$old_ifs
+}
+
+prefix_allanime_search_results() {
+    old_ifs=$IFS
+    IFS='
+'
+    for entry in $1; do
+        result_id="$(printf '%s' "$entry" | cut -f1)"
+        result_title="$(printf '%s' "$entry" | cut -f2)"
+        result_count="$(printf '%s' "$entry" | cut -f3)"
+        [ -z "$result_id" ] && continue
+        [ -z "$result_title" ] && continue
+        [ -z "$result_count" ] && continue
+        printf 'allanime:%s|%s\t%s\t%s [%s]\n' "$result_id" "$result_count" "$result_title" "$result_title" "$(info_source_label "allanime")"
+    done
+    IFS=$old_ifs
+}
+
+normalize_info_source() {
+    case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
+        "" | auto) printf '%s\n' "auto" ;;
+        animeflv | flv) printf '%s\n' "animeflv" ;;
+        jkanime | jk) printf '%s\n' "jkanime" ;;
+        animeav1 | av1) printf '%s\n' "animeav1" ;;
+        allanime | allmanga | english) printf '%s\n' "allanime" ;;
+        *) return 1 ;;
+    esac
+}
+
+info_source_label() {
+    case "$1" in
+        auto) printf '%s\n' "Auto" ;;
+        animeflv) printf '%s\n' "AnimeFLV" ;;
+        jkanime) printf '%s\n' "JKAnime" ;;
+        animeav1) printf '%s\n' "AnimeAV1" ;;
+        allanime) printf '%s\n' "AllManga" ;;
+        *) printf '%s\n' "$1" ;;
+    esac
 }
 
 source_label() {
@@ -469,7 +546,51 @@ search_jkanime() {
         sed -nE 's|.*<a[[:space:]]+href="https://jkanime\.net/([^"/]+)/".*<h5><a[[:space:]]+href="https://jkanime\.net/[^"]+/">([^<]+)</a></h5>.*|\1\t\2|p'
 }
 
+search_animeflv() {
+    animeflv_request "${allanime_refr}/browse?q=$1" | tr '\n' ' ' |
+        sed 's|<article class="Anime alt B">|\n&|g' |
+        sed -nE 's|.*<a href="/anime/([^"]+)".*<h3 class="Title">([^<]+)</h3>.*|\1	\2|p'
+}
+
+select_animeflv_id() {
+    [ -n "$animeflv_selected_id" ] && printf '%s\n' "$animeflv_selected_id" && return 0
+
+    animeflv_results="$(search_animeflv "$(printf '%s' "$1" | sed 's| |+|g')")"
+    [ -z "$animeflv_results" ] && return 1
+
+    query_key="$(normalize_match_key "$1")"
+    best_id=""
+    best_score=-1
+    old_ifs=$IFS
+    IFS='
+'
+    for entry in $animeflv_results; do
+        candidate_id="$(printf '%s' "$entry" | cut -f1)"
+        candidate_title="$(printf '%s' "$entry" | cut -f2)"
+        [ -z "$candidate_id" ] && continue
+        title_key="$(normalize_match_key "$candidate_title")"
+        score=0
+        [ "$title_key" = "$query_key" ] && score=$((score + 1000))
+        case "$title_key" in
+            *"$query_key"*) score=$((score + 400)) ;;
+        esac
+        case "$query_key" in
+            *"$title_key"*) score=$((score + 200)) ;;
+        esac
+        [ "$score" -gt "$best_score" ] && best_score="$score" && best_id="$candidate_id"
+    done
+    IFS=$old_ifs
+
+    [ -z "$best_id" ] && best_id="$(printf '%s\n' "$animeflv_results" | sed -n '1p' | cut -f1)"
+    [ -z "$best_id" ] && return 1
+
+    animeflv_selected_id="$best_id"
+    printf '%s\n' "$animeflv_selected_id"
+}
+
 select_jkanime_slug() {
+    explicit_slug="$(show_ref_value_for_site "$id" "jkanime")"
+    [ -n "$explicit_slug" ] && jkanime_slug="$explicit_slug"
     [ -n "$jkanime_slug" ] && printf '%s\n' "$jkanime_slug" && return 0
 
     jkanime_results="$(search_jkanime "$(printf '%s' "$1" | sed 's| |+|g')")"
@@ -652,6 +773,8 @@ search_animeav1() {
 }
 
 select_animeav1_slug() {
+    explicit_slug="$(show_ref_value_for_site "$id" "animeav1")"
+    [ -n "$explicit_slug" ] && animeav1_slug="$explicit_slug"
     [ -n "$animeav1_slug" ] && printf '%s\n' "$animeav1_slug" && return 0
 
     animeav1_results="$(search_animeav1 "$(printf '%s' "$1" | sed 's| |+|g')")"
@@ -863,22 +986,36 @@ search_allanime_fallback() {
 |g' | sed -nE "s|.*_id\":\"([^\"]*)\",\"name\":\"(.+)\",.*${mode}\":([1-9][^,]*).*|\1\t\2 (\3 episodes)|p" | sed 's/\\"//g'
 }
 
-select_allanime_id() {
-    [ -n "$allanime_fallback_id" ] && printf '%s\n' "$allanime_fallback_id" && return 0
+search_allanime_catalog() {
+    search_allanime_fallback "$1" | sed -nE 's|^([^\t]+)\t(.*) \(([0-9]+) episodes\)$|\1\t\2\t\3|p'
+}
 
-    fallback_results="$(search_allanime_fallback "$1")"
+select_allanime_ref() {
+    [ -n "$allanime_fallback_ref" ] && printf '%s\n' "$allanime_fallback_ref" && return 0
+
+    explicit_allanime_id="$(allanime_id_from_ref "$id")"
+    explicit_allanime_count="$(allanime_count_from_ref "$id")"
+    if [ -n "$explicit_allanime_id" ] && [ -n "$explicit_allanime_count" ]; then
+        allanime_fallback_ref="${explicit_allanime_id}|${explicit_allanime_count}"
+        printf '%s\n' "$allanime_fallback_ref"
+        return 0
+    fi
+
+    fallback_results="$(search_allanime_catalog "$1")"
     [ -z "$fallback_results" ] && return 1
 
     query_key="$(normalize_match_key "$1")"
-    best_id=""
+    best_ref=""
     best_score=-1
     old_ifs=$IFS
     IFS='
 '
     for entry in $fallback_results; do
         candidate_id="$(printf '%s' "$entry" | cut -f1)"
-        candidate_title="$(printf '%s' "$entry" | cut -f2 | sed 's/ ([0-9][0-9]* episodes)$//')"
+        candidate_title="$(printf '%s' "$entry" | cut -f2)"
+        candidate_count="$(printf '%s' "$entry" | cut -f3)"
         [ -z "$candidate_id" ] && continue
+        [ -z "$candidate_count" ] && continue
         title_key="$(normalize_match_key "$candidate_title")"
         score=0
         [ "$title_key" = "$query_key" ] && score=$((score + 1000))
@@ -888,15 +1025,20 @@ select_allanime_id() {
         case "$query_key" in
             *"$title_key"*) score=$((score + 200)) ;;
         esac
-        [ "$score" -gt "$best_score" ] && best_score="$score" && best_id="$candidate_id"
+        [ "$score" -gt "$best_score" ] && best_score="$score" && best_ref="${candidate_id}|${candidate_count}"
     done
     IFS=$old_ifs
 
-    [ -z "$best_id" ] && best_id="$(printf '%s\n' "$fallback_results" | sed -n '1p' | cut -f1)"
-    [ -z "$best_id" ] && return 1
+    [ -z "$best_ref" ] && best_ref="$(printf '%s\n' "$fallback_results" | sed -n '1p' | cut -f1,3 | tr '\t' '|')"
+    [ -z "$best_ref" ] && return 1
 
-    allanime_fallback_id="$best_id"
-    printf '%s\n' "$allanime_fallback_id"
+    allanime_fallback_ref="$best_ref"
+    printf '%s\n' "$allanime_fallback_ref"
+}
+
+select_allanime_id() {
+    allanime_ref="$(select_allanime_ref "$1")" || return 1
+    printf '%s\n' "${allanime_ref%%|*}"
 }
 
 resolve_allanime_episode() {
@@ -1063,7 +1205,15 @@ get_episode_url() {
     animeav1_links=""
     unset selected_spanish_site selected_site selected_source selected_origin
 
-    episode_page="$(animeflv_request "${allanime_refr}/ver/${id}-${ep_no}")" || episode_page=""
+    animeflv_id="$(show_ref_value_for_site "$id" "animeflv")"
+    [ -z "$animeflv_id" ] && [ "$id" = "${id#*:}" ] && animeflv_id="$id"
+    [ -z "$animeflv_id" ] && animeflv_id="$(select_animeflv_id "$title")"
+    if [ -n "$animeflv_id" ]; then
+        episode_page="$(animeflv_request "${allanime_refr}/ver/${animeflv_id}-${ep_no}")" || episode_page=""
+    else
+        episode_page=""
+    fi
+
     if [ -n "$episode_page" ]; then
         videos_json="$(printf '%s' "$episode_page" | tr '\n' ' ' | sed -nE 's|.*var videos = (\{.*\});[[:space:]]*// var videos.*|\1|p')"
         selected_lang="$(pick_animeflv_language "$videos_json")"
@@ -1074,7 +1224,7 @@ get_episode_url() {
         else
             printf "AnimeFLV sin idioma reproducible.\n" 1>&2
         fi
-    else
+    elif [ -n "$animeflv_id" ]; then
         printf "AnimeFLV no respondio.\n" 1>&2
     fi
 
@@ -1099,11 +1249,54 @@ get_episode_url() {
     fi
 }
 
-# search the query and give results
+search_anime_for_source() {
+    case "$1" in
+        animeflv)
+            source_results="$(search_animeflv "$2")"
+            [ -n "$source_results" ] && prefix_search_results "animeflv" "$source_results"
+            ;;
+        jkanime)
+            source_results="$(search_jkanime "$2")"
+            [ -n "$source_results" ] && prefix_search_results "jkanime" "$source_results"
+            ;;
+        animeav1)
+            source_results="$(search_animeav1 "$2")"
+            [ -n "$source_results" ] && prefix_search_results "animeav1" "$source_results"
+            ;;
+        allanime)
+            fallback_query="$(printf '%s' "$2" | sed 's|+| |g')"
+            source_results="$(search_allanime_catalog "$fallback_query")"
+            [ -n "$source_results" ] && prefix_allanime_search_results "$source_results"
+            ;;
+    esac
+}
+
 search_anime() {
-    animeflv_request "${allanime_refr}/browse?q=$1" | tr '\n' ' ' |
-        sed 's|<article class="Anime alt B">|\n&|g' |
-        sed -nE 's|.*<a href="/anime/([^"]+)".*<h3 class="Title">([^<]+)</h3>.*|\1	\2|p'
+    if [ "$preferred_info_source" != "auto" ]; then
+        search_anime_for_source "$preferred_info_source" "$1"
+        return 0
+    fi
+
+    search_results=""
+    animeflv_results="$(search_animeflv "$1")"
+    [ -n "$animeflv_results" ] && search_results="${search_results}$(prefix_search_results "animeflv" "$animeflv_results")
+"
+    jkanime_results="$(search_jkanime "$1")"
+    [ -n "$jkanime_results" ] && search_results="${search_results}$(prefix_search_results "jkanime" "$jkanime_results")
+"
+
+    animeav1_results="$(search_animeav1 "$1")"
+    [ -n "$animeav1_results" ] && search_results="${search_results}$(prefix_search_results "animeav1" "$animeav1_results")
+"
+
+    if [ -n "$search_results" ]; then
+        printf '%s' "$search_results" | sed '/^$/d'
+        return 0
+    fi
+
+    fallback_query="$(printf '%s' "$1" | sed 's|+| |g')"
+    allanime_results="$(search_allanime_catalog "$fallback_query")"
+    [ -n "$allanime_results" ] && prefix_allanime_search_results "$allanime_results"
 }
 
 time_until_next_ep() {
@@ -1121,16 +1314,91 @@ time_until_next_ep() {
 }
 
 # get the episodes list of the selected anime
-episodes_list() {
+episodes_list_animeflv() {
     animeflv_request "${allanime_refr}/anime/$*" | tr '\n' ' ' |
         sed -nE 's|.*var episodes = \[(.*)\];.*|\1|p' |
         sed 's|],\[|]\n[|g; s|\[||g; s|\]||g' | cut -d, -f1 | sort -n -k 1
 }
 
+episodes_list_animeav1() {
+    animeav1_match="$(show_ref_value_for_site "$1" "animeav1")"
+    [ -z "$animeav1_match" ] && animeav1_match="$(select_animeav1_slug "$2")"
+    [ -z "$animeav1_match" ] && return 1
+
+    animeav1_page="$(animeav1_request "${animeav1_refr}/media/${animeav1_match}")" || return 1
+    printf '%s' "$animeav1_page" | tr '\n' ' ' |
+        grep -oE 'number:[0-9]+(\.[0-9]+)?' | cut -d: -f2 | awk '!seen[$0]++' | sort -n -k 1
+}
+
+episodes_list_jkanime() {
+    jkanime_match="$(show_ref_value_for_site "$1" "jkanime")"
+    [ -z "$jkanime_match" ] && jkanime_match="$(select_jkanime_slug "$2")"
+    [ -z "$jkanime_match" ] && return 1
+
+    jkanime_page="$(jkanime_request "${jkanime_refr}/${jkanime_match}/")" || return 1
+    latest_ep="$(printf '%s' "$jkanime_page" | tr '\n' ' ' |
+        sed -nE "s|.*https://jkanime\\.net/${jkanime_match}/([0-9.]+)/.*id=\"uep\".*|\\1|p")"
+    [ -z "$latest_ep" ] && latest_ep="$(printf '%s' "$jkanime_page" | tr '\n' ' ' |
+        sed -nE "s|.*https://jkanime\\.net/${jkanime_match}/([0-9.]+)/.*|\\1|p")"
+    [ -z "$latest_ep" ] && return 1
+
+    case "$latest_ep" in
+        *.*) printf '%s\n' "$latest_ep" ;;
+        *) awk -v max="$latest_ep" 'BEGIN { for (i = 1; i <= max; i++) print i }' ;;
+    esac
+}
+
+episodes_list_allanime() {
+    episode_count="$(allanime_count_from_ref "$1")" || return 1
+    [ -z "$episode_count" ] && return 1
+    awk -v max="$episode_count" 'BEGIN { for (i = 1; i <= max; i++) print i }'
+}
+
+episodes_list_for_source() {
+    case "$1" in
+        animeflv)
+            animeflv_id="$(show_ref_value_for_site "$2" "animeflv")"
+            [ -z "$animeflv_id" ] && [ "$2" = "${2#*:}" ] && animeflv_id="$2"
+            [ -z "$animeflv_id" ] && animeflv_id="$(select_animeflv_id "$3")"
+            [ -n "$animeflv_id" ] && episodes_list_animeflv "$animeflv_id"
+            ;;
+        jkanime)
+            episodes_list_jkanime "$2" "$3"
+            ;;
+        animeav1)
+            episodes_list_animeav1 "$2" "$3"
+            ;;
+        allanime)
+            allanime_ref="$(show_ref_value_for_site "$2" "allanime")"
+            [ -z "$allanime_ref" ] && allanime_ref="$(select_allanime_ref "$3")"
+            [ -n "$allanime_ref" ] && episodes_list_allanime "allanime:${allanime_ref}"
+            ;;
+    esac
+}
+
+episodes_list() {
+    if [ "$preferred_info_source" != "auto" ]; then
+        episodes="$(episodes_list_for_source "$preferred_info_source" "$1" "$2")"
+        [ -n "$episodes" ] && printf '%s\n' "$episodes"
+        return 0
+    fi
+
+    animeflv_id="$(show_ref_value_for_site "$1" "animeflv")"
+    [ -z "$animeflv_id" ] && [ "$1" = "${1#*:}" ] && animeflv_id="$1"
+    [ -z "$animeflv_id" ] && animeflv_id="$(select_animeflv_id "$2")"
+    [ -n "$animeflv_id" ] && episodes="$(episodes_list_animeflv "$animeflv_id")" || episodes=""
+    [ -z "$episodes" ] && episodes="$(episodes_list_animeav1 "$1" "$2")"
+    [ -z "$episodes" ] && episodes="$(episodes_list_jkanime "$1" "$2")"
+    [ -z "$episodes" ] && allanime_ref="$(show_ref_value_for_site "$1" "allanime")"
+    [ -z "$episodes" ] && [ -z "$allanime_ref" ] && allanime_ref="$(select_allanime_ref "$2")"
+    [ -z "$episodes" ] && [ -n "$allanime_ref" ] && episodes="$(episodes_list_allanime "allanime:${allanime_ref}")"
+    [ -n "$episodes" ] && printf '%s\n' "$episodes"
+}
+
 # PLAYING
 
 process_hist_entry() {
-    ep_list=$(episodes_list "$id")
+    ep_list=$(episodes_list "$id" "$title")
     latest_ep=$(printf "%s\n" "$ep_list" | tail -n1)
     title=$(printf "%s\n" "$title" | sed "s|[0-9]\+ episodios|${latest_ep} episodios|")
     ep_no=$(printf "%s" "$ep_list" | sed -n "/^${ep_no}$/{n;p;}") 2>/dev/null
@@ -1138,12 +1406,20 @@ process_hist_entry() {
 }
 
 update_history() {
-    if grep -q -- "$id" "$histfile"; then
-        sed -E "s|^[^	]+	${id}	[^	]+$|${ep_no}	${id}	${title}|" "$histfile" >"${histfile}.new"
-    else
-        cp "$histfile" "${histfile}.new"
-        printf "%s\t%s\t%s\n" "$ep_no" "$id" "$title" >>"${histfile}.new"
-    fi
+    awk -F '	' -v OFS='	' -v target="$id" -v new_ep="$ep_no" -v new_title="$title" '
+        BEGIN { updated = 0 }
+        $2 == target {
+            $1 = new_ep
+            $3 = new_title
+            updated = 1
+        }
+        NF { print }
+        END {
+            if (!updated) {
+                print new_ep, target, new_title
+            }
+        }
+    ' "$histfile" >"${histfile}.new"
     mv "${histfile}.new" "$histfile"
 }
 
@@ -1267,6 +1543,7 @@ allanime_refr="https://www4.animeflv.net"
 allanime_base="www4.animeflv.net"
 allanime_api=""
 allanime_key=""
+animeflv_selected_id=""
 jkanime_refr="https://jkanime.net"
 jkanime_slug=""
 animeav1_refr="https://animeav1.com"
@@ -1275,7 +1552,7 @@ english_source_refr="https://allmanga.to"
 english_source_base="allanime.day"
 english_source_api="https://api.${english_source_base}"
 english_source_key="$(printf '%s' 'SimtVuagFbGR2K7P' | openssl dgst -sha256 -binary | od -A n -t x1 | tr -d ' \n')"
-allanime_fallback_id=""
+allanime_fallback_ref=""
 update_url="${ANI_CLI_UPDATE_URL:-}"
 mode="${ANI_CLI_MODE:-sub}"
 download_dir="${ANI_CLI_DOWNLOAD_DIR:-.}"
@@ -1283,6 +1560,7 @@ log_episode="${ANI_CLI_LOG:-1}"
 quality="${ANI_CLI_QUALITY:-best}"
 resolver_timeout="${ANI_CLI_RESOLVER_TIMEOUT:-15}"
 probe_timeout="${ANI_CLI_PROBE_TIMEOUT:-20}"
+preferred_info_source="$(normalize_info_source "${ANI_CLI_INFO_SOURCE:-auto}")" || die "ANI_CLI_INFO_SOURCE invalido. Usa: auto, animeflv, jkanime, animeav1 o allanime"
 case "$(uname -a | cut -d " " -f 1,3-)" in
     *Darwin*) player_function="${ANI_CLI_PLAYER:-$(where_iina)}" ;;   # mac OS
     *ndroid*) player_function="${ANI_CLI_PLAYER:-android_mpv}" ;;     # Android OS (termux)
@@ -1361,6 +1639,12 @@ while [ $# -gt 0 ]; do
             ep_no="$2"
             shift
             ;;
+        --source | --info-source)
+            [ $# -lt 2 ] && die "falta un argumento"
+            preferred_info_source="$(normalize_info_source "$2")" ||
+                die "Fuente invalida: $2. Usa: auto, animeflv, jkanime, animeav1 o allanime"
+            shift
+            ;;
         --dub) mode="dub" ;;
         --no-detach) no_detach=1 ;;
         --exit-after-play) exit_after_play=1 && no_detach=1 ;;
@@ -1381,6 +1665,7 @@ done
 [ "$use_external_menu" = "0" ] && multi_selection_flag="${ANI_CLI_MULTI_SELECTION:-"-m"}"
 [ "$use_external_menu" = "1" ] && multi_selection_flag="${ANI_CLI_MULTI_SELECTION:-"-multi-select"}"
 [ "$external_menu_normal_window" = "1" ] && external_menu_args="-normal-window"
+[ "$preferred_info_source" != "auto" ] && printf "Usando fuente de informacion: %s\n" "$(info_source_label "$preferred_info_source")" 1>&2
 printf "\33[2K\r\033[1;34mVerificando dependencias...\033[0m\n"
 dep_ch "curl" "sed" "grep" || true
 case "$(uname -o 2>/dev/null)" in
@@ -1407,9 +1692,10 @@ case "$search" in
         [ -z "${index##*[!0-9]*}" ] && id=$(printf "%s" "$anime_list" | nl -w 2 | sed 's/^[[:space:]]//' | nth "Selecciona anime: " | cut -f1)
         [ -z "${index##*[!0-9]*}" ] || id=$(printf "%s" "$anime_list" | sed -n "${index}p" | cut -f1)
         [ -z "$id" ] && exit 1
-        title=$(printf "%s" "$anime_list" | grep "$id" | cut -f2 | sed 's/ - episodio.*//')
-        ep_list=$(episodes_list "$id")
-        ep_no=$(printf "%s" "$anime_list" | grep "$id" | cut -f2 | sed -nE 's/.*- episodio (.+)$/\1/p')
+        title=$(printf "%s\n" "$anime_list" | awk -F '	' -v target="$id" '$1 == target { print $2; exit }' | sed 's/ - episodio.*//')
+        ep_list=$(episodes_list "$id" "$title")
+        ep_no=$(printf "%s\n" "$anime_list" | awk -F '	' -v target="$id" '$1 == target { print $2; exit }' |
+            sed -nE 's/.*- episodio (.+)$/\1/p')
         allanime_title="$(printf "%s" "$title" | cut -d'(' -f1 | tr -d '[:punct:]')"
         ;;
     *)
@@ -1428,12 +1714,16 @@ case "$search" in
         anime_list=$(search_anime "$query")
         [ -z "$anime_list" ] && die "No se encontraron resultados"
         [ "$index" -eq "$index" ] 2>/dev/null && result=$(printf "%s" "$anime_list" | sed -n "${index}p")
-        [ -z "$index" ] && result=$(printf "%s" "$anime_list" | nl -w 2 | sed 's/^[[:space:]]//' | nth "Selecciona anime: ")
+        if [ -z "$index" ]; then
+            anime_menu="$(printf "%s\n" "$anime_list" | awk -F '\t' '{ label = ($3 != "" ? $3 : $2); printf "%d\t%s\t%s\n", NR, $1, label }')"
+            result="$(printf "%s" "$anime_menu" | nth "Selecciona anime: ")"
+        fi
         [ -z "$result" ] && exit 1
-        title=$(printf "%s" "$result" | cut -f2)
-        allanime_title="$(printf "%s" "$title" | cut -d'(' -f1 | tr -d '[:punct:]')"
         id=$(printf "%s" "$result" | cut -f1)
-        ep_list=$(episodes_list "$id")
+        title=$(printf "%s\n" "$anime_list" | awk -F '\t' -v target="$id" '$1 == target { print $2; exit }')
+        [ -z "$title" ] && title="$(printf "%s" "$result" | cut -f2)"
+        allanime_title="$(printf "%s" "$title" | cut -d'(' -f1 | tr -d '[:punct:]')"
+        ep_list=$(episodes_list "$id" "$title")
         [ -z "$ep_no" ] && ep_no=$(printf "%s" "$ep_list" | nth "Selecciona episodio: " "$multi_selection_flag")
         [ -z "$ep_no" ] && exit 1
         ;;
