@@ -235,6 +235,42 @@ match_token_overlap_score() {
     printf '%s\n' "$overlap_score"
 }
 
+match_word_is_generic() {
+    case "$1" in
+        a | an | and | the | of | no | ni | to | de | del | la | las | el | los | y | en | un | una) return 0 ;;
+        season | temporada | movie | pelicula | film | ova | special | specials | episode | episodio) return 0 ;;
+        part | cour | stage | first | second | third | fourth | fifth | primera | segunda | tercera | cuarta | quinta) return 0 ;;
+        school | gakki | sub | dub) return 0 ;;
+        1st | 2nd | 3rd | 4th | 5th | 1ra | 2da | 3ra | 4ta | 5ta | 1a | 2a | 3a | 4a | 5a) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+count_distinctive_query_words() {
+    query_words="$(normalize_match_words "$1")"
+    distinctive_count=0
+    for word in $query_words; do
+        [ "${#word}" -lt 3 ] && continue
+        match_word_is_generic "$word" && continue
+        distinctive_count=$((distinctive_count + 1))
+    done
+    printf '%s\n' "$distinctive_count"
+}
+
+count_distinctive_overlap() {
+    query_words="$(normalize_match_words "$1")"
+    candidate_words=" $(normalize_match_words "$2") "
+    distinctive_overlap=0
+    for word in $query_words; do
+        [ "${#word}" -lt 3 ] && continue
+        match_word_is_generic "$word" && continue
+        case "$candidate_words" in
+            *" $word "*) distinctive_overlap=$((distinctive_overlap + 1)) ;;
+        esac
+    done
+    printf '%s\n' "$distinctive_overlap"
+}
+
 title_match_score() {
     query_title="$1"
     candidate_id="$2"
@@ -254,6 +290,15 @@ title_match_score() {
     esac
 
     score=$((score + $(match_token_overlap_score "$query_context" "$candidate_context")))
+    distinctive_query_count="$(count_distinctive_query_words "$query_context")"
+    distinctive_overlap_count="$(count_distinctive_overlap "$query_context" "$candidate_context")"
+    if [ "$distinctive_query_count" -gt 0 ]; then
+        if [ "$distinctive_overlap_count" -gt 0 ]; then
+            score=$((score + (distinctive_overlap_count * 120)))
+        else
+            score=$((score - 1500))
+        fi
+    fi
 
     query_season="$(extract_season_hint "$query_context" 2>/dev/null || true)"
     candidate_season="$(extract_season_hint "$candidate_context" 2>/dev/null || true)"
