@@ -19,7 +19,7 @@ Repository: <https://github.com/Gildedboy/ani-cli-mx>
 - [Install](#install)
   - [Run From Clone](#run-from-clone)
   - [Manual Install](#manual-install)
-  - [Arch Packaging / AUR Prep](#arch-packaging--aur-prep)
+  - [AUR](#aur)
 - [Planned Packaging](#planned-packaging)
 - [Update](#update)
 - [Uninstall](#uninstall)
@@ -36,18 +36,16 @@ Repository: <https://github.com/Gildedboy/ani-cli-mx>
 - The command name for this fork is `ani-cli-mx`.
 - `ani-cli-mx` is an independent project and should not be confused with the upstream `ani-cli` project or team.
 - This repository does not currently publish official binaries or installers.
-- This repository does not currently have a published AUR package.
-- The repo now includes an Arch packaging scaffold for `ani-cli-mx-git`, which is the honest AUR target until tagged releases exist.
+- This project now has a published AUR package: `ani-cli-mx-git`.
 
 Available now:
 
 - run from a clone
 - manual install into `bin/` + `libexec/`
-- local Arch packaging scaffold for `ani-cli-mx-git`
+- AUR install as `ani-cli-mx-git`
 
 Planned:
 
-- publish `ani-cli-mx-git` to AUR
 - add a Scoop manifest for Windows
 - add Debian packaging or an apt repository workflow
 - later, if tagged releases exist, consider a stable `ani-cli-mx` package in addition to `ani-cli-mx-git`
@@ -96,31 +94,31 @@ install -Dm755 ani-cli-mx "$HOME/.local/bin/ani-cli-mx"
 install -Dm644 ani-cli-mx.1 "$HOME/.local/share/man/man1/ani-cli-mx.1"
 ```
 
-### Arch Packaging / AUR Prep
+### AUR
 
-This repository now includes an Arch package scaffold at [packaging/aur/ani-cli-mx-git/PKGBUILD](./packaging/aur/ani-cli-mx-git/PKGBUILD).
+The published Arch package for this fork is:
 
-Important:
+- `ani-cli-mx-git`
 
-- it is not published on AUR yet
-- because the repo has no tags today, the realistic package name is `ani-cli-mx-git`, not a fake stable `ani-cli-mx`
-
-To build it locally on Arch:
+Install with `yay`:
 
 ```sh
-cd packaging/aur/ani-cli-mx-git
-makepkg -si
+yay -S ani-cli-mx-git
 ```
 
-Once the package is actually published to AUR, then `yay -S ani-cli-mx-git` would become a true install method.
+Or with `paru`:
+
+```sh
+paru -S ani-cli-mx-git
+```
+
+Why `ani-cli-mx-git` instead of `ani-cli-mx`?
+
+- because this repo does not currently publish tagged releases
+- for a Git-tracking Arch package, the `-git` suffix is the correct format
+- a stable non-`-git` package only makes sense once this fork adopts actual releases
 
 ## Planned Packaging
-
-The packaging roadmap is tracked in [packaging/README.md](./packaging/README.md).
-
-Near-term target:
-
-- AUR as `ani-cli-mx-git`
 
 Later targets:
 
@@ -154,7 +152,8 @@ ANI_CLI_UPDATE_URL=https://raw.githubusercontent.com/Gildedboy/ani-cli-mx/master
 Important:
 
 - `ani-cli-mx -U` is for clone/manual installs
-- once AUR, Scoop, or apt packaging exists, packaged installs should update through their package manager instead of self-patching with `-U`
+- AUR installs should update through `yay`, `paru`, or `pacman` tooling, not by self-patching with `-U`
+- once Scoop or apt packaging exists, those installs should update through their package manager too
 
 ## Uninstall
 
@@ -176,6 +175,12 @@ User-local:
 rm -f "$HOME/.local/bin/ani-cli-mx"
 rm -f "$HOME/.local/libexec/ani-cli-mx"
 rm -f "$HOME/.local/share/man/man1/ani-cli-mx.1"
+```
+
+If you installed from AUR:
+
+```sh
+sudo pacman -Rns ani-cli-mx-git
 ```
 
 ## Dependencies
@@ -260,7 +265,7 @@ Is this part of the upstream `ani-cli` team or project?
 
 Is there an official AUR package right now?
 
-- No. The repo only includes a local packaging scaffold for `ani-cli-mx-git` at the moment.
+- Yes. The current AUR package name is `ani-cli-mx-git`.
 
 Are apt and Scoop supported right now?
 
