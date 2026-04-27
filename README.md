@@ -184,13 +184,13 @@ hash -r
 If you want `ani-cli-mx -U` to work for a manual install, set `ANI_CLI_UPDATE_URL` to this project's raw script URL:
 
 ```sh
-export ANI_CLI_UPDATE_URL="https://raw.githubusercontent.com/Gildedboy/ani-cli-mx/master/ani-cli-mx-core"
+export ANI_CLI_UPDATE_URL="https://raw.githubusercontent.com/Gildedboy/ani-cli-mx/main/ani-cli-mx-core"
 ```
 
 Example:
 
 ```sh
-ANI_CLI_UPDATE_URL=https://raw.githubusercontent.com/Gildedboy/ani-cli-mx/master/ani-cli-mx-core ani-cli-mx -U
+ANI_CLI_UPDATE_URL=https://raw.githubusercontent.com/Gildedboy/ani-cli-mx/main/ani-cli-mx-core ani-cli-mx -U
 ```
 
 `ani-cli-mx -U` is only for manual installs.
