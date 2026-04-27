@@ -6,19 +6,19 @@
 
 <br>
 
-This project focuses on terminal-based automation for content that is already exposed by third-party websites. Any content available through this project is hosted by external, non-affiliated sources.
+The core aim of this project is to relate automation and efficiency to content discovery, playback, and download requests for content already provided to users on the internet. Any content available through this project is hosted by external, non-affiliated sources.
 
 <br>
 
-<b>Any content accessed through this project is publicly reachable from the source websites themselves. If your site is indexed by this project, review your own controls and protections accordingly.</b>
+<b>All content accessed through this project is publicly reachable from the source websites themselves. If your site is listed or indexed by this project, review your own controls and protections accordingly.</b>
 
-This project should be understood as a specialized client. A typical browser makes many requests to render a full website; this project makes a smaller, more targeted set of requests related to the media and metadata it needs.
+Think of this project as a normal browser, but more straightforward and specific. A typical browser makes many requests to render everything on a site; this project makes a smaller, more targeted set of requests related to the media and metadata served by those sites.
 
 <b>
 
-This project is used at the user's own risk and under the laws that apply to the user.
+This project is used at the user's own risk, based on the user's government, jurisdiction, and applicable laws.
 
-This project does not control, host, or claim ownership of the content served by third-party providers. Responsibility for how the project is used remains with the user.
+This project has no control over the content it accesses, serves, streams, or downloads from third-party providers. The developer(s) are not responsible for copyrighted content made available by external providers. Responsibility for how the project is used remains with the user.
 
 </b>
 
@@ -29,12 +29,14 @@ This project does not control, host, or claim ownership of the content served by
 <br>
 
 <b>
-A client is a tool, and liability depends on how the user operates it.
+A browser or client is a tool, and the maliciousness or liability of that tool depends on how the user operates it.
 </b>
 
-This project uses client-side content access mechanisms. Copyright complaints, takedown notices, or similar claims related to hosted media should be directed to the relevant content provider or site operator rather than this repository.
+This project uses client-side content access mechanisms. Copyright complaints, DMCA notices, takedown notices, or similar claims related to hosted media should be directed to the relevant content provider or site operator rather than this repository. This is one of the main reasons the external sites are identifiable in this project.
 
 <b>Do not harass the maintainer.</b>
+
+Any personal information about the maintainer that is not intentionally made public should not be exploited, published, or used for harassment in relation to this topic. Such behavior may lead to legal action by the maintainer.
 
 <h2>Contacting the maintainer</h2>
 

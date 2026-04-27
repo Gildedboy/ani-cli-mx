@@ -21,8 +21,8 @@ This project prefers these sources in order:
   - [Ani-Skip](#ani-skip)
 - [Usage](#usage)
 - [FAQ](#faq)
-- [Homies](#homies)
 - [Docs](#docs)
+- [Important](#important)
 
 ## Install
 
@@ -385,24 +385,14 @@ How can I bulk download?
 
 - Use `-d -e start-end`, for example `ani-cli-mx "one piece" -d -e 1-1000`.
 
-## Homies
-
-- [animdl](https://github.com/justfoolingaround/animdl): lightweight anime CLI in Python
-- [jerry](https://github.com/justchokingaround/jerry): anime streaming with AniList sync and Discord presence
-- [anipy-cli](https://github.com/sdaqo/anipy-cli): a Python rewrite of `ani-cli`
-- [mangal](https://github.com/metafates/mangal): manga reader/downloader with AniList sync
-- [lobster](https://github.com/justchokingaround/lobster): terminal movies and series
-- [mov-cli](https://github.com/mov-cli/mov-cli): terminal streaming framework in Python
-- [dra-cla](https://github.com/CoolnsX/dra-cla): Korean drama equivalent of `ani-cli`
-- [redqu](https://github.com/port19x/redqu): media-centric Reddit client
-- [doccli](https://github.com/TowarzyszFatCat/doccli): anime CLI for Polish subtitles
-- [GoAnime](https://github.com/alvarorichard/GoAnime): TUI anime browser/player/downloader in Go
-- [Curd](https://github.com/Wraient/curd): anime CLI with AniList, Discord RPC, and skip support
-- [FastAnime](https://github.com/Benex254/FastAnime): browser-like anime terminal experience
-- [ani-skip](https://github.com/KilDesu/ani-skip): skip opening and ending sequences for IINA on macOS
-
 ## Docs
 
 - [CONTRIBUTING.md](./CONTRIBUTING.md)
 - [hacking.md](./hacking.md)
 - [disclaimer.md](./disclaimer.md)
+
+## Important
+
+This project accesses public-facing websites for its streaming and downloading capabilities and primarily acts as a Spanish-first anime terminal client. The developer(s) of this application have no affiliation with these content providers. This application hosts zero content and is intended for educational and personal use only. Use at your own risk.
+
+[Read the Full Disclaimer](./disclaimer.md)
