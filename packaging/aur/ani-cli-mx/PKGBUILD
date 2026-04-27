@@ -16,10 +16,10 @@ optdepends=(
   'ani-skip: intro skipping with mpv'
 )
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/$_tag.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('83e102b8cd0b79fef6c1b87e86ac368c2c4b153a3b30687a6ba5f8d77b802663')
 
 package() {
-  cd "$srcdir/$pkgname-$_tag"
+  cd "$srcdir/$pkgname-$pkgver"
 
   install -Dm755 ani-cli-mx-core "$pkgdir/usr/libexec/ani-cli-mx"
   install -Dm755 ani-cli-mx "$pkgdir/usr/bin/ani-cli-mx"
