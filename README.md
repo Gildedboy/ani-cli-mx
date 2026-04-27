@@ -11,8 +11,6 @@ This project prefers these sources in order:
 3. AnimeAV1
 4. an English fallback when Spanish sources fail
 
-Repository: <https://github.com/Gildedboy/ani-cli-mx>
-
 ## Table of Contents
 
 - [Install](#install)
@@ -37,46 +35,6 @@ The launcher in [ani-cli-mx](./ani-cli-mx) looks for the main script in these tw
 - `/usr/lib/ani-cli-mx/ani-cli-mx-core`
 
 That means repository installs and distro packages use the `ani-cli-mx` launcher. The development Arch package keeps the separate `ani-cli-mx-git` command.
-
-<details>
-<summary>Run From Clone</summary>
-
-Command: `./ani-cli-mx`
-
-```sh
-git clone https://github.com/Gildedboy/ani-cli-mx.git
-cd ani-cli-mx
-./ani-cli-mx
-```
-
-</details>
-
-<details>
-<summary>Manual Install</summary>
-
-Command after install: `ani-cli-mx`
-
-System-wide:
-
-```sh
-git clone https://github.com/Gildedboy/ani-cli-mx.git
-cd ani-cli-mx
-sudo install -Dm755 ani-cli-mx-core /usr/local/libexec/ani-cli-mx
-sudo install -Dm755 ani-cli-mx /usr/local/bin/ani-cli-mx
-sudo install -Dm644 ani-cli-mx.1 /usr/local/share/man/man1/ani-cli-mx.1
-```
-
-User-local:
-
-```sh
-git clone https://github.com/Gildedboy/ani-cli-mx.git
-cd ani-cli-mx
-install -Dm755 ani-cli-mx-core "$HOME/.local/libexec/ani-cli-mx"
-install -Dm755 ani-cli-mx "$HOME/.local/bin/ani-cli-mx"
-install -Dm644 ani-cli-mx.1 "$HOME/.local/share/man/man1/ani-cli-mx.1"
-```
-
-</details>
 
 <details>
 <summary>Arch-Based Distros With AUR</summary>
@@ -135,6 +93,46 @@ Use the install path for your WSL distro of choice.
 
 </details>
 
+<details>
+<summary>Run From Clone</summary>
+
+Command: `./ani-cli-mx`
+
+```sh
+git clone https://github.com/Gildedboy/ani-cli-mx.git
+cd ani-cli-mx
+./ani-cli-mx
+```
+
+</details>
+
+<details>
+<summary>Manual Install</summary>
+
+Command after install: `ani-cli-mx`
+
+System-wide:
+
+```sh
+git clone https://github.com/Gildedboy/ani-cli-mx.git
+cd ani-cli-mx
+sudo install -Dm755 ani-cli-mx-core /usr/local/libexec/ani-cli-mx
+sudo install -Dm755 ani-cli-mx /usr/local/bin/ani-cli-mx
+sudo install -Dm644 ani-cli-mx.1 /usr/local/share/man/man1/ani-cli-mx.1
+```
+
+User-local:
+
+```sh
+git clone https://github.com/Gildedboy/ani-cli-mx.git
+cd ani-cli-mx
+install -Dm755 ani-cli-mx-core "$HOME/.local/libexec/ani-cli-mx"
+install -Dm755 ani-cli-mx "$HOME/.local/bin/ani-cli-mx"
+install -Dm644 ani-cli-mx.1 "$HOME/.local/share/man/man1/ani-cli-mx.1"
+```
+
+</details>
+
 ### AUR
 
 The published Arch packages for this project are:
@@ -150,15 +148,9 @@ Packaging notes:
 
 ## Update
 
-If you are running from a clone:
+For manual installs, pull the repo again and reinstall the files.
 
-```sh
-git pull
-```
-
-If you installed manually, pull the repo again and reinstall the files.
-
-If you want `ani-cli-mx -U` to work, set `ANI_CLI_UPDATE_URL` to this project's raw script URL:
+If you want `ani-cli-mx -U` to work for a manual install, set `ANI_CLI_UPDATE_URL` to this project's raw script URL:
 
 ```sh
 export ANI_CLI_UPDATE_URL="https://raw.githubusercontent.com/Gildedboy/ani-cli-mx/master/ani-cli-mx-core"
@@ -170,17 +162,11 @@ Example:
 ANI_CLI_UPDATE_URL=https://raw.githubusercontent.com/Gildedboy/ani-cli-mx/master/ani-cli-mx-core ani-cli-mx -U
 ```
 
-Important:
-
-- `ani-cli-mx -U` is for clone/manual installs
-- AUR installs should update through `yay`, `paru`, or `pacman` tooling, not by self-patching with `-U`
-- APT installs should update through `apt`, not by self-patching with `-U`
+`ani-cli-mx -U` is only for manual installs.
 
 ## Uninstall
 
-If you ran it from a clone, remove the clone directory.
-
-If you installed it manually:
+For manual installs:
 
 System-wide:
 
@@ -196,19 +182,6 @@ User-local:
 rm -f "$HOME/.local/bin/ani-cli-mx"
 rm -f "$HOME/.local/libexec/ani-cli-mx"
 rm -f "$HOME/.local/share/man/man1/ani-cli-mx.1"
-```
-
-If you installed from AUR:
-
-```sh
-sudo pacman -Rns ani-cli-mx
-sudo pacman -Rns ani-cli-mx-git
-```
-
-If you installed from APT:
-
-```sh
-sudo apt remove ani-cli-mx
 ```
 
 ## Dependencies
@@ -281,7 +254,6 @@ ani-cli-mx -d -e 1-3 "cyberpunk edgerunners"
 More options are available in:
 
 - `ani-cli-mx --help`
-- [ani-cli-mx.1](./ani-cli-mx.1)
 
 ## FAQ
 
@@ -351,7 +323,6 @@ How can I bulk download?
 
 ## Docs
 
-- [ani-cli-mx.1](./ani-cli-mx.1)
 - [CONTRIBUTING.md](./CONTRIBUTING.md)
 - [hacking.md](./hacking.md)
 - [disclaimer.md](./disclaimer.md)
