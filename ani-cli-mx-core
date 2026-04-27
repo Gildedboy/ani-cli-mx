@@ -1,6 +1,6 @@
 #!/bin/sh
 
-version_number="4.12.2"
+version_number="1.0.0"
 app_name="${ANI_CLI_NAME:-${0##*/}}"
 log_tag="${ANI_CLI_LOG_TAG:-$app_name}"
 hist_state_name="${ANI_CLI_STATE_NAME:-$app_name}"

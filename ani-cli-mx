@@ -1,8 +1,8 @@
 #!/bin/sh
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-if [ -x "$script_dir/ani-cli" ]; then
-    target="$script_dir/ani-cli"
+if [ -x "$script_dir/ani-cli-mx-core" ]; then
+    target="$script_dir/ani-cli-mx-core"
 elif [ -x "$script_dir/../libexec/ani-cli-mx" ]; then
     target="$script_dir/../libexec/ani-cli-mx"
 else

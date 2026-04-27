@@ -1,0 +1,24 @@
+pkgbase = ani-cli-mx-git
+	pkgdesc = Spanish-first anime CLI (development snapshot)
+	pkgver = 1.0.0.r0.g0000000
+	pkgrel = 1
+	url = https://github.com/Gildedboy/ani-cli-mx
+	arch = any
+	license = GPL3
+	makedepends = git
+	depends = curl
+	depends = sed
+	depends = grep
+	depends = fzf
+	depends = openssl
+	depends = mpv
+	optdepends = vlc: alternative player backend
+	optdepends = aria2: direct-file downloads
+	optdepends = yt-dlp: extra extractor coverage and download handling
+	optdepends = ffmpeg: HLS/m3u8 download fallback
+	optdepends = patch: self-update support with -U
+	optdepends = ani-skip: intro skipping with mpv
+	source = git+https://github.com/Gildedboy/ani-cli-mx.git
+	sha256sums = SKIP
+
+pkgname = ani-cli-mx-git

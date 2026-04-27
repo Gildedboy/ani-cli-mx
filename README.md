@@ -1,15 +1,15 @@
 # ani-cli-mx
 
-`ani-cli-mx` is a Spanish-first fork of upstream `ani-cli`.
+`ani-cli-mx` is a Spanish-first anime CLI for the terminal.
 
-This is an independent community fork. It is not affiliated with, maintained by, or endorsed by the upstream `ani-cli` team or project.
+This is an independent community project. It is not affiliated with, maintained by, or endorsed by any other project or team.
 
-This fork prefers these sources in order:
+This project prefers these sources in order:
 
 1. AnimeFLV
 2. JKAnime
 3. AnimeAV1
-4. the original English fallback when Spanish sources fail
+4. an English fallback when Spanish sources fail
 
 Repository: <https://github.com/Gildedboy/ani-cli-mx>
 
@@ -33,38 +33,37 @@ Repository: <https://github.com/Gildedboy/ani-cli-mx>
 
 ## Status
 
-- The command name for this fork is `ani-cli-mx`.
-- `ani-cli-mx` is an independent project and should not be confused with the upstream `ani-cli` project or team.
+- The command name for this project is `ani-cli-mx`.
 - This repository does not currently publish official binaries or installers.
 - This project now has a published AUR package: `ani-cli-mx-git`.
 
 Available now:
 
-- run from a clone
-- manual install into `bin/` + `libexec/`
-- AUR install as `ani-cli-mx-git`
+- run from a clone as `ani-cli-mx`
+- manual install into `bin/` + `libexec/` as `ani-cli-mx`
+- AUR install through the current development package
 
 Planned:
 
 - add a Scoop manifest for Windows
 - add Debian packaging or an apt repository workflow
-- later, if tagged releases exist, consider a stable `ani-cli-mx` package in addition to `ani-cli-mx-git`
+- publish stable `ani-cli-mx` releases
 
 ## Install
 
-The launcher in [ani-cli-mx](./ani-cli-mx) only looks for the main script in these two places:
+Choose the install path that matches how you want to run it.
 
-- `./ani-cli`
+The launcher in [ani-cli-mx](./ani-cli-mx) looks for the main script in these two places:
+
+- `./ani-cli-mx-core`
 - `../libexec/ani-cli-mx`
 
-That means the supported install layouts are:
+That means clone/manual installs use the `ani-cli-mx` launcher. The current AUR development package uses a separate command so it can coexist with future stable packaging.
 
-1. run directly from a clone
-2. install `ani-cli-mx` into `bin/` and `ani-cli` into sibling `libexec/`
+<details>
+<summary>Run From Clone</summary>
 
-Commands like `apt install ani-cli`, `dnf install ani-cli`, `yay -S ani-cli`, or `scoop install ani-cli` do not install this fork.
-
-### Run From Clone
+Command: `./ani-cli-mx`
 
 ```sh
 git clone https://github.com/Gildedboy/ani-cli-mx.git
@@ -72,14 +71,19 @@ cd ani-cli-mx
 ./ani-cli-mx
 ```
 
-### Manual Install
+</details>
+
+<details>
+<summary>Manual Install</summary>
+
+Command after install: `ani-cli-mx`
 
 System-wide:
 
 ```sh
 git clone https://github.com/Gildedboy/ani-cli-mx.git
 cd ani-cli-mx
-sudo install -Dm755 ani-cli /usr/local/libexec/ani-cli-mx
+sudo install -Dm755 ani-cli-mx-core /usr/local/libexec/ani-cli-mx
 sudo install -Dm755 ani-cli-mx /usr/local/bin/ani-cli-mx
 sudo install -Dm644 ani-cli-mx.1 /usr/local/share/man/man1/ani-cli-mx.1
 ```
@@ -89,34 +93,70 @@ User-local:
 ```sh
 git clone https://github.com/Gildedboy/ani-cli-mx.git
 cd ani-cli-mx
-install -Dm755 ani-cli "$HOME/.local/libexec/ani-cli-mx"
+install -Dm755 ani-cli-mx-core "$HOME/.local/libexec/ani-cli-mx"
 install -Dm755 ani-cli-mx "$HOME/.local/bin/ani-cli-mx"
 install -Dm644 ani-cli-mx.1 "$HOME/.local/share/man/man1/ani-cli-mx.1"
 ```
 
-### AUR
+</details>
 
-The published Arch package for this fork is:
+<details>
+<summary>AUR With yay</summary>
 
-- `ani-cli-mx-git`
-
-Install with `yay`:
+Package: `ani-cli-mx-git`  
+Command after install: `ani-cli-mx-git`
 
 ```sh
 yay -S ani-cli-mx-git
 ```
 
-Or with `paru`:
+</details>
+
+<details>
+<summary>AUR With paru</summary>
+
+Package: `ani-cli-mx-git`  
+Command after install: `ani-cli-mx-git`
 
 ```sh
 paru -S ani-cli-mx-git
 ```
 
+</details>
+
+<details>
+<summary>apt (Future)</summary>
+
+Not available yet.
+
+Planned target:
+
+- a stable package that would install the `ani-cli-mx` command
+
+</details>
+
+<details>
+<summary>Scoop (Future)</summary>
+
+Not available yet.
+
+Planned target:
+
+- a stable package that would install the `ani-cli-mx` command
+
+</details>
+
+### AUR
+
+The published Arch package for this project is:
+
+- `ani-cli-mx-git`
+
 Why `ani-cli-mx-git` instead of `ani-cli-mx`?
 
 - because this repo does not currently publish tagged releases
 - for a Git-tracking Arch package, the `-git` suffix is the correct format
-- a stable non-`-git` package only makes sense once this fork adopts actual releases
+- stable `ani-cli-mx` packaging makes sense once this project adopts tagged releases
 
 ## Planned Packaging
 
@@ -124,6 +164,8 @@ Later targets:
 
 - Scoop for Windows
 - Debian/apt packaging
+
+This repository now includes draft Arch packaging files under [packaging/aur](./packaging/aur).
 
 Those are not available yet, so the README should not advertise them as working install commands today.
 
@@ -137,16 +179,16 @@ git pull
 
 If you installed manually, pull the repo again and reinstall the files.
 
-If you want `ani-cli-mx -U` to work, set `ANI_CLI_UPDATE_URL` to this fork's raw script URL:
+If you want `ani-cli-mx -U` to work, set `ANI_CLI_UPDATE_URL` to this project's raw script URL:
 
 ```sh
-export ANI_CLI_UPDATE_URL="https://raw.githubusercontent.com/Gildedboy/ani-cli-mx/master/ani-cli"
+export ANI_CLI_UPDATE_URL="https://raw.githubusercontent.com/Gildedboy/ani-cli-mx/master/ani-cli-mx-core"
 ```
 
 Example:
 
 ```sh
-ANI_CLI_UPDATE_URL=https://raw.githubusercontent.com/Gildedboy/ani-cli-mx/master/ani-cli ani-cli-mx -U
+ANI_CLI_UPDATE_URL=https://raw.githubusercontent.com/Gildedboy/ani-cli-mx/master/ani-cli-mx-core ani-cli-mx -U
 ```
 
 Important:
@@ -218,6 +260,8 @@ If skip detection misses a title, try `--skip-title <title>`.
 
 ## Usage
 
+If you installed from the current AUR development package, replace `ani-cli-mx` in the examples below with `ani-cli-mx-git`.
+
 Search interactively:
 
 ```sh
@@ -255,14 +299,6 @@ More options are available in:
 
 ## FAQ
 
-Does this replace upstream `ani-cli`?
-
-- No. This fork is meant to be installed and invoked as `ani-cli-mx`.
-
-Is this part of the upstream `ani-cli` team or project?
-
-- No. `ani-cli-mx` is an independent fork and is not maintained, endorsed, or officially supported by the upstream `ani-cli` team.
-
 Is there an official AUR package right now?
 
 - Yes. The current AUR package name is `ani-cli-mx-git`.
@@ -273,7 +309,7 @@ Are apt and Scoop supported right now?
 
 Why `ani-cli-mx-git` instead of `ani-cli-mx` for Arch packaging?
 
-- Because this repo currently has no tagged releases, a `-git` package is the honest format.
+- Because this repo currently has no tagged releases, a `-git` package is the honest format, and giving it the `ani-cli-mx-git` command leaves `ani-cli-mx` available for a future stable package.
 
 Can I choose a different player?
 
@@ -289,11 +325,11 @@ Can I change subtitle language or turn subtitles off?
 
 Can I change dub language?
 
-- No. The fork only switches between subbed and dubbed availability.
+- No. The project only switches between subbed and dubbed availability.
 
 Can I change media source manually?
 
-- Not as a stable playback picker. You can influence search/info with `--source`, but playback still follows the fork's source-selection logic.
+- Not as a stable playback picker. You can influence search/info with `--source`, but playback still follows the project's source-selection logic.
 
 Can I adjust resolution?
 
