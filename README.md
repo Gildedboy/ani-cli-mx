@@ -129,7 +129,57 @@ install -Dm644 ani-cli-mx.1 "$HOME/.local/share/man/man1/ani-cli-mx.1"
 
 ## Update
 
-For manual installs, pull the repo again and reinstall the files.
+<details>
+<summary>Arch-Based Distros With AUR</summary>
+
+```sh
+yay -Syu ani-cli-mx
+paru -Syu ani-cli-mx
+```
+
+For the development package:
+
+```sh
+yay -Syu ani-cli-mx-git
+paru -Syu ani-cli-mx-git
+```
+
+</details>
+
+<details>
+<summary>Ubuntu-Based Distros With PPA</summary>
+
+```sh
+sudo apt update
+sudo apt upgrade ani-cli-mx
+```
+
+</details>
+
+<details>
+<summary>Manual Install</summary>
+
+For manual installs, pull the repo again and reinstall the files:
+
+System-wide:
+
+```sh
+git pull
+sudo install -Dm755 ani-cli-mx-core /usr/local/libexec/ani-cli-mx
+sudo install -Dm755 ani-cli-mx /usr/local/bin/ani-cli-mx
+sudo install -Dm644 ani-cli-mx.1 /usr/local/share/man/man1/ani-cli-mx.1
+hash -r
+```
+
+User-local:
+
+```sh
+git pull
+install -Dm755 ani-cli-mx-core "$HOME/.local/libexec/ani-cli-mx"
+install -Dm755 ani-cli-mx "$HOME/.local/bin/ani-cli-mx"
+install -Dm644 ani-cli-mx.1 "$HOME/.local/share/man/man1/ani-cli-mx.1"
+hash -r
+```
 
 If you want `ani-cli-mx -U` to work for a manual install, set `ANI_CLI_UPDATE_URL` to this project's raw script URL:
 
@@ -145,30 +195,42 @@ ANI_CLI_UPDATE_URL=https://raw.githubusercontent.com/Gildedboy/ani-cli-mx/master
 
 `ani-cli-mx -U` is only for manual installs.
 
+</details>
+
 ## Uninstall
 
-Arch-based AUR install:
+<details>
+<summary>Arch-Based Distros With AUR</summary>
+
+Stable package:
 
 ```sh
 yay -Rns ani-cli-mx
 paru -Rns ani-cli-mx
 ```
 
-Arch-based AUR development install:
+Development package:
 
 ```sh
 yay -Rns ani-cli-mx-git
 paru -Rns ani-cli-mx-git
 ```
 
-Ubuntu-based PPA install:
+</details>
+
+<details>
+<summary>Ubuntu-Based Distros With PPA</summary>
 
 ```sh
 sudo apt remove ani-cli-mx
-sudo apt autoremove
+sudo add-apt-repository --remove ppa:gilded30/ani-cli-mx
+sudo apt update
 ```
 
-For manual installs:
+</details>
+
+<details>
+<summary>Manual Install</summary>
 
 System-wide:
 
@@ -176,6 +238,7 @@ System-wide:
 sudo rm -f /usr/local/bin/ani-cli-mx
 sudo rm -f /usr/local/libexec/ani-cli-mx
 sudo rm -f /usr/local/share/man/man1/ani-cli-mx.1
+hash -r
 ```
 
 User-local:
@@ -184,7 +247,22 @@ User-local:
 rm -f "$HOME/.local/bin/ani-cli-mx"
 rm -f "$HOME/.local/libexec/ani-cli-mx"
 rm -f "$HOME/.local/share/man/man1/ani-cli-mx.1"
+hash -r
 ```
+
+Optional history cleanup:
+
+```sh
+rm -rf "${XDG_STATE_HOME:-$HOME/.local/state}/ani-cli-mx"
+```
+
+Check whether another `ani-cli-mx` command is still earlier in your `PATH`:
+
+```sh
+command -v -a ani-cli-mx
+```
+
+</details>
 
 ## Dependencies
 
