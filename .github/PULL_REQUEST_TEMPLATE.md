@@ -12,8 +12,8 @@
 
 ## Checklist
 
-- [ ] any anime playing
-- [ ] bumped version
+- [ ] tested the main user path affected by this change
+- [ ] bumped `version_number` in `ani-cli-mx-core` if a release-facing version change is needed
 ---
 - [ ] next, prev and replay work
 - [ ] `-c` history and continue work
@@ -29,17 +29,17 @@
 - [ ] `--exit-after-play` auto exit after playing works
 - [ ] `--nextep-countdown` countdown to next ep works
 - [ ] `--dub` and regular (sub) mode both work
-- [ ] all providers return links (not necessarily on a single anime, use debug mode to confirm)
+- [ ] modified providers return links as expected (use debug mode if needed)
 ---
 - [ ] `-h` help info is up to date
-- [ ] Readme is up to date
+- [ ] README is up to date
 - [ ] Man page is up to date
 
-## Additional Testcases
+## Additional Test Cases
 
 - The safe bet: One Piece
 - Episode 0: Saenai Heroine no Sodatekata ♭
 - Unicode: Saenai Heroine no Sodatekata ♭
 - Non-whole episodes: Tensei shitara slime datta ken (ep. 24.5, ep. 24.9)
-- All Providers: Youkoso Jitsuryoku Shijou Shugi no Kyoushitsu e (TV) (3 m3u8, 3 mp4, 1 fast4speed, 1 sharepoint)
+- Multi-provider checks: use a title that exercises the providers you changed
 - The examples of the help text

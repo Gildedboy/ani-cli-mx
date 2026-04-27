@@ -1,24 +1,25 @@
 # Added due to required but conditional checks
 # Read more: https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/troubleshooting-required-status-checks#handling-skipped-but-required-checks
 
-name: 'ani-cli checks'
+name: 'ani-cli-mx shell checks'
 on:
   pull_request:
     paths-ignore:
-      - "/ani-cli"
+      - "ani-cli-mx"
+      - "ani-cli-mx-core"
 jobs:
   sh-checker:
     name: Shellcheck + Shfmt
     runs-on: ubuntu-latest
     steps:
-      - run: 'echo "Not required: did not modify ani-cli"'
+      - run: 'echo "Not required: did not modify ani-cli-mx shell scripts"'
   check-exec:
     name: Executable Bit
     runs-on: ubuntu-latest
     steps:
-      - run: 'echo "Not required: did not modify ani-cli"'
+      - run: 'echo "Not required: did not modify ani-cli-mx shell scripts"'
   version-bump:
     name: Version Bump
     runs-on: ubuntu-latest
     steps:
-      - run: 'echo "Not required: did not modify ani-cli"'
+      - run: 'echo "Not required: did not modify ani-cli-mx-core"'

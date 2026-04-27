@@ -1,110 +1,142 @@
-# Hacking ani-cli
-Ani-cli is set up to scrape one platform - currently allanime. Supporting multiple sources at a time would require more changes than we (the maintainers) find worth doing, for this reason any feature request asking for a new site is rejected.
+# Hacking ani-cli-mx
 
-However ani-cli being open-source and the pirate anime streaming sites being so similar you can hack ani-cli to support any site that follows a few conventions.
+`ani-cli-mx` is a shell-based scraper/player wrapper. The project already supports multiple sources, but you can still extend or modify it if you need to adjust an existing source or experiment with a new one.
 
 ## Prerequisites
-Here's the of skills you'll need and the guide will take for granted:
+
+This guide assumes you are comfortable with:
+
 - basic shell scripting
-- understanding of http(s) requests and proficiency with curl
-- ability to read html and javascript on a basic level and search them
-- writing regexes
-You'll also need web browser with a debugger and environment that can run unmodified ani-cli
+- HTTP(S) requests and `curl`
+- reading HTML and JavaScript
+- searching large text responses efficiently
+- writing and debugging regular expressions
+
+You will also need:
+
+- a web browser with developer tools
+- an environment that can run `ani-cli-mx`
+- a text editor that can inspect raw responses comfortably
 
 ## The scraping process
-The following flowchart demonstrates how ani-cli operates from a scraping standpoint:
+
+The following flowchart demonstrates the general scraping flow used by the project:
 
 ![image](.assets/ani-cli-scraping-flow.png)
 
-The steps to get to a link from a query is the following:
-1. search with the site's search page for the query
-2. extract IDs from response, user chooses one
-3. extract episode numbers from an overview page, user chooses one
-4. download player(s) for that id+episode number combination, extract links
-5. quality selection selects one that is played
-From here 1-4 need to be changed to support another site. #Reverse-engineering will answer how.
+At a high level, the flow is:
 
-## Reverse-engineering
-Many sites have various protections against reverse-engineering.
-The extension webapi-blocker can help you with bringing up the debugger that we'll use during this guide or to conceal the presence of a debugger.
-These reverse-engineering protections are always evolving though so there's no silver bullet - you'll have to do your own research on how to get around them.
+1. search a source for a title
+2. extract source-specific identifiers
+3. list the episodes for the selected title
+4. request the player or embed data for a selected episode
+5. extract playable media links
+6. select a quality and hand the link to the configured player
 
-An adblocker can help with reducing traffic from the site, but beware of extensions that change the appearance of the site (eg. darkreader) because they can alter the html/css.
+If you are adapting another source, steps 1 through 5 are where you will spend most of your time.
 
-Once you have the pages (urls) that you're interested in, it's easier to inspect them from less/an editor.
-The debugger's inspector can help you with finding what's what but finding patterns/urls is much easier in an editor.
-Additionally the debugger doesn't always show you the html faithfully - I've experienced some escape sequences being rendered, capitalization changing - so be sure you see the response of the servers in raw format before you write your regexes.
+## Reverse engineering
 
-### Core concepts
-If you navigate the site normally from the browser, you'll see that each anime is represented with an URL that compromises from an ID (that identifies a series/season of series) and an episode number.
-The series identifier is stored in the `id` variable by the script and the episode number in the `ep_no` number.
+Many streaming sites have protections against inspection or scraping.
 
-Each episode has an embedded player that contains the links to the videos to be played.
-Your goal is to get these links along with the resolution (quality) of the streams.
-The embedded player has a separate URL from the episode page, but you can always get there from the episode page (and in some cases just by knowing the id and the episode number).
+The `webapi-blocker` browser extension can help when you need the debugger without background noise from aggressive client-side code, but you still need to verify what the site is actually returning over the network.
 
-### Searching
-The search page is usually easy to find on these websites. The searching method varies.
-Some sites will have you post a database query in plaintext, some just use a get request with a single variable.
-Just try searching for a few series and see how the URL changes (most of the times the sites use a get request for this purpose).
-If the site uses a POST request or a more roundabout way, use the debugger to analyze the traffic.
+An ad blocker can reduce noise, but extensions that rewrite page styling or structure can make analysis harder. Prefer looking at raw responses.
 
-Once you figured out how searching works, you'll have to replicate it in the `search_anime` function.
-The `curl` in this function is responsible for the search request, and the following `sed` regexes mold the response into many lines of `id\ttitle` format.
-The reason for this is the `nth` function, see it for more details.
-You'll have to change some variables in the process (eg. allanime_base) too.
+Once you identify the relevant URLs, it is usually easier to inspect the responses in a real editor or pager than directly in the browser.
 
-If you have done everything correctly, you can run `ani-cli`, query your site of choice and select from the responses.
-Then ani-cli should fail without a message.
-If it fails with `No results found!` you have debugging to do.
-Running ani-cli with `sh -x` is a good way to debug.
+## Core concepts
 
-### Episode selection
-Having completed the previous step, the `id` and `title` will contain the selected title and the corresponding id.
+The current implementation lives in [ani-cli-mx-core](./ani-cli-mx-core), while [ani-cli-mx](./ani-cli-mx) is the launcher.
 
-Now you'll have to look at the page where all the episodes of the series are listed.
-This might be a series overview page (like with allanime) or there might not be such, but the episode pages have links to all episodes.
+Most source integrations follow the same broad pattern:
 
-You'll have to edit the `episodes_list` function that downloads this list of urls.
-You need to rewrite the web request and the following regexes to achieve a list of episode numbers separated by newlines and preferably sorted.
-Again the `nth` function is used to offer a selection.
+- a search function returns source-specific identifiers plus display titles
+- an episode-list function turns an identifier into a selectable episode list
+- a link-resolution path turns a selected episode into one or more playable URLs
 
-If you have done everything correctly, now you can search for a title, get its episodes listed and select an episode.
-Then ani-cli should fail with `Episode not released!`
+In the script, the series identifier is usually stored in `id`, and the chosen episode number is stored in `ep_no`.
 
-### Getting the player embed
-After selecting an episode, the next step is to load its page and extract the embed(s).
-In case you can get them without loading the episode page, replace from the `get the embed urls...` part of the code to the removal of the cache dir with a single call to `get_links` and load its output into `links`.
-Then move to the next step (and remove all functions rendered unused).
+## Searching
 
-The first request is to get the episode page, then the following commands extract the embed players' links, one at a line with the format `sourcename : url`.
-These are listed into `resp`.
-From here they are separated and parsed by `provider_init` and the first half onf `generate_link`.
-Some sites (like allanime) have these urls not in plaintext but "encrypted". The decrypt allanime function does this post-processing, it might need to be changed or discarded completely.
+Search pages are usually the easiest entry point.
 
-If there's only one embed source, the `generate links..` block can be reduced to a single call to `generate_link`.
-The current structure does the aggregation of many providers asynchronously, but this is not needed if there's only one source.
+Some sites use a plain GET request with a query parameter. Others POST form data or call a JSON endpoint. Inspect a few searches in the browser and reproduce the request with `curl`.
 
-### Extracting the media links
+Once you understand the request shape, replicate it in the relevant source-specific search function. The response then needs to be transformed into lines that the selector code can consume, usually in a tab-separated identifier/title format.
 
-Once you have the embed player, it needs to be parsed for the media link.
-This is done in the script with the `get_links` function.
+If you get this part right, you should be able to run:
 
-Here first the embed player is first requested and loaded into `episode_link` the media links are extracted.
-They need to be printed to the function's stdout in a format of `quality >link`.
-The quality string needs to be extracted from the player along with the link and is supposed to be a numeric representation of the resolution.
-Sometimes a resolution can't be determined, in this case have the regex match for whatever is in its place.
+```sh
+./ani-cli-mx
+```
 
-The output of the `get_links` function needs to be concatenated into the `links` variable - with a single call if there's only one source, or with the asynchronous mode if there are more.
-From here the `get_episode_url` function will continue with quality selection which you need not to alter.
+select a title, and then fail later in the flow rather than at search time.
+
+If search still returns nothing, run the script with shell tracing:
+
+```sh
+sh -x ./ani-cli-mx
+```
+
+## Episode selection
+
+After selecting a title, the next step is to identify where the site exposes its episode list.
+
+That might be:
+
+- a title overview page
+- an AJAX endpoint
+- a JSON blob embedded in HTML
+- links listed on the episode page itself
+
+The goal is to produce a newline-separated list of episode numbers that the selector can present to the user.
+
+If this part is correct, you should be able to search, select a title, list episodes, and then fail later when resolving the player data.
+
+## Getting player or embed data
+
+Once an episode is selected, the script needs to retrieve the site-specific player or embed information for that episode.
+
+Some sources expose this directly. Others require:
+
+- loading the episode page first
+- extracting one or more embed URLs
+- decoding or transforming an intermediate value
+
+In the current codebase, the exact function names vary by source, so the practical approach is to inspect the existing source handlers in [ani-cli-mx-core](./ani-cli-mx-core) and mirror the nearest one.
+
+## Extracting media links
+
+After you have the player or embed data, the next step is to extract the actual playable media URLs.
+
+The target output format is effectively:
+
+```text
+quality >url
+```
+
+where `quality` is usually a numeric resolution label such as `720` or `1080`.
+
+If the player does not expose a clean resolution label, use the most stable identifier available and keep the output format consistent.
+
+Once those links are produced, the rest of the playback path can usually stay unchanged.
 
 ## Other functionality
-Assuming you completed all the necessary modifications, ani-cli should completely work for you now.
-The UI and the history system works as long as you keep the structure of the original code and the format of the responses.
 
-There might be cases that can't be covered by the current structure of ani-cli, but still it works for most sites as I've observed.
+If the source works for:
+
+- searching
+- episode enumeration
+- link extraction
+- quality selection
+
+then the rest of the project usually continues to work with minimal changes, including history and player selection.
+
+There will still be site-specific edge cases. The easiest way to debug them is to compare the failing source path with an existing working source in [ani-cli-mx-core](./ani-cli-mx-core).
 
 ## UX Spec
 
-There also exists a UX spec if you want to replicate the ani-cli user experience in a fresh codebase:
+If you want to replicate the terminal interaction style in another implementation, this UX spec can still be useful:
+
 ![image](.assets/ani-cli-ux-spec.png)

@@ -6,13 +6,15 @@ labels: 'priority 2: medium, type: bug'
 assignees: ''
 
 ---
-## **Make sure you are on the latest version by running `ani-cli -U`**
+## **Make sure you are on the latest version available for your install method before opening a report**
 
 **Metadata (please complete the following information)**
-Version: [e.g. 4.7.6, run `ani-cli -V` to find out]
+Command used: [e.g. `ani-cli-mx` or `ani-cli-mx-git`]
+Version: [e.g. 1.0.0, run `ani-cli-mx -V` or `ani-cli-mx-git -V`]
 OS: [e.g. Windows 10 / Linux Mint 20.3]
 Shell: [e.g. zsh, run `readlink /bin/sh` to get your shell]
 Anime: [e.g. flcl] (if applicable)
+Source: [e.g. auto / animeflv / jkanime] (if applicable)
 
 **Describe the bug**
 Downloading is broken.
@@ -20,7 +22,7 @@ It says something about an unsupported protocol, see screenshot.
 
 **Steps To Reproduce**
 
-1. Run `ani-cli -d flcl`
+1. Run `ani-cli-mx -d flcl`
 2. Choose 2 (fooly-cooly)
 3. Choose episode 1
 

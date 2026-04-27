@@ -1,46 +1,45 @@
-
 <h1 align="center">Disclaimer</h1>
 
 <div align="center">
 
-<h2>This project: ani-cli</h2>
+<h2>This project: ani-cli-mx</h2>
 
 <br>
 
-The core aim of this project is to co-relate automation and efficiency to extract what is provided to a user on the internet. All content available through the project is hosted by external non-affiliated sources.
+This project focuses on terminal-based automation for content that is already exposed by third-party websites. Any content available through this project is hosted by external, non-affiliated sources.
 
 <br>
 
-<b>Any content served through this project is publicly accessible. If your site is listed in this project, the code is pretty much public. Take necessary measures to counter the exploits used to extract content in your site.</b>
+<b>Any content accessed through this project is publicly reachable from the source websites themselves. If your site is indexed by this project, review your own controls and protections accordingly.</b>
 
-Think of this project as your normal browser, but a bit more straight-forward and specific. While an average browser makes hundreds of requests to get everything from a site, this project goes on to make requests associated with only getting the content served by the sites.
+This project should be understood as a specialized client. A typical browser makes many requests to render a full website; this project makes a smaller, more targeted set of requests related to the media and metadata it needs.
 
 <b>
 
-This project is to be used at the user's own risk, based on their government and laws.
+This project is used at the user's own risk and under the laws that apply to the user.
 
-This project has no control on the content it is serving, using copyrighted content from the providers is not going to be accounted for by the developer. It is the user's own risk.
+This project does not control, host, or claim ownership of the content served by third-party providers. Responsibility for how the project is used remains with the user.
 
 </b>
 
 <br>
 
-<h2>DMCA and Copyright Infrigements</h3>
+<h2>DMCA and Copyright Infringement</h2>
 
 <br>
 
 <b>
-A browser is a tool, and the maliciousness of the tool is directly based on the user.
+A client is a tool, and liability depends on how the user operates it.
 </b>
 
-This project uses client-side content access mechanisms. Hence, the copyright infrigements or DMCA in this project's regards are to be forwarded to the associated site by the associated notifier of any such claims. As of writing this is [allanime](https://allanime.to)
+This project uses client-side content access mechanisms. Copyright complaints, takedown notices, or similar claims related to hosted media should be directed to the relevant content provider or site operator rather than this repository.
 
-<b> Do not harass the maintainer. </b>
+<b>Do not harass the maintainer.</b>
 
-<h2>
-Contacting the maintainer
-</h2>
+<h2>Contacting the maintainer</h2>
+
 <br>
 
-Begin by making a GitHub issue or sending an email to port19@port19.xyz
+Begin by opening a GitHub issue in this repository.
+
 </div>

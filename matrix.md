@@ -1,10 +1,9 @@
-To get invited to ani-cli matrix space please knock into the `#ani-cli-queue:matrix.org` room.
+# Matrix
 
-In the reason field, please mention that you want to be invited to ani-cli.
-If your main client does not support spaces, please add that to the reason.
+This repository does not currently document an official Matrix space for `ani-cli-mx`.
 
-Knocking is not supported by every client yet. You can use nheko.
-In nheko, click on a `plus icon` in the down left corner, `join room`, input `#ani-cli-queue:matrix.org` into the "Room ID or alias" input box.
-It will say that you are not allowed to join and ask if you want to knock.
+If a dedicated Matrix room or space is created for this project later, update this file with:
 
-It might take some time before you get invited.
+- the room or space address
+- the expected join flow
+- whether it is official project support or community-run discussion

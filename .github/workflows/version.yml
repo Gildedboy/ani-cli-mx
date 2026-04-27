@@ -1,8 +1,8 @@
-name: 'ani-cli checks'
+name: 'ani-cli-mx version checks'
 on:
   pull_request:
     paths: 
-      - "/ani-cli"
+      - "ani-cli-mx-core"
       
 jobs:
   version-bump:
