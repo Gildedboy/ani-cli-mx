@@ -28,14 +28,6 @@ This project prefers these sources in order:
 
 Choose the distro path that already works for you.
 
-The launcher in [ani-cli-mx](./ani-cli-mx) looks for the main script in these two places:
-
-- `./ani-cli-mx-core`
-- `../libexec/ani-cli-mx`
-- `/usr/lib/ani-cli-mx/ani-cli-mx-core`
-
-That means repository installs and distro packages use the `ani-cli-mx` launcher. The development Arch package keeps the separate `ani-cli-mx-git` command.
-
 <details>
 <summary>Arch-Based Distros With AUR</summary>
 
@@ -56,6 +48,8 @@ Command after install: `ani-cli-mx-git`
 yay -S ani-cli-mx-git
 paru -S ani-cli-mx-git
 ```
+
+`ani-cli-mx-git` is the separate development version.
 
 </details>
 
@@ -133,19 +127,6 @@ install -Dm644 ani-cli-mx.1 "$HOME/.local/share/man/man1/ani-cli-mx.1"
 
 </details>
 
-### AUR
-
-The published Arch packages for this project are:
-
-- `ani-cli-mx`
-- `ani-cli-mx-git`
-
-Packaging notes:
-
-- `ani-cli-mx` follows tagged stable releases
-- `ani-cli-mx-git` follows the development branch and installs the `ani-cli-mx-git` command
-- package recipes are maintained outside this source repository
-
 ## Update
 
 For manual installs, pull the repo again and reinstall the files.
@@ -165,6 +146,27 @@ ANI_CLI_UPDATE_URL=https://raw.githubusercontent.com/Gildedboy/ani-cli-mx/master
 `ani-cli-mx -U` is only for manual installs.
 
 ## Uninstall
+
+Arch-based AUR install:
+
+```sh
+yay -Rns ani-cli-mx
+paru -Rns ani-cli-mx
+```
+
+Arch-based AUR development install:
+
+```sh
+yay -Rns ani-cli-mx-git
+paru -Rns ani-cli-mx-git
+```
+
+Ubuntu-based PPA install:
+
+```sh
+sudo apt remove ani-cli-mx
+sudo apt autoremove
+```
 
 For manual installs:
 
