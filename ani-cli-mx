@@ -5,6 +5,8 @@ if [ -x "$script_dir/ani-cli-mx-core" ]; then
     target="$script_dir/ani-cli-mx-core"
 elif [ -x "$script_dir/../libexec/ani-cli-mx" ]; then
     target="$script_dir/../libexec/ani-cli-mx"
+elif [ -x "/usr/lib/ani-cli-mx/ani-cli-mx-core" ]; then
+    target="/usr/lib/ani-cli-mx/ani-cli-mx-core"
 else
     printf '%s\n' "No se encontro el script principal de ani-cli-mx." >&2
     exit 1

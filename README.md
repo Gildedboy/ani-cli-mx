@@ -15,12 +15,7 @@ Repository: <https://github.com/Gildedboy/ani-cli-mx>
 
 ## Table of Contents
 
-- [Status](#status)
 - [Install](#install)
-  - [Run From Clone](#run-from-clone)
-  - [Manual Install](#manual-install)
-  - [AUR](#aur)
-- [Planned Packaging](#planned-packaging)
 - [Update](#update)
 - [Uninstall](#uninstall)
 - [Dependencies](#dependencies)
@@ -31,34 +26,17 @@ Repository: <https://github.com/Gildedboy/ani-cli-mx>
 - [Homies](#homies)
 - [Docs](#docs)
 
-## Status
-
-- The command name for this project is `ani-cli-mx`.
-- This repository does not currently publish official binaries or installers.
-- This project now has a published AUR package: `ani-cli-mx-git`.
-
-Available now:
-
-- run from a clone as `ani-cli-mx`
-- manual install into `bin/` + `libexec/` as `ani-cli-mx`
-- AUR install through the current development package
-
-Planned:
-
-- add a Scoop manifest for Windows
-- add Debian packaging or an apt repository workflow
-- publish stable `ani-cli-mx` releases
-
 ## Install
 
-Choose the install path that matches how you want to run it.
+Choose the distro path that already works for you.
 
 The launcher in [ani-cli-mx](./ani-cli-mx) looks for the main script in these two places:
 
 - `./ani-cli-mx-core`
 - `../libexec/ani-cli-mx`
+- `/usr/lib/ani-cli-mx/ani-cli-mx-core`
 
-That means clone/manual installs use the `ani-cli-mx` launcher. The current AUR development package uses a separate command so it can coexist with future stable packaging.
+That means repository installs and distro packages use the `ani-cli-mx` launcher. The development Arch package keeps the separate `ani-cli-mx-git` command.
 
 <details>
 <summary>Run From Clone</summary>
@@ -101,73 +79,74 @@ install -Dm644 ani-cli-mx.1 "$HOME/.local/share/man/man1/ani-cli-mx.1"
 </details>
 
 <details>
-<summary>AUR With yay</summary>
+<summary>Arch-Based Distros With AUR</summary>
 
-Package: `ani-cli-mx-git`  
+Stable package: `ani-cli-mx`
+
+Command after install: `ani-cli-mx`
+
+```sh
+yay -S ani-cli-mx
+paru -S ani-cli-mx
+```
+
+Development package: `ani-cli-mx-git`
+
 Command after install: `ani-cli-mx-git`
 
 ```sh
 yay -S ani-cli-mx-git
-```
-
-</details>
-
-<details>
-<summary>AUR With paru</summary>
-
-Package: `ani-cli-mx-git`  
-Command after install: `ani-cli-mx-git`
-
-```sh
 paru -S ani-cli-mx-git
 ```
 
 </details>
 
 <details>
-<summary>apt (Future)</summary>
+<summary>Ubuntu-Based Distros With PPA</summary>
 
-Not available yet.
+Command after install: `ani-cli-mx`
 
-Planned target:
+Add the PPA and install:
 
-- a stable package that would install the `ani-cli-mx` command
+```sh
+sudo add-apt-repository ppa:gilded30/ani-cli-mx
+sudo apt update
+sudo apt install ani-cli-mx
+```
+
+Optional packages:
+
+- `aria2`
+- `yt-dlp`
+- `vlc`
+- `ffmpeg`
 
 </details>
 
 <details>
-<summary>Scoop (Future)</summary>
+<summary>WSL</summary>
 
-Not available yet.
+Use the install path for your WSL distro of choice.
 
-Planned target:
-
-- a stable package that would install the `ani-cli-mx` command
+- for Arch-based WSL distros, use the AUR instructions above
+- for Ubuntu-based WSL distros, use the PPA instructions above
+- run `ani-cli-mx` from inside WSL, not from Windows PowerShell
+- `mpv` works best with WSLg
 
 </details>
 
 ### AUR
 
-The published Arch package for this project is:
+The published Arch packages for this project are:
 
+- `ani-cli-mx`
 - `ani-cli-mx-git`
 
-Why `ani-cli-mx-git` instead of `ani-cli-mx`?
+Packaging notes:
 
-- because this repo does not currently publish tagged releases
-- for a Git-tracking Arch package, the `-git` suffix is the correct format
-- stable `ani-cli-mx` packaging makes sense once this project adopts tagged releases
-
-## Planned Packaging
-
-Later targets:
-
-- Scoop for Windows
-- Debian/apt packaging
-
-This repository now includes draft Arch packaging files under [packaging/aur](./packaging/aur).
-
-Those are not available yet, so the README should not advertise them as working install commands today.
+- `ani-cli-mx` follows tagged stable releases
+- `ani-cli-mx-git` follows the development branch and installs the `ani-cli-mx-git` command
+- package recipes are maintained outside this source repository
 
 ## Update
 
@@ -195,7 +174,7 @@ Important:
 
 - `ani-cli-mx -U` is for clone/manual installs
 - AUR installs should update through `yay`, `paru`, or `pacman` tooling, not by self-patching with `-U`
-- once Scoop or apt packaging exists, those installs should update through their package manager too
+- APT installs should update through `apt`, not by self-patching with `-U`
 
 ## Uninstall
 
@@ -222,7 +201,14 @@ rm -f "$HOME/.local/share/man/man1/ani-cli-mx.1"
 If you installed from AUR:
 
 ```sh
+sudo pacman -Rns ani-cli-mx
 sudo pacman -Rns ani-cli-mx-git
+```
+
+If you installed from APT:
+
+```sh
+sudo apt remove ani-cli-mx
 ```
 
 ## Dependencies
@@ -301,15 +287,19 @@ More options are available in:
 
 Is there an official AUR package right now?
 
-- Yes. The current AUR package name is `ani-cli-mx-git`.
+- Yes. Stable releases use `ani-cli-mx`; development builds use `ani-cli-mx-git`.
 
-Are apt and Scoop supported right now?
+Are Ubuntu-based distros supported right now?
 
-- No. They are planned targets, not current install methods.
+- Yes. Add the PPA above, then install with `sudo apt install ani-cli-mx`.
+
+Is WSL supported right now?
+
+- Yes. Use your WSL distro of choice and follow the matching install path above.
 
 Why `ani-cli-mx-git` instead of `ani-cli-mx` for Arch packaging?
 
-- Because this repo currently has no tagged releases, a `-git` package is the honest format, and giving it the `ani-cli-mx-git` command leaves `ani-cli-mx` available for a future stable package.
+- `ani-cli-mx-git` follows the development branch. Stable releases use `ani-cli-mx`.
 
 Can I choose a different player?
 
