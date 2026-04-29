@@ -83,7 +83,13 @@ Use the install path for your WSL distro of choice.
 - for Arch-based WSL distros, use the AUR instructions above
 - for Ubuntu-based WSL distros, use the PPA instructions above
 - run `ani-cli-mx` from inside WSL, not from Windows PowerShell
-- `mpv` works best with WSLg
+- `mpv` works best with WSLg. Install it on Windows with Scoop:
+
+  ```powershell
+  Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+  Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression
+  scoop install mpv
+  ```
 
 </details>
 
