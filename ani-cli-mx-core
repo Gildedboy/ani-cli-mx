@@ -191,12 +191,34 @@ extract_with_ytdlp() {
     select_ytdlp_url "$candidate_urls"
 }
 
+normalize_romanized_text() {
+    printf '%s' "$1" | sed '
+        s/[Āā]/aa/g
+        s/[Ēē]/ei/g
+        s/[Īī]/ii/g
+        s/[Ōō]/ou/g
+        s/[Ūū]/uu/g
+        s/[ÂÀÁÄÃÅâàáäãå]/a/g
+        s/[ÊÈÉËêèéë]/e/g
+        s/[ÎÌÍÏîìíï]/i/g
+        s/[ÔÒÓÖÕôòóöõ]/o/g
+        s/[ÛÙÚÜûùúü]/u/g
+        s/[Çç]/c/g
+        s/[Ññ]/n/g
+    '
+}
+
+search_query_from_text() {
+    normalize_romanized_text "$(printf '%s' "$1" | sed 's|+| |g')" |
+        sed 's|[[:space:]]\+|+|g; s|^+||; s|+$||'
+}
+
 normalize_match_key() {
-    printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -cd '[:alnum:]'
+    normalize_romanized_text "$1" | tr '[:upper:]' '[:lower:]' | tr -cd '[:alnum:]'
 }
 
 normalize_match_words() {
-    printf '%s' "$1" | tr '[:upper:]' '[:lower:]' |
+    normalize_romanized_text "$1" | tr '[:upper:]' '[:lower:]' |
         sed 's/[^[:alnum:]]\+/ /g; s/^ *//; s/ *$//; s/[[:space:]][[:space:]]*/ /g'
 }
 
@@ -809,7 +831,7 @@ select_animeflv_id() {
     cache_key="$1|$id"
     [ "$animeflv_selected_id_key" = "$cache_key" ] && [ -n "$animeflv_selected_id" ] && printf '%s\n' "$animeflv_selected_id" && return 0
 
-    animeflv_results="$(search_animeflv "$(printf '%s' "$1" | sed 's| |+|g')")"
+    animeflv_results="$(search_animeflv "$(search_query_from_text "$1")")"
     [ -z "$animeflv_results" ] && return 1
 
     best_id=""
@@ -846,7 +868,7 @@ select_jkanime_slug() {
     cache_key="$1|$id"
     [ "$jkanime_slug_key" = "$cache_key" ] && [ -n "$jkanime_slug" ] && printf '%s\n' "$jkanime_slug" && return 0
 
-    jkanime_results="$(search_jkanime "$(printf '%s' "$1" | sed 's| |+|g')")"
+    jkanime_results="$(search_jkanime "$(search_query_from_text "$1")")"
     [ -z "$jkanime_results" ] && return 1
 
     best_slug=""
@@ -2184,7 +2206,7 @@ case "$search" in
         # for checking new releases by specifying anime name
         [ "$search" = "nextep" ] && time_until_next_ep "$query"
 
-        query=$(printf "%s" "$query" | sed "s| |+|g")
+        query="$(search_query_from_text "$query")"
         anime_list=$(search_anime "$query")
         [ -z "$anime_list" ] && die "No se encontraron resultados"
         [ "$index" -eq "$index" ] 2>/dev/null && result=$(printf "%s" "$anime_list" | sed -n "${index}p")
