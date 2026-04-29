@@ -1,6 +1,6 @@
 #!/bin/sh
 
-version_number="1.1.0"
+version_number="1.1.1"
 app_name="${ANI_CLI_NAME:-${0##*/}}"
 log_tag="${ANI_CLI_LOG_TAG:-$app_name}"
 hist_state_name="${ANI_CLI_STATE_NAME:-$app_name}"
@@ -1354,6 +1354,9 @@ pick_animeflv_language() {
 extract_animeflv_links() {
     lang_entries="$(printf '%s' "$1" | tr -d '\n' | sed "s|.*\"$2\":\\[||" | sed 's|],"[A-Z][A-Z][A-Z]":.*||; s|]}$||; s|},{|}\
 {|g')"
+    disabled_mirrors="$(disabled_source_mirrors_for_source "animeflv")"
+    failed_mirrors=""
+    ok_mirrors=""
     primary_links=""
     fallback_links=""
     old_ifs=$IFS
@@ -1366,13 +1369,25 @@ extract_animeflv_links() {
         [ -z "$code" ] && continue
 
         server_name="$(source_label "$server")"
+        server_key="$(normalize_mirror_name "$server_name")"
+        if source_mirror_is_disabled_in_list "animeflv" "$server_name" "$disabled_mirrors"; then
+            source_status "AnimeFLV ${server_name}" "disabled"
+            continue
+        fi
+
         direct_link=""
         case "$server" in
             mega)
-                :
+                [ -n "$server_key" ] && ! printf '%s\n' "$failed_mirrors" | grep -Fxq "$server_key" &&
+                    failed_mirrors="${failed_mirrors}${failed_mirrors:+
+}${server_key}"
+                source_status "AnimeFLV ${server_name}" "skip"
                 ;;
             netu)
-                :
+                [ -n "$server_key" ] && ! printf '%s\n' "$failed_mirrors" | grep -Fxq "$server_key" &&
+                    failed_mirrors="${failed_mirrors}${failed_mirrors:+
+}${server_key}"
+                source_status "AnimeFLV ${server_name}" "skip"
                 ;;
             stape)
                 direct_link="$(extract_streamtape_link "$code")"
@@ -1381,8 +1396,14 @@ extract_animeflv_links() {
 source >${direct_link}>${server_name}
 site >${direct_link}>AnimeFLV
 "
+                    [ -n "$server_key" ] && ! printf '%s\n' "$ok_mirrors" | grep -Fxq "$server_key" &&
+                        ok_mirrors="${ok_mirrors}${ok_mirrors:+
+}${server_key}"
                     source_status "AnimeFLV ${server_name}" "ok"
                 else
+                    [ -n "$server_key" ] && ! printf '%s\n' "$failed_mirrors" | grep -Fxq "$server_key" &&
+                        failed_mirrors="${failed_mirrors}${failed_mirrors:+
+}${server_key}"
                     source_status "AnimeFLV ${server_name}" "skip"
                 fi
                 ;;
@@ -1394,8 +1415,14 @@ referrer >${direct_link}>${code}
 source >${direct_link}>${server_name}
 site >${direct_link}>AnimeFLV
 "
+                    [ -n "$server_key" ] && ! printf '%s\n' "$ok_mirrors" | grep -Fxq "$server_key" &&
+                        ok_mirrors="${ok_mirrors}${ok_mirrors:+
+}${server_key}"
                     source_status "AnimeFLV ${server_name}" "ok"
                 else
+                    [ -n "$server_key" ] && ! printf '%s\n' "$failed_mirrors" | grep -Fxq "$server_key" &&
+                        failed_mirrors="${failed_mirrors}${failed_mirrors:+
+}${server_key}"
                     source_status "AnimeFLV ${server_name}" "skip"
                 fi
                 ;;
@@ -1411,12 +1438,27 @@ site >${direct_link}>AnimeFLV
 source >${direct_link}>${server_name}
 site >${direct_link}>AnimeFLV
 "
+                    [ -n "$server_key" ] && ! printf '%s\n' "$ok_mirrors" | grep -Fxq "$server_key" &&
+                        ok_mirrors="${ok_mirrors}${ok_mirrors:+
+}${server_key}"
                     source_status "AnimeFLV ${server_name}" "ok"
                 else
+                    [ -n "$server_key" ] && ! printf '%s\n' "$failed_mirrors" | grep -Fxq "$server_key" &&
+                        failed_mirrors="${failed_mirrors}${failed_mirrors:+
+}${server_key}"
                     source_status "AnimeFLV ${server_name}" "skip"
                 fi
                 ;;
         esac
+    done
+    IFS=$old_ifs
+
+    old_ifs=$IFS
+    IFS='
+'
+    for mirror_key in $failed_mirrors; do
+        printf '%s\n' "$ok_mirrors" | grep -Fxq "$mirror_key" && continue
+        disable_source_mirror "animeflv" "$mirror_key"
     done
     IFS=$old_ifs
 
@@ -1690,7 +1732,7 @@ jkanime_ajax_episode_numbers() {
             -X POST "${jkanime_refr}/ajax/episodes/${anime_id}/${page_no}" --data "_token=${csrf_token}" \
             -H "X-Requested-With: XMLHttpRequest" -A "$agent")" || break
         episode_numbers="${episode_numbers}
-$(printf '%s' "$page_json" | grep -oE '\"number\":[0-9]+(\.[0-9]+)?' | cut -d: -f2)"
+$(printf '%s' "$page_json" | grep -oE '"number":[0-9]+(\.[0-9]+)?' | cut -d: -f2)"
         page_no=$((page_no + 1))
     done
 
