@@ -208,9 +208,33 @@ normalize_romanized_text() {
     '
 }
 
+normalize_romanized_text_plain() {
+    printf '%s' "$1" | sed '
+        s/[ĀāÂÀÁÄÃÅâàáäãå]/a/g
+        s/[ĒēÊÈÉËêèéë]/e/g
+        s/[ĪīÎÌÍÏîìíï]/i/g
+        s/[ŌōÔÒÓÖÕôòóöõ]/o/g
+        s/[ŪūÛÙÚÜûùúü]/u/g
+        s/[Çç]/c/g
+        s/[Ññ]/n/g
+    '
+}
+
+compact_search_query() {
+    sed 's|[[:space:]]\+|+|g; s|^+||; s|+$||'
+}
+
 search_query_from_text() {
     normalize_romanized_text "$(printf '%s' "$1" | sed 's|+| |g')" |
-        sed 's|[[:space:]]\+|+|g; s|^+||; s|+$||'
+        compact_search_query
+}
+
+search_query_candidates_from_text() {
+    query_text="$(printf '%s' "$1" | sed 's|+| |g')"
+    {
+        normalize_romanized_text "$query_text" | compact_search_query
+        normalize_romanized_text_plain "$query_text" | compact_search_query
+    } | sed '/^$/d' | awk '!seen[$0]++'
 }
 
 normalize_match_key() {
@@ -827,11 +851,29 @@ search_animeflv() {
         sed -nE 's|.*<a href="/anime/([^"]+)".*<h3 class="Title">([^<]+)</h3>.*|\1	\2|p'
 }
 
+search_animeflv_variants() {
+    for candidate_query in $(search_query_candidates_from_text "$1"); do
+        search_animeflv "$candidate_query"
+    done | awk '!seen[$0]++'
+}
+
+search_jkanime_variants() {
+    for candidate_query in $(search_query_candidates_from_text "$1"); do
+        search_jkanime "$candidate_query"
+    done | awk '!seen[$0]++'
+}
+
+search_animeav1_variants() {
+    for candidate_query in $(search_query_candidates_from_text "$1"); do
+        search_animeav1 "$candidate_query"
+    done | awk '!seen[$0]++'
+}
+
 select_animeflv_id() {
     cache_key="$1|$id"
     [ "$animeflv_selected_id_key" = "$cache_key" ] && [ -n "$animeflv_selected_id" ] && printf '%s\n' "$animeflv_selected_id" && return 0
 
-    animeflv_results="$(search_animeflv "$(search_query_from_text "$1")")"
+    animeflv_results="$(search_animeflv_variants "$1")"
     [ -z "$animeflv_results" ] && return 1
 
     best_id=""
@@ -868,7 +910,7 @@ select_jkanime_slug() {
     cache_key="$1|$id"
     [ "$jkanime_slug_key" = "$cache_key" ] && [ -n "$jkanime_slug" ] && printf '%s\n' "$jkanime_slug" && return 0
 
-    jkanime_results="$(search_jkanime "$(search_query_from_text "$1")")"
+    jkanime_results="$(search_jkanime_variants "$1")"
     [ -z "$jkanime_results" ] && return 1
 
     best_slug=""
@@ -1634,20 +1676,25 @@ get_episode_url() {
 search_anime_for_source() {
     case "$1" in
         animeflv)
-            source_results="$(search_animeflv "$2")"
+            source_results="$(search_animeflv_variants "$2")"
             [ -n "$source_results" ] && prefix_search_results "animeflv" "$source_results"
             ;;
         jkanime)
-            source_results="$(search_jkanime "$2")"
+            source_results="$(search_jkanime_variants "$2")"
             [ -n "$source_results" ] && prefix_search_results "jkanime" "$source_results"
             ;;
         animeav1)
-            source_results="$(search_animeav1 "$2")"
+            source_results="$(search_animeav1_variants "$2")"
             [ -n "$source_results" ] && prefix_search_results "animeav1" "$source_results"
             ;;
         allanime)
-            fallback_query="$(printf '%s' "$2" | sed 's|+| |g')"
-            source_results="$(search_allanime_catalog "$fallback_query")"
+            source_results=""
+            for fallback_query in $(search_query_candidates_from_text "$2"); do
+                fallback_results="$(search_allanime_catalog "$(printf '%s' "$fallback_query" | sed 's|+| |g')")"
+                [ -n "$fallback_results" ] && source_results="${source_results}${fallback_results}
+"
+            done
+            source_results="$(printf '%s' "$source_results" | sed '/^$/d' | awk '!seen[$0]++')"
             [ -n "$source_results" ] && prefix_allanime_search_results "$source_results"
             ;;
     esac
@@ -1660,14 +1707,14 @@ search_anime() {
     fi
 
     search_results=""
-    animeflv_results="$(search_animeflv "$1")"
+    animeflv_results="$(search_animeflv_variants "$1")"
     [ -n "$animeflv_results" ] && search_results="${search_results}$(prefix_search_results "animeflv" "$animeflv_results")
 "
-    jkanime_results="$(search_jkanime "$1")"
+    jkanime_results="$(search_jkanime_variants "$1")"
     [ -n "$jkanime_results" ] && search_results="${search_results}$(prefix_search_results "jkanime" "$jkanime_results")
 "
 
-    animeav1_results="$(search_animeav1 "$1")"
+    animeav1_results="$(search_animeav1_variants "$1")"
     [ -n "$animeav1_results" ] && search_results="${search_results}$(prefix_search_results "animeav1" "$animeav1_results")
 "
 
@@ -1676,8 +1723,13 @@ search_anime() {
         return 0
     fi
 
-    fallback_query="$(printf '%s' "$1" | sed 's|+| |g')"
-    allanime_results="$(search_allanime_catalog "$fallback_query")"
+    allanime_results=""
+    for fallback_query in $(search_query_candidates_from_text "$1"); do
+        fallback_results="$(search_allanime_catalog "$(printf '%s' "$fallback_query" | sed 's|+| |g')")"
+        [ -n "$fallback_results" ] && allanime_results="${allanime_results}${fallback_results}
+"
+    done
+    allanime_results="$(printf '%s' "$allanime_results" | sed '/^$/d' | awk '!seen[$0]++')"
     [ -n "$allanime_results" ] && prefix_allanime_search_results "$allanime_results"
 }
 
@@ -2206,7 +2258,7 @@ case "$search" in
         # for checking new releases by specifying anime name
         [ "$search" = "nextep" ] && time_until_next_ep "$query"
 
-        query="$(search_query_from_text "$query")"
+        query=$(printf "%s" "$query" | sed "s| |+|g")
         anime_list=$(search_anime "$query")
         [ -z "$anime_list" ] && die "No se encontraron resultados"
         [ "$index" -eq "$index" ] 2>/dev/null && result=$(printf "%s" "$anime_list" | sed -n "${index}p")
