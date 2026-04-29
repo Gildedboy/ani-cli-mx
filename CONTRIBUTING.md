@@ -8,6 +8,7 @@
 - Avoid adding dependencies unless they are clearly justified.
 - Keep changes focused; unrelated cleanup should be split into a separate pull request.
 - Test the paths you modified. For script changes, that usually means at least search, episode selection, and playback or debug-mode link output.
+- Run `tests/sanity.sh` before committing script changes. Use `tests/sanity.sh --network` when you need the debug-mode source smoke tests.
 
 ## Issues
 

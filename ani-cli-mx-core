@@ -1,6 +1,6 @@
 #!/bin/sh
 
-version_number="1.0.0"
+version_number="1.1.0"
 app_name="${ANI_CLI_NAME:-${0##*/}}"
 log_tag="${ANI_CLI_LOG_TAG:-$app_name}"
 hist_state_name="${ANI_CLI_STATE_NAME:-$app_name}"
@@ -63,6 +63,8 @@ help_info() {
         Use Syncplay to watch with friends
       -S, --select-nth
         Select nth entry
+      -f, --fast, --fast-mode
+        Fast mode: keep using the chosen Spanish source for this session
       -q, --quality
         Specify the video quality
       -v, --vlc
@@ -432,6 +434,83 @@ info_source_label() {
     esac
 }
 
+source_key_from_label() {
+    case "$1" in
+        AnimeFLV | AnimeFLV\ *) printf '%s\n' "animeflv" ;;
+        JKAnime | JKAnime\ *) printf '%s\n' "jkanime" ;;
+        AnimeAV1 | AnimeAV1\ *) printf '%s\n' "animeav1" ;;
+        *) return 1 ;;
+    esac
+}
+
+is_spanish_source() {
+    case "$1" in
+        animeflv | jkanime | animeav1) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+seed_fast_mode_source() {
+    [ "$fast_mode" = "1" ] || return 0
+    [ -n "$fast_mode_source" ] && return 0
+
+    selected_fast_source="$(site_name_from_ref "$id" 2>/dev/null || true)"
+    if ! is_spanish_source "$selected_fast_source" && is_spanish_source "$preferred_info_source"; then
+        selected_fast_source="$preferred_info_source"
+    fi
+    is_spanish_source "$selected_fast_source" || return 0
+
+    fast_mode_source="$selected_fast_source"
+    preferred_spanish_site="$(info_source_label "$fast_mode_source")"
+    fast_mode_ep_list="$(episodes_list_for_source "$fast_mode_source" "$id" "$title")"
+    [ -n "$fast_mode_ep_list" ] && ep_list="$fast_mode_ep_list"
+}
+
+source_is_disabled() {
+    case " $disabled_spanish_sources " in
+        *" $1 "*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+disable_spanish_source() {
+    [ -n "$1" ] || return 0
+    source_is_disabled "$1" && return 0
+    disabled_spanish_sources="${disabled_spanish_sources}${disabled_spanish_sources:+ }$1"
+    if [ "$fast_mode_source" = "$1" ]; then
+        fast_mode_source=""
+        fast_mode_ep_list=""
+        ep_list="$(episodes_list "$id" "$title")"
+    fi
+    printf "Fast mode: desactivando %s para esta sesion.\n" "$(info_source_label "$1")" 1>&2
+}
+
+normalize_mirror_name() {
+    printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed 's|[[:space:]]\+|_|g'
+}
+
+source_mirror_is_disabled_in_list() {
+    mirror_key="$(normalize_mirror_name "$2")"
+    printf '%s\n' "$3" | grep -Fxq "$1>${mirror_key}"
+}
+
+disabled_source_mirrors_for_source() {
+    [ -n "$fast_mode_mirror_file" ] && [ -f "$fast_mode_mirror_file" ] || return 0
+    grep -E "^$1>" "$fast_mode_mirror_file" 2>/dev/null || true
+}
+
+disable_source_mirror() {
+    [ "$fast_mode" = "1" ] || return 0
+    [ "$fast_mode_source" = "$1" ] || return 0
+    [ -n "$2" ] || return 0
+    mirror_key="$(normalize_mirror_name "$2")"
+    [ -n "$mirror_key" ] || return 0
+    [ -n "$fast_mode_mirror_file" ] || return 0
+    mirror_entry="$1>${mirror_key}"
+    [ -f "$fast_mode_mirror_file" ] && grep -Fxq "$mirror_entry" "$fast_mode_mirror_file" && return 0
+    printf '%s\n' "$mirror_entry" >>"$fast_mode_mirror_file"
+}
+
 source_label() {
     case "$1" in
         sw) printf '%s' "StreamWish" ;;
@@ -532,6 +611,7 @@ available_site_entries() {
 }
 
 set_links_for_site() {
+    site_key="$(source_key_from_label "$1" 2>/dev/null || true)"
     case "$1" in
         AnimeFLV) links="$animeflv_links" ;;
         JKAnime) links="$jkanime_links" ;;
@@ -540,6 +620,15 @@ set_links_for_site() {
     esac
     selected_spanish_site="$1"
     preferred_spanish_site="$1"
+    if [ "$fast_mode" = "1" ]; then
+        if source_is_disabled "$site_key"; then
+            disable_spanish_source "$site_key"
+        else
+            fast_mode_source="$site_key"
+            fast_mode_ep_list="$(episodes_list_for_source "$fast_mode_source" "$id" "$title")"
+            [ -n "$fast_mode_ep_list" ] && ep_list="$fast_mode_ep_list"
+        fi
+    fi
     return 0
 }
 
@@ -1012,6 +1101,9 @@ extract_animeav1_links() {
     selected_lang="$3"
     embed_entries="$(extract_animeav1_entries "$embeds_blob" "$selected_lang")"
     download_entries="$(extract_animeav1_entries "$downloads_blob" "$selected_lang")"
+    disabled_mirrors="$(disabled_source_mirrors_for_source "animeav1")"
+    failed_mirrors=""
+    ok_mirrors=""
     primary_links=""
     old_ifs=$IFS
     IFS='
@@ -1022,6 +1114,11 @@ extract_animeav1_links() {
         remote_url="$(printf '%s' "$entry" | sed -nE 's|.*url:"([^"]+)".*|\1|p')"
         [ -z "$server_name" ] && continue
         [ -z "$remote_url" ] && continue
+        server_key="$(normalize_mirror_name "$server_name")"
+        if source_mirror_is_disabled_in_list "animeav1" "$server_name" "$disabled_mirrors"; then
+            source_status "AnimeAV1 ${server_name}" "disabled"
+            continue
+        fi
 
         case "$(printf '%s' "$server_name" | tr '[:upper:]' '[:lower:]')" in
             mega)
@@ -1037,8 +1134,14 @@ source >${direct_link}>${server_name}
 site >${direct_link}>AnimeAV1
 "
                     fi
+                    [ -n "$server_key" ] && ! printf '%s\n' "$ok_mirrors" | grep -Fxq "$server_key" &&
+                        ok_mirrors="${ok_mirrors}${ok_mirrors:+
+}${server_key}"
                     source_status "AnimeAV1 ${server_name}" "ok"
                 else
+                    [ -n "$server_key" ] && ! printf '%s\n' "$failed_mirrors" | grep -Fxq "$server_key" &&
+                        failed_mirrors="${failed_mirrors}${failed_mirrors:+
+}${server_key}"
                     source_status "AnimeAV1 ${server_name}" "skip"
                 fi
                 continue
@@ -1053,10 +1156,25 @@ source >${direct_link}>${server_name}
 site >${direct_link}>AnimeAV1
 "
             fi
+            [ -n "$server_key" ] && ! printf '%s\n' "$ok_mirrors" | grep -Fxq "$server_key" &&
+                ok_mirrors="${ok_mirrors}${ok_mirrors:+
+}${server_key}"
             source_status "AnimeAV1 ${server_name}" "ok"
         else
+            [ -n "$server_key" ] && ! printf '%s\n' "$failed_mirrors" | grep -Fxq "$server_key" &&
+                failed_mirrors="${failed_mirrors}${failed_mirrors:+
+}${server_key}"
             source_status "AnimeAV1 ${server_name}" "skip"
         fi
+    done
+    IFS=$old_ifs
+
+    old_ifs=$IFS
+    IFS='
+'
+    for mirror_key in $failed_mirrors; do
+        printf '%s\n' "$ok_mirrors" | grep -Fxq "$mirror_key" && continue
+        disable_source_mirror "animeav1" "$mirror_key"
     done
     IFS=$old_ifs
 
@@ -1263,9 +1381,9 @@ extract_animeflv_links() {
 source >${direct_link}>${server_name}
 site >${direct_link}>AnimeFLV
 "
-                    source_status "$server_name" "ok"
+                    source_status "AnimeFLV ${server_name}" "ok"
                 else
-                    source_status "$server_name" "skip"
+                    source_status "AnimeFLV ${server_name}" "skip"
                 fi
                 ;;
             yu)
@@ -1276,9 +1394,9 @@ referrer >${direct_link}>${code}
 source >${direct_link}>${server_name}
 site >${direct_link}>AnimeFLV
 "
-                    source_status "$server_name" "ok"
+                    source_status "AnimeFLV ${server_name}" "ok"
                 else
-                    source_status "$server_name" "skip"
+                    source_status "AnimeFLV ${server_name}" "skip"
                 fi
                 ;;
             *)
@@ -1293,9 +1411,9 @@ site >${direct_link}>AnimeFLV
 source >${direct_link}>${server_name}
 site >${direct_link}>AnimeFLV
 "
-                    source_status "$server_name" "ok"
+                    source_status "AnimeFLV ${server_name}" "ok"
                 else
-                    source_status "$server_name" "skip"
+                    source_status "AnimeFLV ${server_name}" "skip"
                 fi
                 ;;
         esac
@@ -1307,6 +1425,63 @@ site >${direct_link}>AnimeFLV
     else
         printf '%s' "$fallback_links"
     fi
+}
+
+resolve_spanish_source_links() {
+    case "$1" in
+        animeflv)
+            animeflv_id="$(show_ref_value_for_site "$id" "animeflv")"
+            [ -z "$animeflv_id" ] && [ "$id" = "${id#*:}" ] && animeflv_id="$id"
+            [ -z "$animeflv_id" ] && animeflv_id="$(select_animeflv_id "$title")"
+            if [ -n "$animeflv_id" ]; then
+                episode_page="$(animeflv_request "${allanime_refr}/ver/${animeflv_id}-${ep_no}")" || episode_page=""
+            else
+                episode_page=""
+            fi
+
+            if [ -n "$episode_page" ]; then
+                videos_json="$(printf '%s' "$episode_page" | tr '\n' ' ' | sed -nE 's|.*var videos = (\{.*\});[[:space:]]*// var videos.*|\1|p')"
+                selected_lang="$(pick_animeflv_language "$videos_json")"
+                if [ -n "$selected_lang" ]; then
+                    [ "$mode" = "dub" ] && [ "$selected_lang" = "SUB" ] && printf "No hay doblaje disponible en AnimeFLV, usando subtitulado\n" 1>&2
+                    extract_animeflv_links "$videos_json" "$selected_lang" | sort -g -r -s
+                else
+                    printf "AnimeFLV sin idioma reproducible.\n" 1>&2
+                    return 1
+                fi
+            elif [ -n "$animeflv_id" ]; then
+                printf "AnimeFLV no respondio.\n" 1>&2
+                return 1
+            else
+                return 1
+            fi
+            ;;
+        jkanime)
+            resolve_jkanime_episode "$title" "$ep_no" | sort -g -r -s
+            ;;
+        animeav1)
+            resolve_animeav1_episode "$title" "$ep_no" | sort -g -r -s
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+store_spanish_links_for_source() {
+    site_name="$1"
+    site_links="$(resolve_spanish_source_links "$site_name")"
+    site_links="$(filter_playable_links "$site_links")"
+    site_links="$(filter_links_by_episode_catalog "$site_name" "$site_links" "$authoritative_site" "$authoritative_ep_list")"
+
+    case "$site_name" in
+        animeflv) animeflv_links="$site_links" ;;
+        jkanime) jkanime_links="$site_links" ;;
+        animeav1) animeav1_links="$site_links" ;;
+        *) return 1 ;;
+    esac
+
+    [ -n "$site_links" ]
 }
 
 select_quality() {
@@ -1359,38 +1534,23 @@ get_episode_url() {
     authoritative_ep_list=""
     [ -n "$authoritative_site" ] && authoritative_ep_list="$(episodes_list_for_source "$authoritative_site" "$id" "$title")"
     [ -z "$authoritative_ep_list" ] && authoritative_ep_list="$ep_list"
+    seed_fast_mode_source
 
-    animeflv_id="$(show_ref_value_for_site "$id" "animeflv")"
-    [ -z "$animeflv_id" ] && [ "$id" = "${id#*:}" ] && animeflv_id="$id"
-    [ -z "$animeflv_id" ] && animeflv_id="$(select_animeflv_id "$title")"
-    if [ -n "$animeflv_id" ]; then
-        episode_page="$(animeflv_request "${allanime_refr}/ver/${animeflv_id}-${ep_no}")" || episode_page=""
-    else
-        episode_page=""
-    fi
-
-    if [ -n "$episode_page" ]; then
-        videos_json="$(printf '%s' "$episode_page" | tr '\n' ' ' | sed -nE 's|.*var videos = (\{.*\});[[:space:]]*// var videos.*|\1|p')"
-        selected_lang="$(pick_animeflv_language "$videos_json")"
-        if [ -n "$selected_lang" ]; then
-            [ "$mode" = "dub" ] && [ "$selected_lang" = "SUB" ] && printf "No hay doblaje disponible en AnimeFLV, usando subtitulado\n" 1>&2
-            animeflv_links="$(extract_animeflv_links "$videos_json" "$selected_lang" | sort -g -r -s)"
-            animeflv_links="$(filter_playable_links "$animeflv_links")"
-            animeflv_links="$(filter_links_by_episode_catalog "animeflv" "$animeflv_links" "$authoritative_site" "$authoritative_ep_list")"
-        else
-            printf "AnimeFLV sin idioma reproducible.\n" 1>&2
+    if [ "$fast_mode" = "1" ] && [ -n "$fast_mode_source" ] && ! source_is_disabled "$fast_mode_source"; then
+        if ! store_spanish_links_for_source "$fast_mode_source"; then
+            disable_spanish_source "$fast_mode_source"
         fi
-    elif [ -n "$animeflv_id" ]; then
-        printf "AnimeFLV no respondio.\n" 1>&2
     fi
 
-    jkanime_links="$(resolve_jkanime_episode "$title" "$ep_no" | sort -g -r -s)"
-    jkanime_links="$(filter_playable_links "$jkanime_links")"
-    jkanime_links="$(filter_links_by_episode_catalog "jkanime" "$jkanime_links" "$authoritative_site" "$authoritative_ep_list")"
-
-    animeav1_links="$(resolve_animeav1_episode "$title" "$ep_no" | sort -g -r -s)"
-    animeav1_links="$(filter_playable_links "$animeav1_links")"
-    animeav1_links="$(filter_links_by_episode_catalog "animeav1" "$animeav1_links" "$authoritative_site" "$authoritative_ep_list")"
+    for site_name in animeflv jkanime animeav1; do
+        case "$site_name" in
+            animeflv) [ -n "$animeflv_links" ] && continue ;;
+            jkanime) [ -n "$jkanime_links" ] && continue ;;
+            animeav1) [ -n "$animeav1_links" ] && continue ;;
+        esac
+        [ "$fast_mode" = "1" ] && [ -n "$fast_mode_source" ] && continue
+        store_spanish_links_for_source "$site_name" || true
+    done
 
     if pick_spanish_source_links "$animeflv_links" "$jkanime_links" "$animeav1_links"; then
         [ -n "$selected_spanish_site" ] && printf "Fuente elegida: %s\n" "$selected_spanish_site" 1>&2
@@ -1839,6 +1999,12 @@ use_external_menu="${ANI_CLI_EXTERNAL_MENU:-0}"
 external_menu_normal_window="${ANI_CLI_EXTERNAL_MENU_NORMAL_WINDOW:-0}"
 skip_intro="${ANI_CLI_SKIP_INTRO:-0}"
 hqq_browser_fallback="${ANI_CLI_HQQ_BROWSER_FALLBACK:-1}"
+fast_mode="${ANI_CLI_FAST_MODE:-0}"
+fast_mode_source=""
+fast_mode_ep_list=""
+disabled_spanish_sources=""
+fast_mode_mirror_file="$(mktemp)"
+trap 'rm -f "$fast_mode_mirror_file"' EXIT HUP INT TERM
 # shellcheck disable=SC2154
 skip_title="$ANI_CLI_SKIP_TITLE"
 [ -t 0 ] || (command -v dmenu && use_external_menu=2)
@@ -1879,6 +2045,7 @@ while [ $# -gt 0 ]; do
             index="$2"
             shift
             ;;
+        -f | --fast | --fast-mode) fast_mode=1 ;;
         -c | --continue) search=history ;;
         -d | --download)
             [ "$player_function" = "iSH" ] && iSH_DownFix="--async-dns=false"
@@ -1930,6 +2097,7 @@ done
 [ "$use_external_menu" = "1" ] && multi_selection_flag="${ANI_CLI_MULTI_SELECTION:-"-multi-select"}"
 [ "$external_menu_normal_window" = "1" ] && external_menu_args="-normal-window"
 [ "$preferred_info_source" != "auto" ] && printf "Usando fuente de informacion: %s\n" "$(info_source_label "$preferred_info_source")" 1>&2
+[ "$fast_mode" = "1" ] && printf "Fast mode activado: se reutilizara la fuente elegida durante esta sesion.\n" 1>&2
 printf "\33[2K\r\033[1;34mVerificando dependencias...\033[0m\n"
 dep_ch "curl" "sed" "grep" || true
 case "$(uname -o 2>/dev/null)" in

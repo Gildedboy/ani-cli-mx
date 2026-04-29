@@ -49,6 +49,9 @@ Use VLC as the media player.
 \fB\-S | --select-nth\fR \fI\,<index>\/\fR
 Selects nth entry.
 .TP
+\fB\-f | --fast | --fast-mode\fR
+Keep using the chosen Spanish source for later episodes in the same session. If that source stops producing valid links, fall back to the normal source search and skip the failed source for the rest of the session.
+.TP
 \fB\--source | --info-source\fR \fI\,<auto|animeflv|jkanime|animeav1|allanime>\/\fR
 Choose which source provides search results and episode information. Default is auto.
 .TP
@@ -110,6 +113,9 @@ Controls the default source. Valid is history (equivalent to -c), everything els
 .TP
 \fBANI_CLI_INFO_SOURCE\fR
 Controls which source provides search results and episode information. Valid options are auto, animeflv, jkanime, animeav1, and allanime. Default is auto.
+.TP
+\fBANI_CLI_FAST_MODE\fR
+Controls fast mode. Set to 1 to keep using the chosen Spanish source for later episodes in the same session.
 .TP
 \fBANI_CLI_SKIP_INTRO\fR
 Controls if ani-skip is used to skip intros (works with mpv only). Can be 0 (disabled) or 1 (enabled). Default is 0.

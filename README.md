@@ -325,6 +325,12 @@ Play dubbed if available:
 ani-cli-mx --dub "one piece"
 ```
 
+Keep using the chosen Spanish source for the rest of the session, falling back to the normal source search if it stops producing valid links:
+
+```sh
+ani-cli-mx -f "one piece"
+```
+
 Download episodes:
 
 ```sh
@@ -371,7 +377,7 @@ Can I change dub language?
 
 Can I change media source manually?
 
-- Not as a stable playback picker. You can influence search/info with `--source`, but playback still follows the project's source-selection logic.
+- Yes. Use `-f` to keep using the source you choose for later episodes in the same session. You can also influence search/info with `--source`.
 
 Can I adjust resolution?
 
