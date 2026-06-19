@@ -1,6 +1,6 @@
 #!/bin/sh
 
-version_number="1.1.1"
+version_number="1.1.2"
 app_name="${ANI_CLI_NAME:-${0##*/}}"
 log_tag="${ANI_CLI_LOG_TAG:-$app_name}"
 hist_state_name="${ANI_CLI_STATE_NAME:-$app_name}"
@@ -64,7 +64,9 @@ help_info() {
       -S, --select-nth
         Select nth entry
       -f, --fast, --fast-mode
-        Fast mode: keep using the chosen Spanish source for this session
+        Fast mode is the default: keep using the chosen Spanish source for this session
+      --slow, --classic, --no-fast
+        Use the previous source search behavior for every episode
       -q, --quality
         Specify the video quality
       -v, --vlc
@@ -2115,7 +2117,7 @@ use_external_menu="${ANI_CLI_EXTERNAL_MENU:-0}"
 external_menu_normal_window="${ANI_CLI_EXTERNAL_MENU_NORMAL_WINDOW:-0}"
 skip_intro="${ANI_CLI_SKIP_INTRO:-0}"
 hqq_browser_fallback="${ANI_CLI_HQQ_BROWSER_FALLBACK:-1}"
-fast_mode="${ANI_CLI_FAST_MODE:-0}"
+fast_mode="${ANI_CLI_FAST_MODE:-1}"
 fast_mode_source=""
 fast_mode_ep_list=""
 disabled_spanish_sources=""
@@ -2162,6 +2164,7 @@ while [ $# -gt 0 ]; do
             shift
             ;;
         -f | --fast | --fast-mode) fast_mode=1 ;;
+        --slow | --classic | --no-fast) fast_mode=0 ;;
         -c | --continue) search=history ;;
         -d | --download)
             [ "$player_function" = "iSH" ] && iSH_DownFix="--async-dns=false"
@@ -2213,7 +2216,7 @@ done
 [ "$use_external_menu" = "1" ] && multi_selection_flag="${ANI_CLI_MULTI_SELECTION:-"-multi-select"}"
 [ "$external_menu_normal_window" = "1" ] && external_menu_args="-normal-window"
 [ "$preferred_info_source" != "auto" ] && printf "Usando fuente de informacion: %s\n" "$(info_source_label "$preferred_info_source")" 1>&2
-[ "$fast_mode" = "1" ] && printf "Fast mode activado: se reutilizara la fuente elegida durante esta sesion.\n" 1>&2
+[ "$fast_mode" = "0" ] && printf "Modo clasico activado: se buscara fuente para cada episodio.\n" 1>&2
 printf "\33[2K\r\033[1;34mVerificando dependencias...\033[0m\n"
 dep_ch "curl" "sed" "grep" || true
 case "$(uname -o 2>/dev/null)" in

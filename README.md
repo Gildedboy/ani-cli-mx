@@ -331,10 +331,16 @@ Play dubbed if available:
 ani-cli-mx --dub "one piece"
 ```
 
-Keep using the chosen Spanish source for the rest of the session, falling back to the normal source search if it stops producing valid links:
+By default, ani-cli-mx keeps using the chosen Spanish source for the rest of the session, falling back to the normal source search if it stops producing valid links:
 
 ```sh
-ani-cli-mx -f "one piece"
+ani-cli-mx "one piece"
+```
+
+Use the previous classic source search behavior:
+
+```sh
+ani-cli-mx --classic "one piece"
 ```
 
 Download episodes:
@@ -383,7 +389,7 @@ Can I change dub language?
 
 Can I change media source manually?
 
-- Yes. Use `-f` to keep using the source you choose for later episodes in the same session. You can also influence search/info with `--source`.
+- Yes. Fast mode is the default, so ani-cli-mx keeps using the source you choose for later episodes in the same session. Use `--classic`, `--slow`, or `--no-fast` for the previous per-episode source search. You can also influence search/info with `--source`.
 
 Can I adjust resolution?
 

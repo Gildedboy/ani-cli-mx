@@ -27,7 +27,7 @@ run_debug_smoke() {
     grep -q "Enlace seleccionado:" "$clean_file"
 
     env ANI_CLI_PLAYER=debug ANI_CLI_NO_DETACH=1 ./ani-cli-mx \
-        --source animeav1 -f -S 1 -e "13 14" "vinland saga season 2" >"$output_file" 2>&1
+        --source animeav1 -S 1 -e "13 14" "vinland saga season 2" >"$output_file" 2>&1
     strip_ansi <"$output_file" >"$clean_file"
     grep -q "Reproduciendo episodio 14" "$clean_file"
     grep -q "Fuente seleccionada:" "$clean_file"
