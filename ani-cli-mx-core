@@ -1,6 +1,6 @@
 #!/bin/sh
 
-version_number="1.1.3"
+version_number="1.1.4"
 app_name="${ANI_CLI_NAME:-${0##*/}}"
 log_tag="${ANI_CLI_LOG_TAG:-$app_name}"
 hist_state_name="${ANI_CLI_STATE_NAME:-$app_name}"
@@ -69,6 +69,8 @@ help_info() {
         Use the previous source search behavior for every episode
       --continuous, --auto-next
         Automatically play the next episode after mpv exits
+      --close-previous
+        Close the previous tracked player before opening another episode
       -q, --quality
         Specify the video quality
       -v, --vlc
@@ -2021,6 +2023,7 @@ download() {
 play_episode() {
     manual_handoff=0
     player_pid=""
+    set_current_episode "$ep_no"
     [ "$log_episode" = 1 ] && [ "$player_function" != "debug" ] && [ "$player_function" != "download" ] && command -v logger >/dev/null && logger -t "$log_tag" "${allanime_title}${ep_no}"
     [ "$skip_intro" = 1 ] && skip_flag="$(ani-skip -q "$mal_id" -e "$ep_no")"
     [ -z "$episode" ] && get_episode_url
@@ -2121,13 +2124,32 @@ play() {
     [ "$player_function" != "debug" ] && [ "$player_function" != "download" ] && tput rc && tput ed
 }
 
+set_current_episode() {
+    [ -n "$1" ] && printf '%s\n' "$1" >"$current_episode_file"
+}
+
+current_episode_number() {
+    if [ -s "$current_episode_file" ]; then
+        sed -n '1p' "$current_episode_file"
+    else
+        printf '%s\n' "$ep_no"
+    fi
+}
+
+sync_current_episode() {
+    synced_ep="$(current_episode_number)"
+    [ -n "$synced_ep" ] && ep_no="$synced_ep"
+}
+
 next_episode_number() {
-    printf "%s\n" "$ep_list" | sed -n "/^${ep_no}$/{n;p;}" | head -n1
+    current_ep="${1:-$ep_no}"
+    printf "%s\n" "$ep_list" | sed -n "/^${current_ep}$/{n;p;}" | head -n1
 }
 
 play_continuous() {
-    while next_ep="$(next_episode_number)" && [ -n "$next_ep" ]; do
+    while next_ep="$(next_episode_number "$(current_episode_number)")" && [ -n "$next_ep" ]; do
         ep_no="$next_ep"
+        set_current_episode "$ep_no"
         printf "\33[2K\r\033[1;34mReproduciendo episodio %s...\033[0m\n" "$ep_no"
         play_episode
     done
@@ -2156,6 +2178,39 @@ disable_continuous_mode() {
     continuous_worker_pid=""
 }
 
+close_previous_enabled() {
+    [ "$close_previous_player" = "1" ]
+}
+
+set_close_previous_mode() {
+    close_previous_player="$1"
+}
+
+close_tracked_player() {
+    [ -n "${player_pid:-}" ] || return 0
+    kill -0 "$player_pid" 2>/dev/null || return 0
+    kill "$player_pid" 2>/dev/null || true
+    wait "$player_pid" 2>/dev/null || true
+    player_pid=""
+}
+
+prepare_for_menu_playback() {
+    if close_previous_enabled; then
+        close_tracked_player
+    fi
+}
+
+start_continuous_worker_for_current_player() {
+    continuous_enabled || return 0
+    player_supports_continuous || return 0
+    [ -n "${player_pid:-}" ] || return 0
+    kill -0 "$player_pid" 2>/dev/null || return 0
+
+    [ -n "${continuous_worker_pid:-}" ] && kill "$continuous_worker_pid" 2>/dev/null || true
+    continuous_worker_loop "$player_pid" &
+    continuous_worker_pid=$!
+}
+
 wait_for_pid_to_exit() {
     [ -n "$1" ] || return 0
     while kill -0 "$1" 2>/dev/null; do
@@ -2167,7 +2222,7 @@ continuous_worker_loop() {
     watched_pid="$1"
     wait_for_pid_to_exit "$watched_pid"
     while continuous_enabled; do
-        next_ep="$(next_episode_number)"
+        next_ep="$(next_episode_number "$(current_episode_number)")"
         if [ -z "$next_ep" ]; then
             set_continuous_mode 0
             printf "No hay mas episodios disponibles.\n" 1>&2
@@ -2175,6 +2230,7 @@ continuous_worker_loop() {
         fi
 
         ep_no="$next_ep"
+        set_current_episode "$ep_no"
         printf "\33[2K\r\033[1;34mReproduciendo episodio %s...\033[0m\n" "$ep_no"
         play_episode
         wait_for_pid_to_exit "${player_pid:-}"
@@ -2194,9 +2250,17 @@ toggle_continuous_mode_from_menu() {
     fi
 
     set_continuous_mode 1
-    printf "Modo continuo activado. Cierra el reproductor actual para continuar automaticamente.\n" 1>&2
-    continuous_worker_loop "${player_pid:-}" &
-    continuous_worker_pid=$!
+    printf "Modo continuo activado. El proximo capitulo que reproduzcas avanzara automaticamente al terminar o cerrar el reproductor.\n" 1>&2
+}
+
+toggle_close_previous_from_menu() {
+    if close_previous_enabled; then
+        set_close_previous_mode 0
+        printf "Cerrar reproductor anterior desactivado.\n" 1>&2
+    else
+        set_close_previous_mode 1
+        printf "Cerrar reproductor anterior activado. Al abrir otro episodio desde el menu, se cerrara el reproductor observado anterior.\n" 1>&2
+    fi
 }
 
 playback_menu_options() {
@@ -2206,16 +2270,29 @@ playback_menu_options() {
     else
         printf "activar_modo_continuo\n"
     fi
+    if close_previous_enabled; then
+        printf "desactivar_cerrar_reproductor_anterior\n"
+    else
+        printf "activar_cerrar_reproductor_anterior\n"
+    fi
     printf "salir\n"
 }
 
 playback_menu_prompt() {
+    menu_ep="$(current_episode_number)"
     if continuous_enabled; then
         playback_mode="continuo"
+        playback_note="el proximo capitulo reproducido avanzara automaticamente"
     else
         playback_mode="manual"
+        playback_note="elige manualmente el siguiente capitulo"
     fi
-    printf "Reproduciendo episodio %s de %s... Modo de reproduccion actual: %s" "$ep_no" "$title" "$playback_mode"
+    if close_previous_enabled; then
+        close_note="cerrar anterior: si"
+    else
+        close_note="cerrar anterior: no"
+    fi
+    printf "Reproduciendo episodio %s de %s... Modo actual: %s - %s - %s" "$menu_ep" "$title" "$playback_mode" "$playback_note" "$close_note"
 }
 
 # MAIN
@@ -2259,6 +2336,7 @@ esac
 no_detach="${ANI_CLI_NO_DETACH:-0}"
 exit_after_play="${ANI_CLI_EXIT_AFTER_PLAY:-0}"
 continuous_mode="${ANI_CLI_CONTINUOUS:-0}"
+close_previous_player="${ANI_CLI_CLOSE_PREVIOUS:-0}"
 use_external_menu="${ANI_CLI_EXTERNAL_MENU:-0}"
 external_menu_normal_window="${ANI_CLI_EXTERNAL_MENU_NORMAL_WINDOW:-0}"
 skip_intro="${ANI_CLI_SKIP_INTRO:-0}"
@@ -2269,10 +2347,11 @@ fast_mode_ep_list=""
 disabled_spanish_sources=""
 fast_mode_mirror_file="$(mktemp)"
 continuous_state_file="$(mktemp)"
+current_episode_file="$(mktemp)"
 continuous_worker_pid=""
 cleanup() {
     [ -n "${continuous_worker_pid:-}" ] && kill "$continuous_worker_pid" 2>/dev/null || true
-    rm -f "$fast_mode_mirror_file" "$continuous_state_file"
+    rm -f "$fast_mode_mirror_file" "$continuous_state_file" "$current_episode_file"
 }
 trap cleanup EXIT
 trap 'cleanup; exit 130' HUP INT TERM
@@ -2319,6 +2398,7 @@ while [ $# -gt 0 ]; do
         -f | --fast | --fast-mode) fast_mode=1 ;;
         --slow | --classic | --no-fast) fast_mode=0 ;;
         --continuous | --auto-next) continuous_mode=1 ;;
+        --close-previous) close_previous_player=1 ;;
         -c | --continue) search=history ;;
         -d | --download)
             [ "$player_function" = "iSH" ] && iSH_DownFix="--async-dns=false"
@@ -2373,9 +2453,7 @@ done
 [ "$fast_mode" = "0" ] && printf "Modo clasico activado: se buscara fuente para cada episodio.\n" 1>&2
 if [ "$continuous_mode" = "1" ]; then
     case "$player_function" in
-        mpv* | */mpv | mpv.exe | */mpv.exe | flatpak_mpv)
-            no_detach=1
-            ;;
+        mpv* | */mpv | mpv.exe | */mpv.exe | flatpak_mpv) : ;;
         *)
             die "Modo continuo requiere mpv para detectar cuando termina el episodio"
             ;;
@@ -2451,30 +2529,36 @@ tput cuu1 && tput el
 tput sc
 
 # playback & loop
+if [ "$continuous_mode" = "1" ]; then
+    set_continuous_mode 1
+fi
 play
 [ "$player_function" = "download" ] || [ "$player_function" = "debug" ] && exit 0
-[ "$continuous_mode" = "1" ] && play_continuous && exit 0
+start_continuous_worker_for_current_player
 
 while cmd=$(playback_menu_options | nth "$(playback_menu_prompt) "); do
+    sync_current_episode
     case "$cmd" in
         siguiente)
-            disable_continuous_mode
+            prepare_for_menu_playback
             ep_no=$(printf "%s" "$ep_list" | sed -n "/^${ep_no}$/{n;p;}") 2>/dev/null
             ;;
         repetir | repetir_episodio_actual)
-            disable_continuous_mode
-            episode="$replay"
+            prepare_for_menu_playback
+            unset episode
             ;;
         anterior)
-            disable_continuous_mode
+            prepare_for_menu_playback
             ep_no=$(printf "%s" "$ep_list" | sed -n "/^${ep_no}$/{g;1!p;};h") 2>/dev/null
             ;;
         elegir | elegir_episodio)
-            disable_continuous_mode
+            prepare_for_menu_playback
             ep_no=$(printf "%s" "$ep_list" | nth "Selecciona episodio: " "$multi_selection_flag")
             ;;
         cambiar_calidad)
-            disable_continuous_mode
+            prepare_for_menu_playback
+            unset episode
+            get_episode_url
             current_site="$selected_site"
             current_quality="$selected_quality"
             site_choice=""
@@ -2505,10 +2589,15 @@ while cmd=$(playback_menu_options | nth "$(playback_menu_prompt) "); do
             toggle_continuous_mode_from_menu
             continue
             ;;
+        activar_cerrar_reproductor_anterior | desactivar_cerrar_reproductor_anterior)
+            toggle_close_previous_from_menu
+            continue
+            ;;
         *) exit 0 ;;
     esac
     [ -z "$ep_no" ] && die "Fuera de rango"
     play
+    start_continuous_worker_for_current_player
 done
 
 # ani-cli-mx fork
