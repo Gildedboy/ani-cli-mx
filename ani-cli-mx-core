@@ -1,6 +1,6 @@
 #!/bin/sh
 
-version_number="1.1.2"
+version_number="1.1.3"
 app_name="${ANI_CLI_NAME:-${0##*/}}"
 log_tag="${ANI_CLI_LOG_TAG:-$app_name}"
 hist_state_name="${ANI_CLI_STATE_NAME:-$app_name}"
@@ -67,6 +67,8 @@ help_info() {
         Fast mode is the default: keep using the chosen Spanish source for this session
       --slow, --classic, --no-fast
         Use the previous source search behavior for every episode
+      --continuous, --auto-next
+        Automatically play the next episode after mpv exits
       -q, --quality
         Specify the video quality
       -v, --vlc
@@ -78,7 +80,7 @@ help_info() {
       -e, --episode, -r, --range
         Specify the number of episodes to watch
       --source <source>
-        Source to use for search and episode info: auto, animeflv, jkanime, animeav1, allanime
+        Source to use for search and episode info: auto, jkanime, animeav1, allanime
       --dub
         Play dubbed version
       --rofi
@@ -397,13 +399,13 @@ cross_source_match_is_confident() {
 
 site_name_from_ref() {
     case "$1" in
-        animeflv:*) printf '%s\n' "animeflv" ;;
+        animeflv:*) return 1 ;;
         jkanime:*) printf '%s\n' "jkanime" ;;
         animeav1:*) printf '%s\n' "animeav1" ;;
         allanime:*) printf '%s\n' "allanime" ;;
         *:*) return 1 ;;
         "") return 1 ;;
-        *) printf '%s\n' "animeflv" ;;
+        *) return 1 ;;
     esac
 }
 
@@ -463,7 +465,6 @@ prefix_allanime_search_results() {
 normalize_info_source() {
     case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
         "" | auto) printf '%s\n' "auto" ;;
-        animeflv | flv) printf '%s\n' "animeflv" ;;
         jkanime | jk) printf '%s\n' "jkanime" ;;
         animeav1 | av1) printf '%s\n' "animeav1" ;;
         allanime | allmanga | english) printf '%s\n' "allanime" ;;
@@ -484,7 +485,6 @@ info_source_label() {
 
 source_key_from_label() {
     case "$1" in
-        AnimeFLV | AnimeFLV\ *) printf '%s\n' "animeflv" ;;
         JKAnime | JKAnime\ *) printf '%s\n' "jkanime" ;;
         AnimeAV1 | AnimeAV1\ *) printf '%s\n' "animeav1" ;;
         *) return 1 ;;
@@ -493,7 +493,7 @@ source_key_from_label() {
 
 is_spanish_source() {
     case "$1" in
-        animeflv | jkanime | animeav1) return 0 ;;
+        jkanime | animeav1) return 0 ;;
         *) return 1 ;;
     esac
 }
@@ -581,6 +581,10 @@ source_status() {
     esac
 }
 
+fast_first_link_mode() {
+    [ "$fast_mode" = "1" ] && [ "$quality" = "best" ]
+}
+
 probe_stream_link() {
     headers="$(curl -I -L --connect-timeout 10 --max-time "$resolver_timeout" -s -e "$1" "$2" -A "$agent")" || return 1
     printf '%s' "$headers" | grep -qiE '^content-type: (video/|application/vnd\.apple\.mpegurl|application/x-mpegurl)'
@@ -645,9 +649,8 @@ quality_menu_entries() {
 
 available_site_entries() {
     menu_index=1
-    for site_name in AnimeFLV JKAnime AnimeAV1; do
+    for site_name in JKAnime AnimeAV1; do
         case "$site_name" in
-            AnimeFLV) site_links="$1" ;;
             JKAnime) site_links="$2" ;;
             AnimeAV1) site_links="$3" ;;
         esac
@@ -661,7 +664,6 @@ available_site_entries() {
 set_links_for_site() {
     site_key="$(source_key_from_label "$1" 2>/dev/null || true)"
     case "$1" in
-        AnimeFLV) links="$animeflv_links" ;;
         JKAnime) links="$jkanime_links" ;;
         AnimeAV1) links="$animeav1_links" ;;
         *) return 1 ;;
@@ -697,7 +699,6 @@ pick_spanish_source_links() {
     fi
 
     case "$selected_spanish_site" in
-        AnimeFLV) set_links_for_site "AnimeFLV" ;;
         JKAnime) set_links_for_site "JKAnime" ;;
         AnimeAV1) set_links_for_site "AnimeAV1" ;;
         *) return 1 ;;
@@ -762,6 +763,7 @@ probe_link_with_mpv() {
 }
 
 filter_playable_links() {
+    stop_after_first="${2:-}"
     playable_links=""
     old_ifs=$IFS
     IFS='
@@ -782,6 +784,11 @@ filter_playable_links() {
             candidate_site="$(find_link_site "$1" "$candidate_url")"
             [ -n "$candidate_site" ] && playable_links="${playable_links}site >${candidate_url}>${candidate_site}
 "
+            if [ "$stop_after_first" = "first" ]; then
+                IFS=$old_ifs
+                printf '%s' "$playable_links"
+                return 0
+            fi
         fi
     done
     IFS=$old_ifs
@@ -1005,6 +1012,11 @@ site >${direct_link}>JKAnime
 "
             fi
             source_status "$source_name" "ok"
+            if fast_first_link_mode; then
+                IFS=$old_ifs
+                printf '%s' "$internal_links"
+                return 0
+            fi
         else
             source_status "$source_name" "skip"
         fi
@@ -1047,6 +1059,11 @@ source >${direct_link}>${source_name}
 site >${direct_link}>JKAnime
 "
                     source_status "$source_name" "ok"
+                    if fast_first_link_mode; then
+                        IFS=$old_ifs
+                        printf '%s' "$primary_links"
+                        return 0
+                    fi
                 else
                     source_status "$source_name" "skip"
                 fi
@@ -1059,6 +1076,11 @@ source >${direct_link}>${source_name}
 site >${direct_link}>JKAnime
 "
                     source_status "$source_name" "ok"
+                    if fast_first_link_mode; then
+                        IFS=$old_ifs
+                        printf '%s' "$primary_links"
+                        return 0
+                    fi
                 else
                     source_status "$source_name" "skip"
                 fi
@@ -1171,10 +1193,17 @@ extract_animeav1_links() {
     failed_mirrors=""
     ok_mirrors=""
     primary_links=""
+    if fast_first_link_mode; then
+        animeav1_entries="${embed_entries}
+${download_entries}"
+    else
+        animeav1_entries="${download_entries}
+${embed_entries}"
+    fi
     old_ifs=$IFS
     IFS='
 '
-    for entry in $download_entries $embed_entries; do
+    for entry in $animeav1_entries; do
         [ -z "$entry" ] && continue
         server_name="$(printf '%s' "$entry" | sed -nE 's|.*server:"([^"]+)".*|\1|p')"
         remote_url="$(printf '%s' "$entry" | sed -nE 's|.*url:"([^"]+)".*|\1|p')"
@@ -1204,6 +1233,11 @@ site >${direct_link}>AnimeAV1
                         ok_mirrors="${ok_mirrors}${ok_mirrors:+
 }${server_key}"
                     source_status "AnimeAV1 ${server_name}" "ok"
+                    if fast_first_link_mode; then
+                        IFS=$old_ifs
+                        printf '%s' "$primary_links"
+                        return 0
+                    fi
                 else
                     [ -n "$server_key" ] && ! printf '%s\n' "$failed_mirrors" | grep -Fxq "$server_key" &&
                         failed_mirrors="${failed_mirrors}${failed_mirrors:+
@@ -1226,6 +1260,11 @@ site >${direct_link}>AnimeAV1
                 ok_mirrors="${ok_mirrors}${ok_mirrors:+
 }${server_key}"
             source_status "AnimeAV1 ${server_name}" "ok"
+            if fast_first_link_mode; then
+                IFS=$old_ifs
+                printf '%s' "$primary_links"
+                return 0
+            fi
         else
             [ -n "$server_key" ] && ! printf '%s\n' "$failed_mirrors" | grep -Fxq "$server_key" &&
                 failed_mirrors="${failed_mirrors}${failed_mirrors:+
@@ -1579,7 +1618,11 @@ resolve_spanish_source_links() {
 store_spanish_links_for_source() {
     site_name="$1"
     site_links="$(resolve_spanish_source_links "$site_name")"
-    site_links="$(filter_playable_links "$site_links")"
+    if [ "$fast_mode" = "1" ] && [ "$quality" = "best" ]; then
+        site_links="$(filter_playable_links "$site_links" "first")"
+    else
+        site_links="$(filter_playable_links "$site_links")"
+    fi
     site_links="$(filter_links_by_episode_catalog "$site_name" "$site_links" "$authoritative_site" "$authoritative_ep_list")"
 
     case "$site_name" in
@@ -1650,14 +1693,15 @@ get_episode_url() {
         fi
     fi
 
-    for site_name in animeflv jkanime animeav1; do
+    for site_name in jkanime animeav1; do
         case "$site_name" in
-            animeflv) [ -n "$animeflv_links" ] && continue ;;
             jkanime) [ -n "$jkanime_links" ] && continue ;;
             animeav1) [ -n "$animeav1_links" ] && continue ;;
         esac
         [ "$fast_mode" = "1" ] && [ -n "$fast_mode_source" ] && continue
-        store_spanish_links_for_source "$site_name" || true
+        if store_spanish_links_for_source "$site_name"; then
+            [ "$fast_mode" = "1" ] && break
+        fi
     done
 
     if pick_spanish_source_links "$animeflv_links" "$jkanime_links" "$animeav1_links"; then
@@ -1677,10 +1721,6 @@ get_episode_url() {
 
 search_anime_for_source() {
     case "$1" in
-        animeflv)
-            source_results="$(search_animeflv_variants "$2")"
-            [ -n "$source_results" ] && prefix_search_results "animeflv" "$source_results"
-            ;;
         jkanime)
             source_results="$(search_jkanime_variants "$2")"
             [ -n "$source_results" ] && prefix_search_results "jkanime" "$source_results"
@@ -1709,9 +1749,6 @@ search_anime() {
     fi
 
     search_results=""
-    animeflv_results="$(search_animeflv_variants "$1")"
-    [ -n "$animeflv_results" ] && search_results="${search_results}$(prefix_search_results "animeflv" "$animeflv_results")
-"
     jkanime_results="$(search_jkanime_variants "$1")"
     [ -n "$jkanime_results" ] && search_results="${search_results}$(prefix_search_results "jkanime" "$jkanime_results")
 "
@@ -1925,7 +1962,7 @@ episodes_list() {
 
     selected_site="$(site_name_from_ref "$1" 2>/dev/null || true)"
     episodes=""
-    for site_name in "$selected_site" animeflv animeav1 jkanime allanime; do
+    for site_name in "$selected_site" animeav1 jkanime allanime; do
         [ -n "$site_name" ] || continue
         [ -n "$episodes" ] && break
         episodes="$(episodes_list_for_source "$site_name" "$1" "$2")"
@@ -1983,6 +2020,7 @@ download() {
 
 play_episode() {
     manual_handoff=0
+    player_pid=""
     [ "$log_episode" = 1 ] && [ "$player_function" != "debug" ] && [ "$player_function" != "download" ] && command -v logger >/dev/null && logger -t "$log_tag" "${allanime_title}${ep_no}"
     [ "$skip_intro" = 1 ] && skip_flag="$(ani-skip -q "$mal_id" -e "$ep_no")"
     [ -z "$episode" ] && get_episode_url
@@ -2004,12 +2042,13 @@ play_episode() {
             printf "Enlace seleccionado:\n"
             printf "%s\n" "$episode"
             ;;
-        mpv*)
+        mpv* | */mpv | */mpv.exe)
             [ -n "$selected_origin" ] && [ "$manual_handoff" = 0 ] && printf "Fuente seleccionada: %s\n" "$selected_origin" 1>&2
             if [ "$manual_handoff" = 1 ]; then
                 :
             elif [ "$no_detach" = 0 ]; then
                 nohup $player_function $skip_flag --force-media-title="${allanime_title}Episode ${ep_no}" "$episode" $subs_flag $refr_flag >/dev/null 2>&1 &
+                player_pid=$!
             else
                 $player_function $skip_flag $subs_flag $refr_flag --force-media-title="${allanime_title}Episode ${ep_no}" "$episode"
                 mpv_exitcode=$?
@@ -2028,7 +2067,16 @@ play_episode() {
                 nohup $player_function --no-stdin --keep-running --mpv-force-media-title="${allanime_title}Episode ${ep_no}" $subs_flag $refr_flag "$episode" >/dev/null 2>&1 &
             fi
             ;;
-        flatpak_mpv) flatpak run io.mpv.Mpv --force-media-title="${allanime_title}Episode ${ep_no}" "$episode" $subs_flag $refr_flag >/dev/null 2>&1 & ;;
+        flatpak_mpv)
+            if [ "$no_detach" = 0 ]; then
+                flatpak run io.mpv.Mpv --force-media-title="${allanime_title}Episode ${ep_no}" "$episode" $subs_flag $refr_flag >/dev/null 2>&1 &
+                player_pid=$!
+            else
+                flatpak run io.mpv.Mpv --force-media-title="${allanime_title}Episode ${ep_no}" "$episode" $subs_flag $refr_flag
+                mpv_exitcode=$?
+                [ "$exit_after_play" = 1 ] && [ -z "$range" ] && exit "$mpv_exitcode"
+            fi
+            ;;
         vlc*) nohup $player_function --http-referrer="${allanime_refr}" --play-and-exit --meta-title="${allanime_title}Episode ${ep_no}" "$episode" >/dev/null 2>&1 & ;;
         *yncpla*) nohup $player_function "$episode" -- --force-media-title="${allanime_title}Episode ${ep_no}" $subs_flag $refr_flag >/dev/null 2>&1 & ;;
         download) "$player_function" "$episode" "${allanime_title}Episode ${ep_no}" "$subtitle" ;;
@@ -2073,6 +2121,103 @@ play() {
     [ "$player_function" != "debug" ] && [ "$player_function" != "download" ] && tput rc && tput ed
 }
 
+next_episode_number() {
+    printf "%s\n" "$ep_list" | sed -n "/^${ep_no}$/{n;p;}" | head -n1
+}
+
+play_continuous() {
+    while next_ep="$(next_episode_number)" && [ -n "$next_ep" ]; do
+        ep_no="$next_ep"
+        printf "\33[2K\r\033[1;34mReproduciendo episodio %s...\033[0m\n" "$ep_no"
+        play_episode
+    done
+    printf "No hay mas episodios disponibles.\n" 1>&2
+}
+
+player_supports_continuous() {
+    case "$player_function" in
+        mpv* | */mpv | mpv.exe | */mpv.exe | flatpak_mpv) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+continuous_enabled() {
+    [ -f "$continuous_state_file" ] && grep -qx "1" "$continuous_state_file"
+}
+
+set_continuous_mode() {
+    continuous_mode="$1"
+    printf '%s\n' "$1" >"$continuous_state_file"
+}
+
+disable_continuous_mode() {
+    set_continuous_mode 0
+    [ -n "${continuous_worker_pid:-}" ] && kill "$continuous_worker_pid" 2>/dev/null || true
+    continuous_worker_pid=""
+}
+
+wait_for_pid_to_exit() {
+    [ -n "$1" ] || return 0
+    while kill -0 "$1" 2>/dev/null; do
+        sleep 1
+    done
+}
+
+continuous_worker_loop() {
+    watched_pid="$1"
+    wait_for_pid_to_exit "$watched_pid"
+    while continuous_enabled; do
+        next_ep="$(next_episode_number)"
+        if [ -z "$next_ep" ]; then
+            set_continuous_mode 0
+            printf "No hay mas episodios disponibles.\n" 1>&2
+            return 0
+        fi
+
+        ep_no="$next_ep"
+        printf "\33[2K\r\033[1;34mReproduciendo episodio %s...\033[0m\n" "$ep_no"
+        play_episode
+        wait_for_pid_to_exit "${player_pid:-}"
+    done
+}
+
+toggle_continuous_mode_from_menu() {
+    if continuous_enabled; then
+        disable_continuous_mode
+        printf "Modo continuo desactivado.\n" 1>&2
+        return 0
+    fi
+
+    if ! player_supports_continuous; then
+        printf "Modo continuo requiere mpv para detectar cuando termina el episodio\n" 1>&2
+        return 1
+    fi
+
+    set_continuous_mode 1
+    printf "Modo continuo activado. Cierra el reproductor actual para continuar automaticamente.\n" 1>&2
+    continuous_worker_loop "${player_pid:-}" &
+    continuous_worker_pid=$!
+}
+
+playback_menu_options() {
+    printf "siguiente\nanterior\nrepetir_episodio_actual\nelegir_episodio\ncambiar_calidad\n"
+    if continuous_enabled; then
+        printf "desactivar_modo_continuo\n"
+    else
+        printf "activar_modo_continuo\n"
+    fi
+    printf "salir\n"
+}
+
+playback_menu_prompt() {
+    if continuous_enabled; then
+        playback_mode="continuo"
+    else
+        playback_mode="manual"
+    fi
+    printf "Reproduciendo episodio %s de %s... Modo de reproduccion actual: %s" "$ep_no" "$title" "$playback_mode"
+}
+
 # MAIN
 
 # setup
@@ -2102,7 +2247,7 @@ log_episode="${ANI_CLI_LOG:-1}"
 quality="${ANI_CLI_QUALITY:-best}"
 resolver_timeout="${ANI_CLI_RESOLVER_TIMEOUT:-15}"
 probe_timeout="${ANI_CLI_PROBE_TIMEOUT:-20}"
-preferred_info_source="$(normalize_info_source "${ANI_CLI_INFO_SOURCE:-auto}")" || die "ANI_CLI_INFO_SOURCE invalido. Usa: auto, animeflv, jkanime, animeav1 o allanime"
+preferred_info_source="$(normalize_info_source "${ANI_CLI_INFO_SOURCE:-auto}")" || die "ANI_CLI_INFO_SOURCE invalido. Usa: auto, jkanime, animeav1 o allanime"
 case "$(uname -a | cut -d " " -f 1,3-)" in
     *Darwin*) player_function="${ANI_CLI_PLAYER:-$(where_iina)}" ;;   # mac OS
     *ndroid*) player_function="${ANI_CLI_PLAYER:-android_mpv}" ;;     # Android OS (termux)
@@ -2113,6 +2258,7 @@ esac
 
 no_detach="${ANI_CLI_NO_DETACH:-0}"
 exit_after_play="${ANI_CLI_EXIT_AFTER_PLAY:-0}"
+continuous_mode="${ANI_CLI_CONTINUOUS:-0}"
 use_external_menu="${ANI_CLI_EXTERNAL_MENU:-0}"
 external_menu_normal_window="${ANI_CLI_EXTERNAL_MENU_NORMAL_WINDOW:-0}"
 skip_intro="${ANI_CLI_SKIP_INTRO:-0}"
@@ -2122,7 +2268,14 @@ fast_mode_source=""
 fast_mode_ep_list=""
 disabled_spanish_sources=""
 fast_mode_mirror_file="$(mktemp)"
-trap 'rm -f "$fast_mode_mirror_file"' EXIT HUP INT TERM
+continuous_state_file="$(mktemp)"
+continuous_worker_pid=""
+cleanup() {
+    [ -n "${continuous_worker_pid:-}" ] && kill "$continuous_worker_pid" 2>/dev/null || true
+    rm -f "$fast_mode_mirror_file" "$continuous_state_file"
+}
+trap cleanup EXIT
+trap 'cleanup; exit 130' HUP INT TERM
 # shellcheck disable=SC2154
 skip_title="$ANI_CLI_SKIP_TITLE"
 [ -t 0 ] || (command -v dmenu && use_external_menu=2)
@@ -2165,6 +2318,7 @@ while [ $# -gt 0 ]; do
             ;;
         -f | --fast | --fast-mode) fast_mode=1 ;;
         --slow | --classic | --no-fast) fast_mode=0 ;;
+        --continuous | --auto-next) continuous_mode=1 ;;
         -c | --continue) search=history ;;
         -d | --download)
             [ "$player_function" = "iSH" ] && iSH_DownFix="--async-dns=false"
@@ -2192,7 +2346,7 @@ while [ $# -gt 0 ]; do
         --source | --info-source)
             [ $# -lt 2 ] && die "falta un argumento"
             preferred_info_source="$(normalize_info_source "$2")" ||
-                die "Fuente invalida: $2. Usa: auto, animeflv, jkanime, animeav1 o allanime"
+                die "Fuente invalida: $2. Usa: auto, jkanime, animeav1 o allanime"
             shift
             ;;
         --dub) mode="dub" ;;
@@ -2217,6 +2371,16 @@ done
 [ "$external_menu_normal_window" = "1" ] && external_menu_args="-normal-window"
 [ "$preferred_info_source" != "auto" ] && printf "Usando fuente de informacion: %s\n" "$(info_source_label "$preferred_info_source")" 1>&2
 [ "$fast_mode" = "0" ] && printf "Modo clasico activado: se buscara fuente para cada episodio.\n" 1>&2
+if [ "$continuous_mode" = "1" ]; then
+    case "$player_function" in
+        mpv* | */mpv | mpv.exe | */mpv.exe | flatpak_mpv)
+            no_detach=1
+            ;;
+        *)
+            die "Modo continuo requiere mpv para detectar cuando termina el episodio"
+            ;;
+    esac
+fi
 printf "\33[2K\r\033[1;34mVerificando dependencias...\033[0m\n"
 dep_ch "curl" "sed" "grep" || true
 case "$(uname -o 2>/dev/null)" in
@@ -2289,14 +2453,28 @@ tput sc
 # playback & loop
 play
 [ "$player_function" = "download" ] || [ "$player_function" = "debug" ] && exit 0
+[ "$continuous_mode" = "1" ] && play_continuous && exit 0
 
-while cmd=$(printf "siguiente\nrepetir\nanterior\nelegir\ncambiar_calidad\nsalir" | nth "Reproduciendo episodio $ep_no de $title... "); do
+while cmd=$(playback_menu_options | nth "$(playback_menu_prompt) "); do
     case "$cmd" in
-        siguiente) ep_no=$(printf "%s" "$ep_list" | sed -n "/^${ep_no}$/{n;p;}") 2>/dev/null ;;
-        repetir) episode="$replay" ;;
-        anterior) ep_no=$(printf "%s" "$ep_list" | sed -n "/^${ep_no}$/{g;1!p;};h") 2>/dev/null ;;
-        elegir) ep_no=$(printf "%s" "$ep_list" | nth "Selecciona episodio: " "$multi_selection_flag") ;;
+        siguiente)
+            disable_continuous_mode
+            ep_no=$(printf "%s" "$ep_list" | sed -n "/^${ep_no}$/{n;p;}") 2>/dev/null
+            ;;
+        repetir | repetir_episodio_actual)
+            disable_continuous_mode
+            episode="$replay"
+            ;;
+        anterior)
+            disable_continuous_mode
+            ep_no=$(printf "%s" "$ep_list" | sed -n "/^${ep_no}$/{g;1!p;};h") 2>/dev/null
+            ;;
+        elegir | elegir_episodio)
+            disable_continuous_mode
+            ep_no=$(printf "%s" "$ep_list" | nth "Selecciona episodio: " "$multi_selection_flag")
+            ;;
         cambiar_calidad)
+            disable_continuous_mode
             current_site="$selected_site"
             current_quality="$selected_quality"
             site_choice=""
@@ -2322,6 +2500,10 @@ while cmd=$(printf "siguiente\nrepetir\nanterior\nelegir\ncambiar_calidad\nsalir
                 [ "${site_choice:-$current_site}" = "$current_site" ] && [ "$new_quality" = "$current_quality" ] && continue
                 select_quality "$new_quality"
             fi
+            ;;
+        modo_continuo_on | modo_continuo_off | modo_continuo_desactivado_activar | modo_continuo_activado_desactivar | activar_modo_continuo | desactivar_modo_continuo)
+            toggle_continuous_mode_from_menu
+            continue
             ;;
         *) exit 0 ;;
     esac

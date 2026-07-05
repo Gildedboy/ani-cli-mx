@@ -6,10 +6,9 @@ This is an independent community project. It is not affiliated with, maintained 
 
 This project prefers these sources in order:
 
-1. AnimeFLV
-2. JKAnime
-3. AnimeAV1
-4. an English fallback when Spanish sources fail
+1. JKAnime
+2. AnimeAV1
+3. an English fallback when Spanish sources fail
 
 ## Table of Contents
 
@@ -337,11 +336,21 @@ By default, ani-cli-mx keeps using the chosen Spanish source for the rest of the
 ani-cli-mx "one piece"
 ```
 
+Fast mode starts playback from the first Spanish source that produces a valid playable link, instead of waiting for every source to finish checking.
+
 Use the previous classic source search behavior:
 
 ```sh
 ani-cli-mx --classic "one piece"
 ```
+
+Automatically continue to the next episode after mpv exits:
+
+```sh
+ani-cli-mx --continuous "one piece"
+```
+
+Continuous mode requires mpv because ani-cli-mx needs to detect when the player process finishes. The playback menu shows the current mode in its prompt and lets you toggle it with `activar_modo_continuo` or `desactivar_modo_continuo`.
 
 Download episodes:
 
