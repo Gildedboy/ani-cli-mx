@@ -338,6 +338,16 @@ ani-cli-mx "one piece"
 
 Fast mode starts playback from the first Spanish source that produces a valid playable link, instead of waiting for every source to finish checking.
 
+When an anime already exists in history, the episode selector marks the last watched episode with `*` and shows the legend in the prompt:
+
+```text
+Selecciona episodio (* ultimo visto):
+1
+2
+3 *
+4
+```
+
 Use the previous classic source search behavior:
 
 ```sh

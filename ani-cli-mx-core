@@ -1,6 +1,6 @@
 #!/bin/sh
 
-version_number="1.1.4"
+version_number="1.1.5"
 app_name="${ANI_CLI_NAME:-${0##*/}}"
 log_tag="${ANI_CLI_LOG_TAG:-$app_name}"
 hist_state_name="${ANI_CLI_STATE_NAME:-$app_name}"
@@ -1982,6 +1982,44 @@ process_hist_entry() {
     [ -n "$ep_no" ] && printf "%s\t%s - episodio %s\n" "$id" "$title" "$ep_no"
 }
 
+last_watched_episode_for_current_anime() {
+    [ -f "$histfile" ] || return 0
+    awk -F '	' -v target="$id" '$2 == target { print $1; exit }' "$histfile"
+}
+
+select_episode() {
+    stdin=$(cat -)
+    [ -z "$stdin" ] && return 1
+    line_count="$(printf "%s\n" "$stdin" | wc -l | tr -d "[:space:]")"
+    [ "$line_count" -eq 1 ] && printf "%s" "$stdin" && return 0
+
+    last_watched_ep="$(last_watched_episode_for_current_anime)"
+    if [ -n "$last_watched_ep" ] && ! printf "%s\n" "$stdin" | awk -v last_ep="$last_watched_ep" '$0 == last_ep { found = 1 } END { exit !found }'; then
+        last_watched_ep=""
+    fi
+    prompt="Selecciona episodio: "
+    [ -n "$last_watched_ep" ] && prompt="Selecciona episodio (* ultimo visto): "
+    menu_entries="$(printf "%s\n" "$stdin" | awk -v last_ep="$last_watched_ep" '
+        last_ep != "" && $0 == last_ep { print $0 " *"; next }
+        { print }
+    ')"
+    selection="$(printf "%s" "$menu_entries" | launcher "$multi_selection_flag" "$prompt")"
+    selected_eps="$(printf "%s\n" "$selection" | sed 's/[[:space:]].*$//')"
+    [ -n "$selected_eps" ] || exit 1
+
+    line_start=$(printf "%s" "$selected_eps" | head -n1)
+    line_end=$(printf "%s" "$selected_eps" | tail -n1)
+    if [ "$line_start" = "$line_end" ]; then
+        printf "%s" "$line_start"
+    else
+        printf "%s\n" "$stdin" | awk -v start="$line_start" -v end="$line_end" '
+            $0 == start { printing = 1 }
+            printing { print }
+            $0 == end { exit }
+        '
+    fi
+}
+
 update_history() {
     awk -F '	' -v OFS='	' -v target="$id" -v new_ep="$ep_no" -v new_title="$title" '
         BEGIN { updated = 0 }
@@ -2517,7 +2555,7 @@ case "$search" in
         [ -z "$title" ] && title="$(printf "%s" "$result" | cut -f2)"
         allanime_title="$(printf "%s" "$title" | cut -d'(' -f1 | tr -d '[:punct:]')"
         ep_list=$(episodes_list "$id" "$title")
-        [ -z "$ep_no" ] && ep_no=$(printf "%s" "$ep_list" | nth "Selecciona episodio: " "$multi_selection_flag")
+        [ -z "$ep_no" ] && ep_no=$(printf "%s" "$ep_list" | select_episode)
         [ -z "$ep_no" ] && exit 1
         ;;
 esac
@@ -2553,7 +2591,7 @@ while cmd=$(playback_menu_options | nth "$(playback_menu_prompt) "); do
             ;;
         elegir | elegir_episodio)
             prepare_for_menu_playback
-            ep_no=$(printf "%s" "$ep_list" | nth "Selecciona episodio: " "$multi_selection_flag")
+            ep_no=$(printf "%s" "$ep_list" | select_episode)
             ;;
         cambiar_calidad)
             prepare_for_menu_playback
