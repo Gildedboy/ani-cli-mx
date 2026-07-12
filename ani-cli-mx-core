@@ -1,6 +1,6 @@
 #!/bin/sh
 
-version_number="1.1.5"
+version_number="1.1.6"
 app_name="${ANI_CLI_NAME:-${0##*/}}"
 log_tag="${ANI_CLI_LOG_TAG:-$app_name}"
 hist_state_name="${ANI_CLI_STATE_NAME:-$app_name}"
@@ -2239,14 +2239,15 @@ prepare_for_menu_playback() {
 }
 
 start_continuous_worker_for_current_player() {
-    continuous_enabled || return 0
-    player_supports_continuous || return 0
-    [ -n "${player_pid:-}" ] || return 0
-    kill -0 "$player_pid" 2>/dev/null || return 0
+    continuous_enabled || return 1
+    player_supports_continuous || return 1
+    [ -n "${player_pid:-}" ] || return 1
+    kill -0 "$player_pid" 2>/dev/null || return 1
 
     [ -n "${continuous_worker_pid:-}" ] && kill "$continuous_worker_pid" 2>/dev/null || true
     continuous_worker_loop "$player_pid" &
     continuous_worker_pid=$!
+    return 0
 }
 
 wait_for_pid_to_exit() {
@@ -2288,7 +2289,11 @@ toggle_continuous_mode_from_menu() {
     fi
 
     set_continuous_mode 1
-    printf "Modo continuo activado. El proximo capitulo que reproduzcas avanzara automaticamente al terminar o cerrar el reproductor.\n" 1>&2
+    if start_continuous_worker_for_current_player; then
+        printf "Modo continuo activado. Se abrira el siguiente capitulo al terminar o cerrar el reproductor actual.\n" 1>&2
+    else
+        printf "Modo continuo activado. El proximo capitulo que reproduzcas avanzara automaticamente al terminar o cerrar el reproductor.\n" 1>&2
+    fi
 }
 
 toggle_close_previous_from_menu() {

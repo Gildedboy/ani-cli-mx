@@ -360,7 +360,7 @@ Start in continuous playback mode:
 ani-cli-mx --continuous "one piece"
 ```
 
-Continuous mode requires mpv because ani-cli-mx needs to detect when the player process finishes. With `--continuous`, ani-cli-mx starts playback and opens the playback menu with continuous mode already enabled. The menu shows the current mode in its prompt and lets you toggle it with `activar_modo_continuo` or `desactivar_modo_continuo`; the toggle only changes the mode, and the next episode you play from the menu will advance automatically after its player finishes.
+Continuous mode requires mpv because ani-cli-mx needs to detect when the player process finishes. With `--continuous`, ani-cli-mx starts playback and opens the playback menu with continuous mode already enabled. The menu shows the current mode in its prompt and lets you toggle it with `activar_modo_continuo` or `desactivar_modo_continuo`; when enabled from the menu, ani-cli-mx tracks the currently running player if possible, otherwise the next episode you play from the menu will advance automatically after its player finishes.
 
 Close the previous tracked player before opening another episode from the playback menu:
 

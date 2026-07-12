@@ -41,13 +41,53 @@ run_debug_smoke() {
     ! printf '%s\n' "$ep14_output" | grep -q "JKAnime"
 }
 
+run_continuous_toggle_smoke() {
+    tmp_dir="$(mktemp -d)"
+    funcs_file="$tmp_dir/continuous-functions.sh"
+    played_file="$tmp_dir/played"
+    sed -n '/^set_current_episode()/,/^toggle_close_previous_from_menu()/p' ani-cli-mx-core | sed '$d' >"$funcs_file"
+
+    (
+        # shellcheck disable=SC1090
+        . "$funcs_file"
+
+        current_episode_file="$tmp_dir/current-episode"
+        continuous_state_file="$tmp_dir/continuous-state"
+        continuous_worker_pid=""
+        player_function="mpv"
+        ep_list="1
+2"
+        ep_no="1"
+
+        play_episode() {
+            set_current_episode "$ep_no"
+            printf '%s\n' "$ep_no" >>"$played_file"
+            sleep 0.1 &
+            player_pid=$!
+        }
+
+        set_current_episode "$ep_no"
+        sleep 0.1 &
+        player_pid=$!
+
+        toggle_continuous_mode_from_menu >/dev/null 2>&1
+        [ -n "$continuous_worker_pid" ]
+        wait "$continuous_worker_pid"
+        grep -qx "2" "$played_file"
+    )
+
+    rm -rf "$tmp_dir"
+}
+
 case "${1:-}" in
     --network)
         run_syntax_checks
+        run_continuous_toggle_smoke
         run_debug_smoke
         ;;
     "" | --syntax)
         run_syntax_checks
+        run_continuous_toggle_smoke
         ;;
     *)
         printf 'Usage: %s [--syntax|--network]\n' "$0" >&2

@@ -56,7 +56,7 @@ Fast mode is the default. Keep using the chosen Spanish source for later episode
 Use the previous source search behavior, checking sources again for each episode.
 .TP
 \fB\--continuous | --auto-next\fR
-Start in continuous playback mode. This requires mpv because ani-cli-mx must detect when the player process finishes. With this flag, ani-cli-mx starts playback and opens the playback menu with continuous mode already enabled. The menu shows the current mode and can toggle it with activar_modo_continuo or desactivar_modo_continuo; the toggle only changes the mode, and the next episode played from the menu advances automatically after its player finishes.
+Start in continuous playback mode. This requires mpv because ani-cli-mx must detect when the player process finishes. With this flag, ani-cli-mx starts playback and opens the playback menu with continuous mode already enabled. The menu shows the current mode and can toggle it with activar_modo_continuo or desactivar_modo_continuo; when enabled from the menu, ani-cli-mx tracks the currently running player if possible, otherwise the next episode played from the menu advances automatically after its player finishes.
 .TP
 \fB\--close-previous\fR
 Close the previous tracked player before opening another episode from the playback menu. This can also be toggled from the playback menu with activar_cerrar_reproductor_anterior or desactivar_cerrar_reproductor_anterior.
