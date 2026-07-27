@@ -28,6 +28,35 @@ jobs:
         shell: bash
         run: ./tests/sanity.sh --syntax
 
+      - name: Verify Scoop Git for Windows bootstrap
+        shell: powershell
+        run: |
+          if (-not (Get-Command scoop -ErrorAction SilentlyContinue)) {
+            Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+            Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression
+          }
+          scoop install git
+          if ($LASTEXITCODE -ne 0) {
+            throw "Scoop could not install Git for Windows"
+          }
+          $gitRoot = (scoop prefix git).Trim()
+          $bashPath = Join-Path $gitRoot "bin\bash.exe"
+          if (-not (Test-Path $bashPath)) {
+            throw "Scoop Git does not contain the expected Git Bash runtime: $bashPath"
+          }
+          $bucketList = scoop bucket list | Out-String
+          if ($bucketList -notmatch '(?m)^extras\s') {
+            scoop bucket add extras
+            if ($LASTEXITCODE -ne 0) {
+              throw "Scoop could not add the extras bucket after installing Git"
+            }
+          }
+          $env:GIT_INSTALL_ROOT = $gitRoot
+          $version = & .\ani-cli-mx.cmd -V
+          if ($version -ne "1.2.1") {
+            throw "The launcher did not use Scoop Git correctly: $version"
+          }
+
       - name: Run the Windows launcher from PowerShell
         shell: powershell
         run: |
