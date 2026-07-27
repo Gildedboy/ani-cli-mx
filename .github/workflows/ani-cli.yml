@@ -18,7 +18,7 @@ jobs:
     - name: Check shell errors
       run: shellcheck --severity=error -s sh ani-cli-mx ani-cli-mx-core tests/sanity.sh
     - name: Run syntax and compatibility tests
-      run: ./tests/sanity.sh --syntax
+      run: bash -x ./tests/sanity.sh --syntax
       
   check-exec:
     name: Executable Bit
