@@ -88,7 +88,15 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression
 ```
 
-Add the official buckets and install ani-cli-mx:
+Install Git before adding buckets. Scoop buckets are Git repositories, so this
+bootstrap step must happen before Scoop can clone `extras` or the ani-cli-mx
+bucket:
+
+```powershell
+scoop install git
+```
+
+Add the required buckets and install ani-cli-mx:
 
 ```powershell
 scoop bucket add extras
@@ -96,9 +104,9 @@ scoop bucket add ani-cli-mx https://github.com/Gildedboy/ani-cli-mx
 scoop install ani-cli-mx
 ```
 
-The package installs Git for Windows, fzf, and mpv as dependencies. Windows
-Terminal is recommended; run ani-cli-mx from PowerShell or from its Git Bash
-profile:
+The package installs curl, grep, sed, OpenSSL, fzf, and mpv as declared runtime
+dependencies. Git for Windows supplies the Bash runtime. Windows Terminal is
+recommended; run ani-cli-mx from PowerShell or from its Git Bash profile:
 
 ```powershell
 ani-cli-mx "blue lock"
@@ -275,8 +283,41 @@ To remove the bucket registration as well:
 scoop bucket rm ani-cli-mx
 ```
 
+If these applications were installed only for ani-cli-mx and are not used by
+anything else, they can also be removed:
+
+```powershell
+scoop uninstall mpv fzf curl grep sed openssl
+```
+
+Remove optional download tools or VLC only if you installed them specifically
+for ani-cli-mx:
+
+```powershell
+scoop uninstall aria2 ffmpeg yt-dlp vlc
+```
+
+The `extras` bucket may also be removed when no other installed application
+uses it:
+
+```powershell
+scoop bucket rm extras
+```
+
+If Scoop itself was installed exclusively for ani-cli-mx, Scoop's complete
+uninstaller removes Scoop and every application it manages:
+
+```powershell
+scoop uninstall scoop
+```
+
 History is stored under `%LOCALAPPDATA%\ani-cli-mx`. Scoop does not remove that
-user data automatically.
+user data automatically. Remove it only if the watch history is no longer
+needed:
+
+```powershell
+Remove-Item -Recurse -Force "$env:LOCALAPPDATA\ani-cli-mx"
+```
 
 </details>
 

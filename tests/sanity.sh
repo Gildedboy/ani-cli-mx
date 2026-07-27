@@ -96,7 +96,7 @@ run_windows_compat_smoke() {
         ANI_CLI_STATE_NAME=ani-cli-mx LOCALAPPDATA="$local_app_data_env" \
         ANI_CLI_PLAYER=debug ./ani-cli-mx-core -V)"
 
-    [ "$version_output" = "1.2.0" ]
+    [ "$version_output" = "1.2.1" ]
     [ -f "$local_app_data/ani-cli-mx/ani-hsts" ]
     grep -q 'GIT_INSTALL_ROOT' ani-cli-mx.cmd
     grep -q 'ANI_CLI_PACKAGE_MANAGER=scoop' ani-cli-mx.cmd
@@ -111,17 +111,39 @@ run_windows_compat_smoke() {
     rm -rf "$tmp_dir"
 }
 
+run_search_diagnostic_smoke() {
+    tmp_dir="$(mktemp -d)"
+    output_file="$tmp_dir/output"
+    mkdir -p "$tmp_dir/bin"
+    printf '%s\n' '#!/bin/sh' 'printf "curl: (6) Could not resolve host: test.invalid\n" >&2' 'exit 6' >"$tmp_dir/bin/curl"
+    chmod +x "$tmp_dir/bin/curl"
+
+    if env PATH="$tmp_dir/bin:$PATH" ANI_CLI_PLAYER=debug ./ani-cli-mx-core \
+        -S 1 -e 1 "one piece" >"$output_file" 2>&1; then
+        printf 'Expected the simulated network failure to exit non-zero\n' >&2
+        rm -rf "$tmp_dir"
+        return 1
+    fi
+
+    grep -q 'No se pudo consultar AnimeAV1' "$output_file"
+    grep -q 'Could not resolve host' "$output_file"
+    grep -q 'Revisa DNS, firewall, proxy, antivirus o certificados TLS' "$output_file"
+    rm -rf "$tmp_dir"
+}
+
 case "${1:-}" in
     --network)
         run_syntax_checks
         run_continuous_toggle_smoke
         run_windows_compat_smoke
+        run_search_diagnostic_smoke
         run_debug_smoke
         ;;
     "" | --syntax)
         run_syntax_checks
         run_continuous_toggle_smoke
         run_windows_compat_smoke
+        run_search_diagnostic_smoke
         ;;
     *)
         printf 'Usage: %s [--syntax|--network]\n' "$0" >&2

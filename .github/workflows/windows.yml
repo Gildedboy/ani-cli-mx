@@ -32,6 +32,21 @@ jobs:
         shell: powershell
         run: |
           $version = & .\ani-cli-mx.cmd -V
-          if ($version -ne "1.2.0") {
+          if ($version -ne "1.2.1") {
             throw "Unexpected ani-cli-mx version: $version"
+          }
+
+      - name: Verify launcher argument forwarding
+        shell: powershell
+        run: |
+          $testDir = Join-Path $env:RUNNER_TEMP "ani-cli-mx-launcher"
+          New-Item -ItemType Directory -Force -Path $testDir | Out-Null
+          Copy-Item .\ani-cli-mx.cmd $testDir
+          @'
+          printf '<%s>\n' "$@"
+          '@ | Set-Content -Encoding ascii -NoNewline (Join-Path $testDir "ani-cli-mx-core")
+          $arguments = & (Join-Path $testDir "ani-cli-mx.cmd") "one piece" --source animeav1
+          $expected = @("<one piece>", "<--source>", "<animeav1>")
+          if (Compare-Object $expected $arguments) {
+            throw "Launcher did not preserve arguments: $($arguments -join ', ')"
           }
