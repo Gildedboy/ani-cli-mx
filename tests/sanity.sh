@@ -79,15 +79,41 @@ run_continuous_toggle_smoke() {
     rm -rf "$tmp_dir"
 }
 
+run_windows_compat_smoke() {
+    tmp_dir="$(mktemp -d)"
+    powershell_args_file="$tmp_dir/powershell-args"
+    mkdir -p "$tmp_dir/bin"
+    cp /dev/null "$tmp_dir/bin/powershell.exe"
+    chmod +x "$tmp_dir/bin/powershell.exe"
+    printf '%s\n' '#!/bin/sh' 'printf "%s\n" "$*" >"$POWERSHELL_ARGS_FILE"' >"$tmp_dir/bin/powershell.exe"
+    version_output="$(env ANI_CLI_WINDOWS=1 LOCALAPPDATA="$tmp_dir/local-app-data" \
+        ANI_CLI_PLAYER=debug ./ani-cli-mx-core -V)"
+
+    [ "$version_output" = "1.2.0" ]
+    [ -f "$tmp_dir/local-app-data/ani-cli-mx/ani-hsts" ]
+    grep -q 'GIT_INSTALL_ROOT' ani-cli-mx.cmd
+    grep -q 'ANI_CLI_PACKAGE_MANAGER=scoop' ani-cli-mx.cmd
+    ! grep -qi 'System32.*bash.exe' ani-cli-mx.cmd
+
+    env PATH="$tmp_dir/bin:$PATH" ANI_CLI_WINDOWS=1 ANI_CLI_PACKAGE_MANAGER=scoop \
+        LOCALAPPDATA="$tmp_dir/local-app-data" ANI_CLI_PLAYER=debug \
+        POWERSHELL_ARGS_FILE="$powershell_args_file" ./ani-cli-mx-core -U
+    grep -q 'scoop update ani-cli-mx' "$powershell_args_file"
+
+    rm -rf "$tmp_dir"
+}
+
 case "${1:-}" in
     --network)
         run_syntax_checks
         run_continuous_toggle_smoke
+        run_windows_compat_smoke
         run_debug_smoke
         ;;
     "" | --syntax)
         run_syntax_checks
         run_continuous_toggle_smoke
+        run_windows_compat_smoke
         ;;
     *)
         printf 'Usage: %s [--syntax|--network]\n' "$0" >&2

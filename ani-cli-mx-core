@@ -1,6 +1,6 @@
 #!/bin/sh
 
-version_number="1.1.6"
+version_number="1.2.0"
 app_name="${ANI_CLI_NAME:-${0##*/}}"
 log_tag="${ANI_CLI_LOG_TAG:-$app_name}"
 hist_state_name="${ANI_CLI_STATE_NAME:-$app_name}"
@@ -118,6 +118,13 @@ version_info() {
 }
 
 update_script() {
+    if [ "${ANI_CLI_PACKAGE_MANAGER:-}" = "scoop" ]; then
+        command -v powershell.exe >/dev/null 2>&1 ||
+            die 'No se encontro PowerShell. Actualiza con: scoop update ani-cli-mx'
+        MSYS2_ARG_CONV_EXCL='*' powershell.exe -NoProfile -ExecutionPolicy Bypass \
+            -Command 'scoop update ani-cli-mx'
+        exit $?
+    fi
     [ -z "$update_url" ] && die "La auto-actualizacion no esta configurada para este fork. Define ANI_CLI_UPDATE_URL."
     update="$(curl -s -A "$agent" "$update_url")" || die "Error de conexion"
     update="$(printf '%s\n' "$update" | diff -u "$0" -)"
@@ -131,6 +138,30 @@ update_script() {
         fi
     fi
     exit 0
+}
+
+is_windows() {
+    [ "${ANI_CLI_WINDOWS:-0}" = "1" ] && return 0
+    case "$(uname -s 2>/dev/null)" in
+        MINGW* | MSYS*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+windows_path_to_posix() {
+    if command -v cygpath >/dev/null 2>&1; then
+        cygpath -u "$1"
+    else
+        printf '%s\n' "$1"
+    fi
+}
+
+default_hist_dir() {
+    if is_windows && [ -n "${LOCALAPPDATA:-}" ]; then
+        windows_path_to_posix "$LOCALAPPDATA/$hist_state_name"
+    else
+        printf '%s\n' "${XDG_STATE_HOME:-$HOME/.local/state}/$hist_state_name"
+    fi
 }
 
 # checks if dependencies are present
@@ -162,6 +193,11 @@ where_wsl_player() {
 }
 
 open_browser_url() {
+    if is_windows; then
+        command -v cmd.exe >/dev/null 2>&1 || return 1
+        MSYS2_ARG_CONV_EXCL='*' cmd.exe /d /c start "" "$1" >/dev/null 2>&1
+        return $?
+    fi
     case "$(uname -a | cut -d " " -f 1,3-)" in
         *Darwin*) command -v open >/dev/null 2>&1 && nohup open "$1" >/dev/null 2>&1 & return 0 ;;
         *ndroid*) command -v termux-open-url >/dev/null 2>&1 && nohup termux-open-url "$1" >/dev/null 2>&1 & return 0 ;;
@@ -2371,7 +2407,7 @@ preferred_info_source="$(normalize_info_source "${ANI_CLI_INFO_SOURCE:-auto}")" 
 case "$(uname -a | cut -d " " -f 1,3-)" in
     *Darwin*) player_function="${ANI_CLI_PLAYER:-$(where_iina)}" ;;   # mac OS
     *ndroid*) player_function="${ANI_CLI_PLAYER:-android_mpv}" ;;     # Android OS (termux)
-    *MINGW* | *WSL2*) player_function="${ANI_CLI_PLAYER:-$(where_wsl_player mpv.exe "$(where_mpv)")}" ;; # Windows OS / WSL
+    *MINGW* | *MSYS* | *WSL2*) player_function="${ANI_CLI_PLAYER:-$(where_wsl_player mpv.exe "$(where_mpv)")}" ;; # Windows OS / WSL
     *ish*) player_function="${ANI_CLI_PLAYER:-iSH}" ;;                # iOS (iSH)
     *) player_function="${ANI_CLI_PLAYER:-$(where_mpv)}" ;;           # Linux OS
 esac
@@ -2402,7 +2438,7 @@ trap 'cleanup; exit 130' HUP INT TERM
 skip_title="$ANI_CLI_SKIP_TITLE"
 [ -t 0 ] || (command -v dmenu && use_external_menu=2)
 [ -t 0 ] || (command -v rofi && use_external_menu=1)
-hist_dir="${ANI_CLI_HIST_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/$hist_state_name}"
+hist_dir="${ANI_CLI_HIST_DIR:-$(default_hist_dir)}"
 [ ! -d "$hist_dir" ] && mkdir -p "$hist_dir"
 histfile="$hist_dir/ani-hsts"
 [ ! -f "$histfile" ] && : >"$histfile"
@@ -2413,7 +2449,7 @@ while [ $# -gt 0 ]; do
         -v | --vlc)
             case "$(uname -a | cut -d " " -f 1,3-)" in
                 *ndroid*) player_function="android_vlc" ;;
-                MINGW* | *WSL2*) player_function="$(where_wsl_player vlc.exe vlc)" ;;
+                MINGW* | MSYS* | *WSL2*) player_function="$(where_wsl_player vlc.exe vlc)" ;;
                 *ish*) player_function="iSH" ;;
                 *) player_function="vlc" ;;
             esac
@@ -2421,7 +2457,7 @@ while [ $# -gt 0 ]; do
         -s | --syncplay)
             case "$(uname -s)" in
                 Darwin*) player_function="/Applications/Syncplay.app/Contents/MacOS/syncplay" ;;
-                MINGW* | *Msys)
+                MINGW* | MSYS*)
                     export PATH="$PATH":"/c/Program Files (x86)/Syncplay/"
                     player_function="syncplay.exe"
                     ;;

@@ -47,7 +47,11 @@ Once you identify the relevant URLs, it is usually easier to inspect the respons
 
 ## Core concepts
 
-The current implementation lives in [ani-cli-mx-core](./ani-cli-mx-core), while [ani-cli-mx](./ani-cli-mx) is the launcher.
+The current implementation lives in [ani-cli-mx-core](./ani-cli-mx-core), while
+[ani-cli-mx](./ani-cli-mx) is the POSIX launcher. Native Windows packages use
+[ani-cli-mx.cmd](./ani-cli-mx.cmd) to locate Git for Windows explicitly and
+start the same core without WSL. Platform-specific behavior belongs in small
+boundary functions so the scraping implementation remains shared.
 
 Most source integrations follow the same broad pattern:
 

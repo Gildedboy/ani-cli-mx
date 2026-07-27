@@ -13,4 +13,4 @@ jobs:
       with:
         fetch-depth: 0
     - name: check version bump
-      run: git diff origin/master | grep version_number
+      run: git diff origin/main | grep version_number
