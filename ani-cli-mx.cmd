@@ -23,5 +23,8 @@ if not exist "%~dp0ani-cli-mx-core" (
 
 set "ANI_CLI_WINDOWS=1"
 set "ANI_CLI_PACKAGE_MANAGER=scoop"
+set "ANI_CLI_NAME=ani-cli-mx"
+set "ANI_CLI_LOG_TAG=ani-cli-mx"
+set "ANI_CLI_STATE_NAME=ani-cli-mx"
 "%BASH_EXE%" "%~dp0ani-cli-mx-core" %*
 exit /b %ERRORLEVEL%
