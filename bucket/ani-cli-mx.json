@@ -3,10 +3,6 @@
     "description": "Spanish-first anime CLI for the terminal",
     "homepage": "https://github.com/Gildedboy/ani-cli-mx",
     "license": "GPL-3.0-or-later",
-    "notes": [
-        "Run ani-cli-mx from PowerShell or a Git Bash profile in Windows Terminal.",
-        "Git must be installed before adding Scoop buckets. Git for Windows provides the Bash runtime; WSL is not used."
-    ],
     "depends": [
         "git",
         "curl",
