@@ -26,7 +26,7 @@ jobs:
 
       - name: Run shell and Windows compatibility tests
         shell: bash
-        run: ./tests/sanity.sh --syntax
+        run: bash -x ./tests/sanity.sh --syntax
 
       - name: Run the Windows launcher from PowerShell
         shell: powershell

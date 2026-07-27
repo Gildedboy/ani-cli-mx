@@ -15,11 +15,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    - name: Run the sh-checker
-      uses: luizm/action-sh-checker@master
-      env:
-        SHELLCHECK_OPTS: -s sh -o all -e 2250
-        SHFMT_OPTS: -i 4 -ci -d
+    - name: Check shell errors
+      run: shellcheck --severity=error -s sh ani-cli-mx ani-cli-mx-core tests/sanity.sh
+    - name: Run syntax and compatibility tests
+      run: ./tests/sanity.sh --syntax
       
   check-exec:
     name: Executable Bit
