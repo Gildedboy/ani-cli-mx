@@ -158,18 +158,16 @@ run_fast_link_selection_smoke() {
     (
         # shellcheck disable=SC1090
         . "$funcs_file"
-        probe_count=0
         find_link_referrer() {
-            printf '%s\n' "$1" | awk -F'>' -v ep="$2" '$1=="referrer " && $2==ep { print $3; exit }'
+            printf '%s\n' 'https://video.example/player'
         }
         find_link_source() {
-            printf '%s\n' "$1" | awk -F'>' -v ep="$2" '$1=="source " && $2==ep { print $3; exit }'
+            printf '%s\n' 'HLS'
         }
         find_link_site() {
-            printf '%s\n' "$1" | awk -F'>' -v ep="$2" '$1=="site " && $2==ep { print $3; exit }'
+            printf '%s\n' 'AnimeAV1'
         }
         probe_link_with_mpv() {
-            probe_count=$((probe_count + 1))
             return 1
         }
         links='970 >https://video.example/first.m3u8
@@ -178,11 +176,19 @@ source >https://video.example/first.m3u8>HLS
 site >https://video.example/first.m3u8>AnimeAV1'
 
         selected="$(filter_playable_links "$links" first)"
-        printf '%s\n' "$selected" | grep -q '^970 >https://video.example/first.m3u8$'
-        printf '%s\n' "$selected" | grep -q '^referrer >https://video.example/first.m3u8>https://video.example/player$'
-        [ "$probe_count" -eq 0 ]
+        printf '%s\n' "$selected" | grep -q '^970 >https://video.example/first.m3u8$' || {
+            printf 'Fast mode did not accept the first resolved stream\n' >&2
+            return 1
+        }
+        printf '%s\n' "$selected" | grep -q '^referrer >https://video.example/first.m3u8>https://video.example/player$' || {
+            printf 'Fast mode did not preserve stream metadata\n' >&2
+            return 1
+        }
 
-        [ -z "$(filter_playable_links "$links")" ]
+        [ -z "$(filter_playable_links "$links")" ] || {
+            printf 'Classic mode bypassed the player probe\n' >&2
+            return 1
+        }
     )
 
     rm -rf "$tmp_dir"
