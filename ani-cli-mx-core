@@ -1,6 +1,6 @@
 #!/bin/sh
 
-version_number="1.2.0"
+version_number="1.2.1"
 app_name="${ANI_CLI_NAME:-${0##*/}}"
 log_tag="${ANI_CLI_LOG_TAG:-$app_name}"
 hist_state_name="${ANI_CLI_STATE_NAME:-$app_name}"
@@ -218,6 +218,40 @@ jkanime_request() {
 
 animeav1_request() {
     curl -L --connect-timeout 10 --max-time "$resolver_timeout" -s "$1" -A "$agent"
+}
+
+probe_search_endpoint() {
+    probe_name="$1"
+    probe_url="$2"
+    probe_output="$(curl -L --connect-timeout 10 --max-time "$resolver_timeout" \
+        -sS -o /dev/null -w '%{http_code}' "$probe_url" -A "$agent" 2>&1)"
+    probe_exit=$?
+
+    if [ "$probe_exit" -ne 0 ]; then
+        printf 'No se pudo consultar %s: %s\n' "$probe_name" "$probe_output" 1>&2
+        return 1
+    fi
+
+    case "$probe_output" in
+        2?? | 3??) return 0 ;;
+        *)
+            printf 'No se pudo consultar %s: HTTP %s\n' "$probe_name" "$probe_output" 1>&2
+            return 1
+            ;;
+    esac
+}
+
+diagnose_empty_search() {
+    diagnostic_query="$1"
+    diagnostic_failed=0
+    probe_search_endpoint "AnimeAV1" "${animeav1_refr}/catalogo?search=${diagnostic_query}" || diagnostic_failed=1
+    probe_search_endpoint "JKAnime" "${jkanime_refr}/buscar?q=${diagnostic_query}" || diagnostic_failed=1
+
+    if [ "$diagnostic_failed" -eq 1 ]; then
+        die "No fue posible consultar las fuentes. Revisa DNS, firewall, proxy, antivirus o certificados TLS"
+    fi
+
+    die "No se encontraron resultados"
 }
 
 extract_with_ytdlp() {
@@ -2584,7 +2618,7 @@ case "$search" in
 
         query=$(printf "%s" "$query" | sed "s| |+|g")
         anime_list=$(search_anime "$query")
-        [ -z "$anime_list" ] && die "No se encontraron resultados"
+        [ -z "$anime_list" ] && diagnose_empty_search "$query"
         [ "$index" -eq "$index" ] 2>/dev/null && result=$(printf "%s" "$anime_list" | sed -n "${index}p")
         if [ -z "$index" ]; then
             anime_menu="$(printf "%s\n" "$anime_list" | awk -F '\t' '{ label = ($3 != "" ? $3 : $2); printf "%d\t%s\t%s\n", NR, $1, label }')"
