@@ -114,20 +114,39 @@ run_windows_compat_smoke() {
 run_search_diagnostic_smoke() {
     tmp_dir="$(mktemp -d)"
     output_file="$tmp_dir/output"
-    mkdir -p "$tmp_dir/bin"
-    printf '%s\n' '#!/bin/sh' 'printf "curl: (6) Could not resolve host: test.invalid\n" >&2' 'exit 6' >"$tmp_dir/bin/curl"
-    chmod +x "$tmp_dir/bin/curl"
+    funcs_file="$tmp_dir/search-diagnostic-functions.sh"
+    sed -n '/^probe_search_endpoint()/,/^extract_with_ytdlp()/p' ani-cli-mx-core | sed '$d' >"$funcs_file"
 
-    if env PATH="$tmp_dir/bin:$PATH" ANI_CLI_PLAYER=debug ./ani-cli-mx-core \
-        -S 1 -e 1 "one piece" >"$output_file" 2>&1; then
+    if (
+        # shellcheck disable=SC1090
+        . "$funcs_file"
+        resolver_timeout=1
+        agent=test
+        animeav1_refr=https://animeav1.invalid
+        jkanime_refr=https://jkanime.invalid
+        curl() {
+            printf 'curl: (6) Could not resolve host: test.invalid\n' >&2
+            return 6
+        }
+        die() {
+            printf '%s\n' "$1" >&2
+            exit 1
+        }
+        diagnose_empty_search "one+piece"
+    ) >"$output_file" 2>&1; then
         printf 'Expected the simulated network failure to exit non-zero\n' >&2
+        cat "$output_file" >&2
         rm -rf "$tmp_dir"
         return 1
     fi
 
-    grep -q 'No se pudo consultar AnimeAV1' "$output_file"
-    grep -q 'Could not resolve host' "$output_file"
-    grep -q 'Revisa DNS, firewall, proxy, antivirus o certificados TLS' "$output_file"
+    if ! grep -q 'No se pudo consultar AnimeAV1' "$output_file" ||
+        ! grep -q 'Could not resolve host' "$output_file" ||
+        ! grep -q 'Revisa DNS, firewall, proxy, antivirus o certificados TLS' "$output_file"; then
+        cat "$output_file" >&2
+        rm -rf "$tmp_dir"
+        return 1
+    fi
     rm -rf "$tmp_dir"
 }
 
