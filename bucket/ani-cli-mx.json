@@ -1,0 +1,39 @@
+{
+    "version": "1.2.0",
+    "description": "Spanish-first anime CLI for the terminal",
+    "homepage": "https://github.com/Gildedboy/ani-cli-mx",
+    "license": "GPL-3.0-or-later",
+    "notes": [
+        "Run ani-cli-mx from PowerShell or a Git Bash profile in Windows Terminal.",
+        "Git for Windows provides the Bash runtime; WSL is not used."
+    ],
+    "depends": [
+        "git",
+        "fzf",
+        "extras/mpv"
+    ],
+    "suggest": {
+        "downloads": [
+            "aria2",
+            "ffmpeg",
+            "yt-dlp"
+        ],
+        "alternate player": "extras/vlc"
+    },
+    "url": [
+        "https://raw.githubusercontent.com/Gildedboy/ani-cli-mx/refs/tags/v1.2.0/ani-cli-mx-core",
+        "https://raw.githubusercontent.com/Gildedboy/ani-cli-mx/refs/tags/v1.2.0/ani-cli-mx.cmd"
+    ],
+    "hash": [
+        "196685cf20c9261062f109382b2c20683417eb9ccc0a81f14e1958b87bf90875",
+        "95725212658f7d2f807f715afae8ef10ff7643df3d03f5cd8e1673a2bb7c9e79"
+    ],
+    "bin": "ani-cli-mx.cmd",
+    "checkver": "github",
+    "autoupdate": {
+        "url": [
+            "https://raw.githubusercontent.com/Gildedboy/ani-cli-mx/refs/tags/v$version/ani-cli-mx-core",
+            "https://raw.githubusercontent.com/Gildedboy/ani-cli-mx/refs/tags/v$version/ani-cli-mx.cmd"
+        ]
+    }
+}
