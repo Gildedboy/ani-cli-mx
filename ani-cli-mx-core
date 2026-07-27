@@ -845,7 +845,10 @@ filter_playable_links() {
         candidate_url="$(printf '%s' "$entry" | cut -d'>' -f2)"
         link_is_probably_broken "$candidate_url" && continue
         candidate_referrer="$(find_link_referrer "$1" "$candidate_url")"
-        if probe_link_with_mpv "$candidate_url" "$candidate_referrer"; then
+        # Fast mode has already resolved a concrete stream URL. Starting mpv
+        # here would make the user wait for a hidden player before starting the
+        # real one, which is especially noticeable for remote HLS playlists.
+        if [ "$stop_after_first" = "first" ] || probe_link_with_mpv "$candidate_url" "$candidate_referrer"; then
             playable_links="${playable_links}${entry}
 "
             [ -n "$candidate_referrer" ] && playable_links="${playable_links}referrer >${candidate_url}>${candidate_referrer}

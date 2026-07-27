@@ -150,12 +150,51 @@ run_search_diagnostic_smoke() {
     rm -rf "$tmp_dir"
 }
 
+run_fast_link_selection_smoke() {
+    tmp_dir="$(mktemp -d)"
+    funcs_file="$tmp_dir/link-functions.sh"
+    sed -n '/^link_is_probably_broken()/,/^extract_streamtape_link()/p' ani-cli-mx-core | sed '$d' >"$funcs_file"
+
+    (
+        # shellcheck disable=SC1090
+        . "$funcs_file"
+        probe_count=0
+        find_link_referrer() {
+            printf '%s\n' "$1" | awk -F'>' -v ep="$2" '$1=="referrer " && $2==ep { print $3; exit }'
+        }
+        find_link_source() {
+            printf '%s\n' "$1" | awk -F'>' -v ep="$2" '$1=="source " && $2==ep { print $3; exit }'
+        }
+        find_link_site() {
+            printf '%s\n' "$1" | awk -F'>' -v ep="$2" '$1=="site " && $2==ep { print $3; exit }'
+        }
+        probe_link_with_mpv() {
+            probe_count=$((probe_count + 1))
+            return 1
+        }
+        links='970 >https://video.example/first.m3u8
+referrer >https://video.example/first.m3u8>https://video.example/player
+source >https://video.example/first.m3u8>HLS
+site >https://video.example/first.m3u8>AnimeAV1'
+
+        selected="$(filter_playable_links "$links" first)"
+        printf '%s\n' "$selected" | grep -q '^970 >https://video.example/first.m3u8$'
+        printf '%s\n' "$selected" | grep -q '^referrer >https://video.example/first.m3u8>https://video.example/player$'
+        [ "$probe_count" -eq 0 ]
+
+        [ -z "$(filter_playable_links "$links")" ]
+    )
+
+    rm -rf "$tmp_dir"
+}
+
 case "${1:-}" in
     --network)
         run_syntax_checks
         run_continuous_toggle_smoke
         run_windows_compat_smoke
         run_search_diagnostic_smoke
+        run_fast_link_selection_smoke
         run_debug_smoke
         ;;
     "" | --syntax)
@@ -163,6 +202,7 @@ case "${1:-}" in
         run_continuous_toggle_smoke
         run_windows_compat_smoke
         run_search_diagnostic_smoke
+        run_fast_link_selection_smoke
         ;;
     *)
         printf 'Usage: %s [--syntax|--network]\n' "$0" >&2
