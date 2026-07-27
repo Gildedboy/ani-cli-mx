@@ -4,7 +4,10 @@
 
 - Keep shell scripts executable.
 - Update `version_number` in `ani-cli-mx-core` when a release-worthy user-facing change requires it.
-- Update `README.md` and `ani-cli-mx.1` when behavior or flags change.
+- Update `README.md` and `ani-cli-mx.1` when behavior, flags, dependencies, or
+  platform support changes.
+- Keep `ani-cli-mx.cmd` and the Windows checks in sync with changes to the
+  launcher or Scoop package layout.
 - Avoid adding dependencies unless they are clearly justified.
 - Keep changes focused; unrelated cleanup should be split into a separate pull request.
 - Test the paths you modified. For script changes, that usually means at least search, episode selection, and playback or debug-mode link output.

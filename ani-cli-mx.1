@@ -1,4 +1,4 @@
-.TH "ANI-CLI-MX" "1" "April 2026" "ani-cli-mx" "User Commands"
+.TH "ANI-CLI-MX" "1" "July 2026" "ani-cli-mx" "User Commands"
 .SH NAME
 ani-cli-mx \- watch anime from the command line with Spanish-first sources
 .SH SYNOPSIS
@@ -9,7 +9,7 @@ A shell script to browse and search anime from the command-line.
 .PD 0
 .P
 .PD
-This fork tries JKAnime first, then AnimeAV1, and finally falls back to the original English source when Spanish sources fail.
+This fork tries JKAnime first, then AnimeAV1, and finally falls back to the original English source when Spanish sources fail. Windows is supported without WSL by using Git for Windows as the shell runtime and native Windows media players.
 .PD 0
 .P
 .PD
@@ -42,6 +42,7 @@ Watch anime together with friends, using Syncplay (works with mpv only).
 .TP
 \fB\-U | --update\fR
 Fetch an update from the configured fork URL.
+For Scoop-managed Windows installations, delegate the update to Scoop.
 .TP
 \fB\-v | --vlc\fR
 Use VLC as the media player.
@@ -115,7 +116,7 @@ Controls the logging feature for playback. Can be 1(logs) or 0(doesn't log). Def
 Controls the multi flag for the chosen frontend. Default is -m for fzf and --multi-select for rofi dmenu.
 .TP
 \fBANI_CLI_HIST_DIR\fR
-Controls the directory ani-cli-mx uses for storing history. The default is $XDG_STATE_HOME/ani-cli-mx if set, otherwise $HOME/.local/state/ani-cli-mx.
+Controls the directory ani-cli-mx uses for storing history. On Windows the default is %LOCALAPPDATA%\ani-cli-mx. Elsewhere it is $XDG_STATE_HOME/ani-cli-mx if set, otherwise $HOME/.local/state/ani-cli-mx.
 .TP
 \fBANI_CLI_DEFAULT_SOURCE\fR
 Controls the default source. Valid is history (equivalent to -c), everything else means search. Default is search.
@@ -143,6 +144,12 @@ Overrides the anime title to query for skip times. Can be any string value. Defa
 .TP
 \fBANI_CLI_UPDATE_URL\fR
 Sets the raw script URL used by \fB\-U\fR. This fork does not self-update from upstream by default.
+.TP
+\fBANI_CLI_WINDOWS\fR
+Marks an invocation as native Windows. The official Windows launcher sets this automatically.
+.TP
+\fBANI_CLI_PACKAGE_MANAGER\fR
+Identifies the package manager responsible for updates. The Scoop launcher sets this to scoop.
 .PP
 .SH EPISODE SELECTION
 .PP

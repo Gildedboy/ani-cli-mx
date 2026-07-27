@@ -75,6 +75,52 @@ Optional packages:
 </details>
 
 <details>
+<summary>Windows With Scoop (No WSL)</summary>
+
+This is native Windows support through Git Bash. Git for Windows provides the
+shell runtime, while mpv, fzf, and ani-cli-mx run as Windows applications. WSL
+is not used.
+
+Install Scoop if it is not already available:
+
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression
+```
+
+Add the official buckets and install ani-cli-mx:
+
+```powershell
+scoop bucket add extras
+scoop bucket add ani-cli-mx https://github.com/Gildedboy/ani-cli-mx
+scoop install ani-cli-mx
+```
+
+The package installs Git for Windows, fzf, and mpv as dependencies. Windows
+Terminal is recommended; run ani-cli-mx from PowerShell or from its Git Bash
+profile:
+
+```powershell
+ani-cli-mx "blue lock"
+```
+
+Optional download and alternate-player tools:
+
+```powershell
+scoop install aria2 ffmpeg yt-dlp
+scoop install vlc
+```
+
+The Windows launcher resolves Git for Windows explicitly and does not invoke
+the legacy WSL `bash.exe`.
+
+The standalone Git Bash window uses Mintty and may not interact correctly with
+fzf. Prefer a Git Bash profile hosted by Windows Terminal when you want a Bash
+prompt.
+
+</details>
+
+<details>
 <summary>WSL</summary>
 
 Use the install path for your WSL distro of choice.
@@ -133,6 +179,18 @@ install -Dm644 ani-cli-mx.1 "$HOME/.local/share/man/man1/ani-cli-mx.1"
 </details>
 
 ## Update
+
+<details>
+<summary>Windows With Scoop</summary>
+
+```powershell
+scoop update
+scoop update ani-cli-mx
+```
+
+`ani-cli-mx -U` delegates to Scoop for a Scoop-managed Windows installation.
+
+</details>
 
 <details>
 <summary>Arch-Based Distros With AUR</summary>
@@ -203,6 +261,24 @@ ANI_CLI_UPDATE_URL=https://raw.githubusercontent.com/Gildedboy/ani-cli-mx/main/a
 </details>
 
 ## Uninstall
+
+<details>
+<summary>Windows With Scoop</summary>
+
+```powershell
+scoop uninstall ani-cli-mx
+```
+
+To remove the bucket registration as well:
+
+```powershell
+scoop bucket rm ani-cli-mx
+```
+
+History is stored under `%LOCALAPPDATA%\ani-cli-mx`. Scoop does not remove that
+user data automatically.
+
+</details>
 
 <details>
 <summary>Arch-Based Distros With AUR</summary>
@@ -282,6 +358,9 @@ Required:
 
 Platform notes:
 
+- on Windows, Git for Windows supplies Bash and the required POSIX utilities;
+  the official launcher avoids WSL
+- on Windows, the default history directory is `%LOCALAPPDATA%\ani-cli-mx`
 - `iina` is supported as a macOS player path
 - `vlc` is supported with `--vlc`
 - on Termux, the `openssl` CLI lives in the `openssl-tool` package
@@ -393,6 +472,11 @@ Are Ubuntu-based distros supported right now?
 Is WSL supported right now?
 
 - Yes. Use your WSL distro of choice and follow the matching install path above.
+
+Is Windows supported without WSL?
+
+- Yes. Install the official Scoop package. Git for Windows supplies Bash, but
+  playback and every dependency run directly on Windows.
 
 Why `ani-cli-mx-git` instead of `ani-cli-mx` for Arch packaging?
 

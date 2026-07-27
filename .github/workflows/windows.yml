@@ -1,0 +1,37 @@
+name: Windows support checks
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ani-cli-mx
+      - ani-cli-mx-core
+      - ani-cli-mx.cmd
+      - tests/**
+      - .github/workflows/windows.yml
+  pull_request:
+    paths:
+      - ani-cli-mx
+      - ani-cli-mx-core
+      - ani-cli-mx.cmd
+      - tests/**
+      - .github/workflows/windows.yml
+
+jobs:
+  git-bash:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run shell and Windows compatibility tests
+        shell: bash
+        run: ./tests/sanity.sh --syntax
+
+      - name: Run the Windows launcher from PowerShell
+        shell: powershell
+        run: |
+          $version = & .\ani-cli-mx.cmd -V
+          if ($version -ne "1.2.0") {
+            throw "Unexpected ani-cli-mx version: $version"
+          }

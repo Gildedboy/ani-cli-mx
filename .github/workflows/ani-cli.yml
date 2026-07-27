@@ -2,11 +2,12 @@ name: 'ani-cli-mx shell checks'
 on:
   push:
     branches:
-      - master
+      - main
   pull_request:
     paths:
       - "ani-cli-mx"
       - "ani-cli-mx-core"
+      - "ani-cli-mx.cmd"
 
 jobs:
   sh-checker:
@@ -14,11 +15,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    - name: Run the sh-checker
-      uses: luizm/action-sh-checker@master
-      env:
-        SHELLCHECK_OPTS: -s sh -o all -e 2250
-        SHFMT_OPTS: -i 4 -ci -d
+    - name: Check shell errors
+      run: shellcheck --severity=error -s sh ani-cli-mx ani-cli-mx-core tests/sanity.sh
+    - name: Run syntax and compatibility tests
+      run: ./tests/sanity.sh --syntax
       
   check-exec:
     name: Executable Bit
@@ -26,12 +26,18 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: test exec bits
-      run: test -x "./ani-cli-mx" && test -x "./ani-cli-mx-core"
+      run: test -x "./ani-cli-mx" && test -x "./ani-cli-mx-core" && test -f "./ani-cli-mx.cmd"
 
   check-no-awk:
-    name: No Awk Allowed
+    name: No New Awk
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    - name: verify that no one added awk
-      run: '! grep awk "./ani-cli-mx-core"'
+      with:
+        fetch-depth: 0
+    - name: Verify that the change does not add awk usage
+      env:
+        BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+      run: |
+        test -n "$BASE_SHA"
+        ! git diff "$BASE_SHA" -- ani-cli-mx-core | grep '^+.*awk'
