@@ -96,7 +96,7 @@ run_windows_compat_smoke() {
         ANI_CLI_STATE_NAME=ani-cli-mx LOCALAPPDATA="$local_app_data_env" \
         ANI_CLI_PLAYER=debug ./ani-cli-mx-core -V)"
 
-    [ "$version_output" = "1.2.1" ]
+    [ "$version_output" = "1.2.2" ]
     [ -f "$local_app_data/ani-cli-mx/ani-hsts" ]
     grep -q 'GIT_INSTALL_ROOT' ani-cli-mx.cmd
     grep -q 'ANI_CLI_PACKAGE_MANAGER=scoop' ani-cli-mx.cmd
@@ -150,12 +150,57 @@ run_search_diagnostic_smoke() {
     rm -rf "$tmp_dir"
 }
 
+run_fast_link_selection_smoke() {
+    tmp_dir="$(mktemp -d)"
+    funcs_file="$tmp_dir/link-functions.sh"
+    sed -n '/^link_is_probably_broken()/,/^extract_streamtape_link()/p' ani-cli-mx-core | sed '$d' >"$funcs_file"
+
+    (
+        # shellcheck disable=SC1090
+        . "$funcs_file"
+        find_link_referrer() {
+            printf '%s\n' 'https://video.example/player'
+        }
+        find_link_source() {
+            printf '%s\n' 'HLS'
+        }
+        find_link_site() {
+            printf '%s\n' 'AnimeAV1'
+        }
+        probe_link_with_mpv() {
+            return 1
+        }
+        links='970 >https://video.example/first.m3u8
+referrer >https://video.example/first.m3u8>https://video.example/player
+source >https://video.example/first.m3u8>HLS
+site >https://video.example/first.m3u8>AnimeAV1'
+
+        selected="$(filter_playable_links "$links" first)"
+        printf '%s\n' "$selected" | grep -q '^970 >https://video.example/first.m3u8$' || {
+            printf 'Fast mode did not accept the first resolved stream\n' >&2
+            return 1
+        }
+        printf '%s\n' "$selected" | grep -q '^referrer >https://video.example/first.m3u8>https://video.example/player$' || {
+            printf 'Fast mode did not preserve stream metadata\n' >&2
+            return 1
+        }
+
+        [ -z "$(filter_playable_links "$links")" ] || {
+            printf 'Classic mode bypassed the player probe\n' >&2
+            return 1
+        }
+    )
+
+    rm -rf "$tmp_dir"
+}
+
 case "${1:-}" in
     --network)
         run_syntax_checks
         run_continuous_toggle_smoke
         run_windows_compat_smoke
         run_search_diagnostic_smoke
+        run_fast_link_selection_smoke
         run_debug_smoke
         ;;
     "" | --syntax)
@@ -163,6 +208,7 @@ case "${1:-}" in
         run_continuous_toggle_smoke
         run_windows_compat_smoke
         run_search_diagnostic_smoke
+        run_fast_link_selection_smoke
         ;;
     *)
         printf 'Usage: %s [--syntax|--network]\n' "$0" >&2
