@@ -1,6 +1,6 @@
 #!/bin/sh
 
-version_number="1.3.0"
+version_number="1.3.1"
 app_name="${ANI_CLI_NAME:-${0##*/}}"
 log_tag="${ANI_CLI_LOG_TAG:-$app_name}"
 hist_state_name="${ANI_CLI_STATE_NAME:-$app_name}"
@@ -872,30 +872,32 @@ select_ytdlp_url() {
 
 probe_link_with_mpv() {
     probe_referrer=""
+    probe_headers=""
     [ -n "$2" ] && probe_referrer="--referrer=$2"
+    [ -n "$3" ] && probe_headers="--http-header-fields=$3"
 
     # Probe candidates with a silent one-frame decode, so only actually playable
     # sources survive selection.
     case "$player_function" in
         flatpak_mpv)
             timeout "${probe_timeout}s" flatpak run io.mpv.Mpv --no-config --ao=null --vo=null --frames=1 \
-                --really-quiet $probe_referrer "$1" >/dev/null 2>&1
+                --really-quiet $probe_referrer $probe_headers "$1" >/dev/null 2>&1
             ;;
         mpv.exe | */mpv.exe)
             timeout "${probe_timeout}s" "$player_function" --no-config --ao=null --vo=null --frames=1 \
-                --really-quiet $probe_referrer "$1" >/dev/null 2>&1
+                --really-quiet $probe_referrer $probe_headers "$1" >/dev/null 2>&1
             ;;
         mpv | */mpv)
             timeout "${probe_timeout}s" "$player_function" --no-config --ao=null --vo=null --frames=1 \
-                --really-quiet $probe_referrer "$1" >/dev/null 2>&1
+                --really-quiet $probe_referrer $probe_headers "$1" >/dev/null 2>&1
             ;;
         *)
             if command -v mpv >/dev/null 2>&1; then
                 timeout "${probe_timeout}s" mpv --no-config --ao=null --vo=null --frames=1 \
-                    --really-quiet $probe_referrer "$1" >/dev/null 2>&1
+                    --really-quiet $probe_referrer $probe_headers "$1" >/dev/null 2>&1
             elif command -v flatpak >/dev/null 2>&1 && flatpak info io.mpv.Mpv >/dev/null 2>&1; then
                 timeout "${probe_timeout}s" flatpak run io.mpv.Mpv --no-config --ao=null --vo=null --frames=1 \
-                    --really-quiet $probe_referrer "$1" >/dev/null 2>&1
+                    --really-quiet $probe_referrer $probe_headers "$1" >/dev/null 2>&1
             else
                 return 0
             fi
@@ -1384,7 +1386,7 @@ ${embed_entries}"
                 ;;
             hls)
                 direct_link="$(extract_animeav1_hls_link "$remote_url")"
-                if [ -n "$direct_link" ] && probe_stream_link "$remote_url" "$direct_link"; then
+                if [ -n "$direct_link" ] && probe_link_with_mpv "$direct_link" "$remote_url" "$zilla_header_fields"; then
                     if ! printf '%s' "$primary_links" | grep -Fq ">${direct_link}"; then
                         primary_links="${primary_links}$(animeav1_server_priority "$server_name") >${direct_link}
 referrer >${direct_link}>${remote_url}
@@ -1412,9 +1414,10 @@ site >${direct_link}>AnimeAV1
         esac
 
         direct_link="$(extract_with_ytdlp "$remote_url")"
-        if [ -n "$direct_link" ]; then
+        if [ -n "$direct_link" ] && probe_link_with_mpv "$direct_link" "$remote_url"; then
             if ! printf '%s' "$primary_links" | grep -Fq ">${direct_link}"; then
                 primary_links="${primary_links}$(animeav1_server_priority "$server_name") >${direct_link}
+referrer >${direct_link}>${remote_url}
 source >${direct_link}>${server_name}
 site >${direct_link}>AnimeAV1
 "
@@ -1753,7 +1756,7 @@ extract_animeflv_wp_links() {
             *player.zilla-networks.com/play/*)
                 server_name="HLS"
                 direct_link="$(extract_animeav1_hls_link "$remote_url")"
-                [ -n "$direct_link" ] && probe_stream_link "$remote_url" "$direct_link" || direct_link=""
+                [ -n "$direct_link" ] && probe_link_with_mpv "$direct_link" "$remote_url" "$zilla_header_fields" || direct_link=""
                 ;;
             *mp4upload*)
                 server_name="MP4Upload"
@@ -1846,6 +1849,7 @@ store_spanish_links_for_source() {
 }
 
 select_quality() {
+    unset headers_flag
     # removing urls which have soft subs to avoid playing on android, iSH and vlc (m3u8 streams don't get correct referrer)
     printf '%s' "$player_function" | cut -f1 -d" " | grep -qE '(android|iSH|vlc)' && links=$(printf '%s' "$links" | sed '/cc>/d;/subtitle >/d;/m3u8_refr >/d')
     printf '%s' "$player_function" | cut -f1 -d" " | grep -qE '(android|iSH)' && links=$(printf '%s' "$links" | sed '/Yt >/d')
@@ -1863,6 +1867,9 @@ select_quality() {
         [ -n "$subtitle" ] && subs_flag="--sub-file=$subtitle"
     printf "%s" "$result" | grep -q "tools.fast4speed.rsvp" && refr_flag="--referrer=$allanime_refr"
     episode=$(printf "%s" "$result" | cut -d'>' -f2)
+    case "$episode" in
+        https://player.zilla-networks.com/*) headers_flag="--http-header-fields=${zilla_header_fields}" ;;
+    esac
     selected_quality="$(printf '%s' "$result" | cut -d'>' -f1 | tr -d '[:space:]')"
     generic_refr="$(printf '%s\n' "$links" | awk -F'>' -v ep="$episode" '$1=="referrer " && $2==ep { print $3; exit }')"
     selected_site="$(find_link_site "$links" "$episode")"
@@ -2324,10 +2331,10 @@ play_episode() {
             if [ "$manual_handoff" = 1 ]; then
                 :
             elif [ "$no_detach" = 0 ]; then
-                nohup $player_function $skip_flag --force-media-title="${allanime_title}Episode ${ep_no}" "$episode" $subs_flag $refr_flag >/dev/null 2>&1 &
+                nohup $player_function $skip_flag --force-media-title="${allanime_title}Episode ${ep_no}" "$episode" $subs_flag $refr_flag $headers_flag >/dev/null 2>&1 &
                 player_pid=$!
             else
-                $player_function $skip_flag $subs_flag $refr_flag --force-media-title="${allanime_title}Episode ${ep_no}" "$episode"
+                $player_function $skip_flag $subs_flag $refr_flag $headers_flag --force-media-title="${allanime_title}Episode ${ep_no}" "$episode"
                 mpv_exitcode=$?
                 [ "$exit_after_play" = 1 ] && [ -z "$range" ] && exit "$mpv_exitcode"
             fi
@@ -2337,19 +2344,20 @@ play_episode() {
         *iina*)
             [ -n "$subs_flag" ] && subs_flag="--mpv-${subs_flag#--}"
             [ -n "$refr_flag" ] && refr_flag="--mpv-${refr_flag#--}"
+            [ -n "$headers_flag" ] && headers_flag="--mpv-${headers_flag#--}"
             if pgrep -f "IINA" >/dev/null 2>&1; then
                 # omit --keep-running when an IINA instance exists to prevent hanging
-                nohup $player_function --no-stdin --mpv-force-media-title="${allanime_title}Episode ${ep_no}" $subs_flag $refr_flag "$episode" >/dev/null 2>&1 &
+                nohup $player_function --no-stdin --mpv-force-media-title="${allanime_title}Episode ${ep_no}" $subs_flag $refr_flag $headers_flag "$episode" >/dev/null 2>&1 &
             else
-                nohup $player_function --no-stdin --keep-running --mpv-force-media-title="${allanime_title}Episode ${ep_no}" $subs_flag $refr_flag "$episode" >/dev/null 2>&1 &
+                nohup $player_function --no-stdin --keep-running --mpv-force-media-title="${allanime_title}Episode ${ep_no}" $subs_flag $refr_flag $headers_flag "$episode" >/dev/null 2>&1 &
             fi
             ;;
         flatpak_mpv)
             if [ "$no_detach" = 0 ]; then
-                flatpak run io.mpv.Mpv --force-media-title="${allanime_title}Episode ${ep_no}" "$episode" $subs_flag $refr_flag >/dev/null 2>&1 &
+                flatpak run io.mpv.Mpv --force-media-title="${allanime_title}Episode ${ep_no}" "$episode" $subs_flag $refr_flag $headers_flag >/dev/null 2>&1 &
                 player_pid=$!
             else
-                flatpak run io.mpv.Mpv --force-media-title="${allanime_title}Episode ${ep_no}" "$episode" $subs_flag $refr_flag
+                flatpak run io.mpv.Mpv --force-media-title="${allanime_title}Episode ${ep_no}" "$episode" $subs_flag $refr_flag $headers_flag
                 mpv_exitcode=$?
                 [ "$exit_after_play" = 1 ] && [ -z "$range" ] && exit "$mpv_exitcode"
             fi
@@ -2578,6 +2586,7 @@ playback_menu_prompt() {
 
 # setup
 agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0"
+zilla_header_fields="Origin:https://player.zilla-networks.com,Sec-Fetch-Dest:empty,Sec-Fetch-Mode:cors,Sec-Fetch-Site:same-origin"
 allanime_refr="https://animeflv.or.at"
 allanime_base="animeflv.or.at"
 allanime_api=""

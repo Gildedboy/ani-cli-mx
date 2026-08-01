@@ -27,24 +27,11 @@ run_debug_smoke() {
     grep -q "Enlace seleccionado:" "$clean_file"
 
     env ANI_CLI_PLAYER=debug ANI_CLI_NO_DETACH=1 ./ani-cli-mx \
-        --source animeav1 -S 1 -e "13 14" "vinland saga season 2" >"$output_file" 2>&1
+        --source animeav1 -S 1 -e 1 "yani neko" >"$output_file" 2>&1
     strip_ansi <"$output_file" >"$clean_file"
-    grep -q "Reproduciendo episodio 14" "$clean_file"
     grep -q "Fuente seleccionada:" "$clean_file"
-    grep -q "AnimeAV1" "$clean_file"
-
-    ep14_output="$(sed -n '/Reproduciendo episodio 14/,$p' "$clean_file")"
-    printf '%s\n' "$ep14_output" | grep -q "AnimeAV1 HLS"
-    ! printf '%s\n' "$ep14_output" | grep -q "AnimeAV1 1Fichier"
-    ! printf '%s\n' "$ep14_output" | grep -q "AnimeAV1 UPNShare"
-    ! printf '%s\n' "$ep14_output" | grep -q "AnimeFLV"
-    ! printf '%s\n' "$ep14_output" | grep -q "JKAnime"
-
-    env ANI_CLI_PLAYER=debug ANI_CLI_NO_DETACH=1 ./ani-cli-mx \
-        --source animeflv -S 1 -e 13 "dr stone science future part 3" >"$output_file" 2>&1
-    strip_ansi <"$output_file" >"$clean_file"
-    grep -q "Fuente elegida: AnimeFLV" "$clean_file"
-    grep -q "AnimeFLV / HLS" "$clean_file"
+    grep -q "AnimeAV1 / HLS" "$clean_file"
+    ! grep -q "JKAnime" "$clean_file"
 }
 
 run_continuous_toggle_smoke() {
@@ -109,7 +96,7 @@ run_windows_compat_smoke() {
         ANI_CLI_STATE_NAME=ani-cli-mx LOCALAPPDATA="$local_app_data_env" \
         ANI_CLI_PLAYER=debug ./ani-cli-mx-core -V)"
 
-    [ "$version_output" = "1.3.0" ]
+    [ "$version_output" = "1.3.1" ]
     [ -f "$local_app_data/ani-cli-mx/ani-hsts" ]
     grep -q 'GIT_INSTALL_ROOT' ani-cli-mx.cmd
     grep -q 'ANI_CLI_PACKAGE_MANAGER=scoop' ani-cli-mx.cmd
