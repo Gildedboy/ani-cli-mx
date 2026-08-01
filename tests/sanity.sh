@@ -103,7 +103,7 @@ run_windows_compat_smoke() {
         ANI_CLI_STATE_NAME=ani-cli-mx LOCALAPPDATA="$local_app_data_env" \
         ANI_CLI_PLAYER=debug ./ani-cli-mx-core -V)"
 
-    [ "$version_output" = "1.2.3" ]
+    [ "$version_output" = "1.2.4" ]
     [ -f "$local_app_data/ani-cli-mx/ani-hsts" ]
     grep -q 'GIT_INSTALL_ROOT' ani-cli-mx.cmd
     grep -q 'ANI_CLI_PACKAGE_MANAGER=scoop' ani-cli-mx.cmd
@@ -154,6 +154,21 @@ run_search_diagnostic_smoke() {
         rm -rf "$tmp_dir"
         return 1
     fi
+    rm -rf "$tmp_dir"
+}
+
+run_search_query_candidates_smoke() {
+    tmp_dir="$(mktemp -d)"
+    funcs_file="$tmp_dir/search-query-functions.sh"
+    sed -n '/^normalize_romanized_text()/,/^normalize_match_key()/p' ani-cli-mx-core | sed '$d' >"$funcs_file"
+
+    (
+        # shellcheck disable=SC1090
+        . "$funcs_file"
+        [ "$(search_query_candidates_from_text baki)" = "baki" ]
+        [ "$(search_query_candidates_from_text 'boku no hero')" = "boku+no+hero" ]
+    )
+
     rm -rf "$tmp_dir"
 }
 
@@ -208,6 +223,7 @@ case "${1:-}" in
         run_download_menu_smoke
         run_windows_compat_smoke
         run_search_diagnostic_smoke
+        run_search_query_candidates_smoke
         run_fast_link_selection_smoke
         run_debug_smoke
         ;;
@@ -217,6 +233,7 @@ case "${1:-}" in
         run_download_menu_smoke
         run_windows_compat_smoke
         run_search_diagnostic_smoke
+        run_search_query_candidates_smoke
         run_fast_link_selection_smoke
         ;;
     *)

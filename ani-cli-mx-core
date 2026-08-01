@@ -1,6 +1,6 @@
 #!/bin/sh
 
-version_number="1.2.3"
+version_number="1.2.4"
 app_name="${ANI_CLI_NAME:-${0##*/}}"
 log_tag="${ANI_CLI_LOG_TAG:-$app_name}"
 hist_state_name="${ANI_CLI_STATE_NAME:-$app_name}"
@@ -370,7 +370,9 @@ search_query_candidates_from_text() {
     query_text="$(printf '%s' "$1" | sed 's|+| |g')"
     {
         normalize_romanized_text "$query_text" | compact_search_query
+        printf '\n'
         normalize_romanized_text_plain "$query_text" | compact_search_query
+        printf '\n'
     } | sed '/^$/d' | awk '!seen[$0]++'
 }
 
@@ -1975,16 +1977,34 @@ jkanime_ajax_episode_numbers() {
     [ -z "$last_page" ] && last_page=1
 
     episode_numbers="$(printf '%s' "$first_page" | grep -oE '"number":[0-9]+(\.[0-9]+)?' | cut -d: -f2)"
+    pages_dir="$(mktemp -d)"
     page_no=2
     while [ "$page_no" -le "$last_page" ]; do
-        page_json="$(curl -L --connect-timeout 10 --max-time "$resolver_timeout" -s -b "$cookie_jar" -c "$cookie_jar" \
-            -X POST "${jkanime_refr}/ajax/episodes/${anime_id}/${page_no}" --data "_token=${csrf_token}" \
-            -H "X-Requested-With: XMLHttpRequest" -A "$agent")" || break
+        page_file="${pages_dir}/${page_no}"
+        (
+            curl -L --connect-timeout 10 --max-time "$resolver_timeout" -s -b "$cookie_jar" \
+                -X POST "${jkanime_refr}/ajax/episodes/${anime_id}/${page_no}" --data "_token=${csrf_token}" \
+                -H "X-Requested-With: XMLHttpRequest" -A "$agent" >"$page_file" &&
+                : >"${page_file}.ok"
+        ) &
+        page_no=$((page_no + 1))
+    done
+    wait
+
+    page_no=2
+    while [ "$page_no" -le "$last_page" ]; do
+        page_file="${pages_dir}/${page_no}"
+        if [ ! -f "${page_file}.ok" ]; then
+            rm -rf "$pages_dir"
+            rm -f "$cookie_jar"
+            return 1
+        fi
         episode_numbers="${episode_numbers}
-$(printf '%s' "$page_json" | grep -oE '"number":[0-9]+(\.[0-9]+)?' | cut -d: -f2)"
+$(grep -oE '"number":[0-9]+(\.[0-9]+)?' "$page_file" | cut -d: -f2)"
         page_no=$((page_no + 1))
     done
 
+    rm -rf "$pages_dir"
     rm -f "$cookie_jar"
     printf '%s\n' "$episode_numbers" | sed '/^$/d' | awk '!seen[$0]++' | sort -n -k 1
 }
