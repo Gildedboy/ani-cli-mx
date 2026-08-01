@@ -1,0 +1,4 @@
+interface:
+  display_name: "Maintain ani-cli Providers"
+  short_description: "Diagnose and repair anime source integrations"
+  default_prompt: "Use $maintain-ani-cli-providers to diagnose and fix an ani-cli source or playback regression."
