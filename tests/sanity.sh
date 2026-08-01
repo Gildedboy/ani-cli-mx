@@ -79,6 +79,13 @@ run_continuous_toggle_smoke() {
     rm -rf "$tmp_dir"
 }
 
+run_download_menu_smoke() {
+    menu_options="$(sed -n '/^playback_menu_options()/,/^playback_menu_prompt()/p' ani-cli-mx-core)"
+    printf '%s\n' "$menu_options" | grep -q 'descargar_episodio_actual'
+    grep -q 'download_dir="${ANI_CLI_DOWNLOAD_DIR:-$(default_download_dir)}"' ani-cli-mx-core
+    grep -q "command -v yt-dlp" ani-cli-mx-core
+}
+
 run_windows_compat_smoke() {
     tmp_dir="$(mktemp -d)"
     powershell_args_file="$tmp_dir/powershell-args"
@@ -96,7 +103,7 @@ run_windows_compat_smoke() {
         ANI_CLI_STATE_NAME=ani-cli-mx LOCALAPPDATA="$local_app_data_env" \
         ANI_CLI_PLAYER=debug ./ani-cli-mx-core -V)"
 
-    [ "$version_output" = "1.2.2" ]
+    [ "$version_output" = "1.2.3" ]
     [ -f "$local_app_data/ani-cli-mx/ani-hsts" ]
     grep -q 'GIT_INSTALL_ROOT' ani-cli-mx.cmd
     grep -q 'ANI_CLI_PACKAGE_MANAGER=scoop' ani-cli-mx.cmd
@@ -198,6 +205,7 @@ case "${1:-}" in
     --network)
         run_syntax_checks
         run_continuous_toggle_smoke
+        run_download_menu_smoke
         run_windows_compat_smoke
         run_search_diagnostic_smoke
         run_fast_link_selection_smoke
@@ -206,6 +214,7 @@ case "${1:-}" in
     "" | --syntax)
         run_syntax_checks
         run_continuous_toggle_smoke
+        run_download_menu_smoke
         run_windows_compat_smoke
         run_search_diagnostic_smoke
         run_fast_link_selection_smoke
