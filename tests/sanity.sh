@@ -39,6 +39,12 @@ run_debug_smoke() {
     ! printf '%s\n' "$ep14_output" | grep -q "AnimeAV1 UPNShare"
     ! printf '%s\n' "$ep14_output" | grep -q "AnimeFLV"
     ! printf '%s\n' "$ep14_output" | grep -q "JKAnime"
+
+    env ANI_CLI_PLAYER=debug ANI_CLI_NO_DETACH=1 ./ani-cli-mx \
+        --source animeflv -S 1 -e 13 "dr stone science future part 3" >"$output_file" 2>&1
+    strip_ansi <"$output_file" >"$clean_file"
+    grep -q "Fuente elegida: AnimeFLV" "$clean_file"
+    grep -q "AnimeFLV / HLS" "$clean_file"
 }
 
 run_continuous_toggle_smoke() {
@@ -103,7 +109,7 @@ run_windows_compat_smoke() {
         ANI_CLI_STATE_NAME=ani-cli-mx LOCALAPPDATA="$local_app_data_env" \
         ANI_CLI_PLAYER=debug ./ani-cli-mx-core -V)"
 
-    [ "$version_output" = "1.2.4" ]
+    [ "$version_output" = "1.3.0" ]
     [ -f "$local_app_data/ani-cli-mx/ani-hsts" ]
     grep -q 'GIT_INSTALL_ROOT' ani-cli-mx.cmd
     grep -q 'ANI_CLI_PACKAGE_MANAGER=scoop' ani-cli-mx.cmd
@@ -129,6 +135,7 @@ run_search_diagnostic_smoke() {
         . "$funcs_file"
         resolver_timeout=1
         agent=test
+        animeflv_refr=https://animeflv.invalid
         animeav1_refr=https://animeav1.invalid
         jkanime_refr=https://jkanime.invalid
         curl() {
@@ -149,6 +156,7 @@ run_search_diagnostic_smoke() {
 
     if ! grep -q 'No se pudo consultar AnimeAV1' "$output_file" ||
         ! grep -q 'Could not resolve host' "$output_file" ||
+        ! grep -q 'No se pudo consultar AnimeFLV' "$output_file" ||
         ! grep -q 'Revisa DNS, firewall, proxy, antivirus o certificados TLS' "$output_file"; then
         cat "$output_file" >&2
         rm -rf "$tmp_dir"

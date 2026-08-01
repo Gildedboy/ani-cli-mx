@@ -1,6 +1,6 @@
 #!/bin/sh
 
-version_number="1.2.4"
+version_number="1.3.0"
 app_name="${ANI_CLI_NAME:-${0##*/}}"
 log_tag="${ANI_CLI_LOG_TAG:-$app_name}"
 hist_state_name="${ANI_CLI_STATE_NAME:-$app_name}"
@@ -82,7 +82,7 @@ help_info() {
       -e, --episode, -r, --range
         Specify the number of episodes to watch
       --source <source>
-        Source to use for search and episode info: auto, jkanime, animeav1, allanime
+        Source to use for search and episode info: auto, animeflv, jkanime, animeav1, allanime
       --dub
         Play dubbed version
       --rofi
@@ -307,6 +307,7 @@ diagnose_empty_search() {
     diagnostic_failed=0
     probe_search_endpoint "AnimeAV1" "${animeav1_refr}/catalogo?search=${diagnostic_query}" || diagnostic_failed=1
     probe_search_endpoint "JKAnime" "${jkanime_refr}/buscar?q=${diagnostic_query}" || diagnostic_failed=1
+    probe_search_endpoint "AnimeFLV" "${animeflv_refr}/wp-json/wp/v2/categories?per_page=1" || diagnostic_failed=1
 
     if [ "$diagnostic_failed" -eq 1 ]; then
         die "No fue posible consultar las fuentes. Revisa DNS, firewall, proxy, antivirus o certificados TLS"
@@ -534,7 +535,7 @@ cross_source_match_is_confident() {
 
 site_name_from_ref() {
     case "$1" in
-        animeflv:*) return 1 ;;
+        animeflv:*) printf '%s\n' "animeflv" ;;
         jkanime:*) printf '%s\n' "jkanime" ;;
         animeav1:*) printf '%s\n' "animeav1" ;;
         allanime:*) printf '%s\n' "allanime" ;;
@@ -600,6 +601,7 @@ prefix_allanime_search_results() {
 normalize_info_source() {
     case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
         "" | auto) printf '%s\n' "auto" ;;
+        animeflv | flv) printf '%s\n' "animeflv" ;;
         jkanime | jk) printf '%s\n' "jkanime" ;;
         animeav1 | av1) printf '%s\n' "animeav1" ;;
         allanime | allmanga | english) printf '%s\n' "allanime" ;;
@@ -620,6 +622,7 @@ info_source_label() {
 
 source_key_from_label() {
     case "$1" in
+        AnimeFLV | AnimeFLV\ *) printf '%s\n' "animeflv" ;;
         JKAnime | JKAnime\ *) printf '%s\n' "jkanime" ;;
         AnimeAV1 | AnimeAV1\ *) printf '%s\n' "animeav1" ;;
         *) return 1 ;;
@@ -628,7 +631,7 @@ source_key_from_label() {
 
 is_spanish_source() {
     case "$1" in
-        jkanime | animeav1) return 0 ;;
+        animeflv | jkanime | animeav1) return 0 ;;
         *) return 1 ;;
     esac
 }
@@ -784,8 +787,9 @@ quality_menu_entries() {
 
 available_site_entries() {
     menu_index=1
-    for site_name in JKAnime AnimeAV1; do
+    for site_name in JKAnime AnimeAV1 AnimeFLV; do
         case "$site_name" in
+            AnimeFLV) site_links="$1" ;;
             JKAnime) site_links="$2" ;;
             AnimeAV1) site_links="$3" ;;
         esac
@@ -799,6 +803,7 @@ available_site_entries() {
 set_links_for_site() {
     site_key="$(source_key_from_label "$1" 2>/dev/null || true)"
     case "$1" in
+        AnimeFLV) links="$animeflv_links" ;;
         JKAnime) links="$jkanime_links" ;;
         AnimeAV1) links="$animeav1_links" ;;
         *) return 1 ;;
@@ -834,6 +839,7 @@ pick_spanish_source_links() {
     fi
 
     case "$selected_spanish_site" in
+        AnimeFLV) set_links_for_site "AnimeFLV" ;;
         JKAnime) set_links_for_site "JKAnime" ;;
         AnimeAV1) set_links_for_site "AnimeAV1" ;;
         *) return 1 ;;
@@ -993,9 +999,28 @@ search_jkanime() {
 }
 
 search_animeflv() {
-    animeflv_request "${allanime_refr}/browse?q=$1" | tr '\n' ' ' |
-        sed 's|<article class="Anime alt B">|\n&|g' |
-        sed -nE 's|.*<a href="/anime/([^"]+)".*<h3 class="Title">([^<]+)</h3>.*|\1	\2|p'
+    animeflv_query="$(printf '%s' "$1" | tr '+' ' ' | tr '[:upper:]' '[:lower:]')"
+    animeflv_catalog=""
+    for page_no in 1 2; do
+        page_results="$(animeflv_request "${animeflv_refr}/wp-json/wp/v2/categories?per_page=100&page=${page_no}" |
+            sed 's|},{"id"|}\
+{"id"|g' |
+            sed -nE 's|^\{"id":[0-9]+,"count":[0-9]+,[^}]*"name":"([^"]*)","slug":"([^"]+)".*|\2\t\1|p')"
+        animeflv_catalog="${animeflv_catalog}${page_results}
+"
+    done
+
+    printf '%s' "$animeflv_catalog" | awk -F '\t' -v query="$animeflv_query" '
+        BEGIN { count = split(query, words, /[[:space:]]+/) }
+        $1 != "anime" {
+            candidate = tolower($1 " " $2)
+            matches = 1
+            for (i = 1; i <= count; i++) {
+                if (words[i] != "" && index(candidate, words[i]) == 0) matches = 0
+            }
+            if (matches) print
+        }
+    '
 }
 
 search_animeflv_variants() {
@@ -1712,28 +1737,75 @@ site >${direct_link}>AnimeFLV
     fi
 }
 
+extract_animeflv_wp_links() {
+    episode_page="$1"
+    player_urls="$(printf '%s' "$episode_page" |
+        grep -oE 'data-src="[[:alnum:]+/=]+"' | cut -d'"' -f2)"
+    primary_links=""
+    old_ifs=$IFS
+    IFS='
+'
+    for encoded_url in $player_urls; do
+        remote_url="$(printf '%s' "$encoded_url" | base64 -d 2>/dev/null)"
+        [ -n "$remote_url" ] || continue
+        direct_link=""
+        case "$remote_url" in
+            *player.zilla-networks.com/play/*)
+                server_name="HLS"
+                direct_link="$(extract_animeav1_hls_link "$remote_url")"
+                [ -n "$direct_link" ] && probe_stream_link "$remote_url" "$direct_link" || direct_link=""
+                ;;
+            *mp4upload*)
+                server_name="MP4Upload"
+                direct_link="$(extract_with_ytdlp "$remote_url")"
+                ;;
+            *uns.bio* | *upnshare*)
+                server_name="UPNShare"
+                direct_link="$(extract_with_ytdlp "$remote_url")"
+                ;;
+            *)
+                server_name="Mirror"
+                direct_link="$(extract_with_ytdlp "$remote_url")"
+                ;;
+        esac
+
+        if [ -n "$direct_link" ]; then
+            primary_links="${primary_links}$(animeav1_server_priority "$server_name") >${direct_link}
+referrer >${direct_link}>${remote_url}
+source >${direct_link}>${server_name}
+site >${direct_link}>AnimeFLV
+"
+            source_status "AnimeFLV ${server_name}" "ok"
+            if fast_first_link_mode; then
+                IFS=$old_ifs
+                printf '%s' "$primary_links"
+                return 0
+            fi
+        else
+            source_status "AnimeFLV ${server_name}" "skip"
+        fi
+    done
+    IFS=$old_ifs
+    [ -n "$primary_links" ] && printf '%s' "$primary_links"
+}
+
 resolve_spanish_source_links() {
     case "$1" in
         animeflv)
             animeflv_id="$(show_ref_value_for_site "$id" "animeflv")"
-            [ -z "$animeflv_id" ] && [ "$id" = "${id#*:}" ] && animeflv_id="$id"
             [ -z "$animeflv_id" ] && animeflv_id="$(select_animeflv_id "$title")"
             if [ -n "$animeflv_id" ]; then
-                episode_page="$(animeflv_request "${allanime_refr}/ver/${animeflv_id}-${ep_no}")" || episode_page=""
+                anime_page="$(animeflv_request "${animeflv_refr}/anime/${animeflv_id}/")" || anime_page=""
+                episode_path="$(printf '%s' "$anime_page" | sed 's|},{|}\
+{|g' | grep -F '"number":'"${ep_no}" | sed -nE 's|.*"permalink":"([^"]+)".*|\1|p' | head -n1 | sed 's|\\/|/|g')"
+                [ -n "$episode_path" ] && episode_page="$(animeflv_request "$episode_path")" || episode_page=""
             else
                 episode_page=""
             fi
 
             if [ -n "$episode_page" ]; then
-                videos_json="$(printf '%s' "$episode_page" | tr '\n' ' ' | sed -nE 's|.*var videos = (\{.*\});[[:space:]]*// var videos.*|\1|p')"
-                selected_lang="$(pick_animeflv_language "$videos_json")"
-                if [ -n "$selected_lang" ]; then
-                    [ "$mode" = "dub" ] && [ "$selected_lang" = "SUB" ] && printf "No hay doblaje disponible en AnimeFLV, usando subtitulado\n" 1>&2
-                    extract_animeflv_links "$videos_json" "$selected_lang" | sort -g -r -s
-                else
-                    printf "AnimeFLV sin idioma reproducible.\n" 1>&2
-                    return 1
-                fi
+                [ "$mode" = "dub" ] && printf "No hay doblaje disponible en AnimeFLV, usando subtitulado\n" 1>&2
+                extract_animeflv_wp_links "$episode_page" | sort -g -r -s
             elif [ -n "$animeflv_id" ]; then
                 printf "AnimeFLV no respondio.\n" 1>&2
                 return 1
@@ -1831,8 +1903,9 @@ get_episode_url() {
         fi
     fi
 
-    for site_name in jkanime animeav1; do
+    for site_name in jkanime animeav1 animeflv; do
         case "$site_name" in
+            animeflv) [ -n "$animeflv_links" ] && continue ;;
             jkanime) [ -n "$jkanime_links" ] && continue ;;
             animeav1) [ -n "$animeav1_links" ] && continue ;;
         esac
@@ -1859,6 +1932,10 @@ get_episode_url() {
 
 search_anime_for_source() {
     case "$1" in
+        animeflv)
+            source_results="$(search_animeflv_variants "$2")"
+            [ -n "$source_results" ] && prefix_search_results "animeflv" "$source_results"
+            ;;
         jkanime)
             source_results="$(search_jkanime_variants "$2")"
             [ -n "$source_results" ] && prefix_search_results "jkanime" "$source_results"
@@ -1895,6 +1972,10 @@ search_anime() {
     [ -n "$animeav1_results" ] && search_results="${search_results}$(prefix_search_results "animeav1" "$animeav1_results")
 "
 
+    animeflv_results="$(search_animeflv_variants "$1")"
+    [ -n "$animeflv_results" ] && search_results="${search_results}$(prefix_search_results "animeflv" "$animeflv_results")
+"
+
     if [ -n "$search_results" ]; then
         printf '%s' "$search_results" | sed '/^$/d'
         return 0
@@ -1926,9 +2007,12 @@ time_until_next_ep() {
 
 # get the episodes list of the selected anime
 episodes_list_animeflv() {
-    animeflv_request "${allanime_refr}/anime/$*" | tr '\n' ' ' |
-        sed -nE 's|.*var episodes = \[(.*)\];.*|\1|p' |
-        sed 's|],\[|]\n[|g; s|\[||g; s|\]||g' | cut -d, -f1 | sort -n -k 1
+    animeflv_slug="$(show_ref_value_for_site "$1" "animeflv")"
+    [ -z "$animeflv_slug" ] && animeflv_slug="$(select_animeflv_id "$2")"
+    [ -n "$animeflv_slug" ] || return 1
+    animeflv_request "${animeflv_refr}/anime/${animeflv_slug}/" |
+        grep -oE '"number":[0-9]+(\.[0-9]+)?' | cut -d: -f2 |
+        awk '!seen[$0]++' | sort -n -k 1
 }
 
 episodes_list_animeav1() {
@@ -2039,10 +2123,7 @@ episodes_list_allanime() {
 episodes_list_for_source() {
     case "$1" in
         animeflv)
-            animeflv_id="$(show_ref_value_for_site "$2" "animeflv")"
-            [ -z "$animeflv_id" ] && [ "$2" = "${2#*:}" ] && animeflv_id="$2"
-            [ -z "$animeflv_id" ] && animeflv_id="$(select_animeflv_id "$3")"
-            [ -n "$animeflv_id" ] && episodes_list_animeflv "$animeflv_id"
+            episodes_list_animeflv "$2" "$3"
             ;;
         jkanime)
             episodes_list_jkanime "$2" "$3"
@@ -2118,7 +2199,7 @@ episodes_list() {
 
     selected_site="$(site_name_from_ref "$1" 2>/dev/null || true)"
     episodes=""
-    for site_name in "$selected_site" animeav1 jkanime allanime; do
+    for site_name in "$selected_site" animeav1 jkanime animeflv allanime; do
         [ -n "$site_name" ] || continue
         [ -n "$episodes" ] && break
         episodes="$(episodes_list_for_source "$site_name" "$1" "$2")"
@@ -2497,10 +2578,11 @@ playback_menu_prompt() {
 
 # setup
 agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0"
-allanime_refr="https://www4.animeflv.net"
-allanime_base="www4.animeflv.net"
+allanime_refr="https://animeflv.or.at"
+allanime_base="animeflv.or.at"
 allanime_api=""
 allanime_key=""
+animeflv_refr="https://animeflv.or.at"
 animeflv_selected_id=""
 animeflv_selected_id_key=""
 jkanime_refr="https://jkanime.net"
@@ -2522,7 +2604,7 @@ log_episode="${ANI_CLI_LOG:-1}"
 quality="${ANI_CLI_QUALITY:-best}"
 resolver_timeout="${ANI_CLI_RESOLVER_TIMEOUT:-15}"
 probe_timeout="${ANI_CLI_PROBE_TIMEOUT:-20}"
-preferred_info_source="$(normalize_info_source "${ANI_CLI_INFO_SOURCE:-auto}")" || die "ANI_CLI_INFO_SOURCE invalido. Usa: auto, jkanime, animeav1 o allanime"
+preferred_info_source="$(normalize_info_source "${ANI_CLI_INFO_SOURCE:-auto}")" || die "ANI_CLI_INFO_SOURCE invalido. Usa: auto, animeflv, jkanime, animeav1 o allanime"
 case "$(uname -a | cut -d " " -f 1,3-)" in
     *Darwin*) player_function="${ANI_CLI_PLAYER:-$(where_iina)}" ;;   # mac OS
     *ndroid*) player_function="${ANI_CLI_PLAYER:-android_mpv}" ;;     # Android OS (termux)
@@ -2624,7 +2706,7 @@ while [ $# -gt 0 ]; do
         --source | --info-source)
             [ $# -lt 2 ] && die "falta un argumento"
             preferred_info_source="$(normalize_info_source "$2")" ||
-                die "Fuente invalida: $2. Usa: auto, jkanime, animeav1 o allanime"
+                die "Fuente invalida: $2. Usa: auto, animeflv, jkanime, animeav1 o allanime"
             shift
             ;;
         --dub) mode="dub" ;;

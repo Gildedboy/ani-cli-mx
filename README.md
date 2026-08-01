@@ -8,7 +8,8 @@ This project prefers these sources in order:
 
 1. JKAnime
 2. AnimeAV1
-3. an English fallback when Spanish sources fail
+3. AnimeFLV
+4. an English fallback when Spanish sources fail
 
 ## Table of Contents
 
