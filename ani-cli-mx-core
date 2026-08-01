@@ -1,6 +1,6 @@
 #!/bin/sh
 
-version_number="1.2.2"
+version_number="1.2.3"
 app_name="${ANI_CLI_NAME:-${0##*/}}"
 log_tag="${ANI_CLI_LOG_TAG:-$app_name}"
 hist_state_name="${ANI_CLI_STATE_NAME:-$app_name}"
@@ -164,11 +164,72 @@ default_hist_dir() {
     fi
 }
 
+default_download_dir() {
+    if is_windows && [ -n "${USERPROFILE:-}" ]; then
+        windows_path_to_posix "$USERPROFILE/Downloads"
+        return
+    fi
+    case "$(uname -a | cut -d " " -f 1,3-)" in
+        *ndroid*) printf '%s\n' "${EXTERNAL_STORAGE:-/sdcard}/Download" ;;
+        *)
+            if command -v xdg-user-dir >/dev/null 2>&1; then
+                xdg_download_dir="$(xdg-user-dir DOWNLOAD 2>/dev/null || true)"
+            fi
+            printf '%s\n' "${xdg_download_dir:-$HOME/Downloads}"
+            ;;
+    esac
+}
+
 # checks if dependencies are present
 dep_ch() {
     for dep; do
         command -v "${dep%% *}" >/dev/null || die "No se encontro el programa \"${dep%% *}\". Instalalo e intenta de nuevo."
     done
+}
+
+install_download_dependencies() {
+    missing_download_deps=""
+    command -v aria2c >/dev/null 2>&1 || missing_download_deps="aria2"
+    command -v yt-dlp >/dev/null 2>&1 ||
+        missing_download_deps="${missing_download_deps:+$missing_download_deps }yt-dlp"
+    [ -z "$missing_download_deps" ] && return 0
+
+    printf 'Faltan dependencias de descarga: %s. Intentando instalarlas...\n' "$missing_download_deps" 1>&2
+    if is_windows && command -v scoop >/dev/null 2>&1; then
+        scoop install aria2 ffmpeg yt-dlp
+    elif command -v pkg >/dev/null 2>&1; then
+        pkg install -y aria2 ffmpeg yt-dlp
+    elif command -v brew >/dev/null 2>&1; then
+        brew install aria2 ffmpeg yt-dlp
+    elif command -v apt-get >/dev/null 2>&1; then
+        run_as_root apt-get update && run_as_root apt-get install -y aria2 ffmpeg yt-dlp
+    elif command -v dnf >/dev/null 2>&1; then
+        run_as_root dnf install -y aria2 ffmpeg yt-dlp
+    elif command -v pacman >/dev/null 2>&1; then
+        run_as_root pacman -S --needed aria2 ffmpeg yt-dlp
+    elif command -v apk >/dev/null 2>&1; then
+        run_as_root apk add aria2 ffmpeg yt-dlp
+    else
+        die 'No se encontro un gestor compatible. Instala aria2, yt-dlp y ffmpeg.'
+    fi
+
+    command -v aria2c >/dev/null 2>&1 || die 'No se pudo instalar aria2.'
+    command -v yt-dlp >/dev/null 2>&1 || die 'No se pudo instalar yt-dlp.'
+}
+
+run_as_root() {
+    if [ "$(id -u)" -eq 0 ]; then
+        "$@"
+    elif command -v sudo >/dev/null 2>&1; then
+        sudo "$@"
+    else
+        die 'Se necesitan permisos de administrador y no se encontro sudo.'
+    fi
+}
+
+prepare_download() {
+    install_download_dependencies
+    mkdir -p "$download_dir" || die "No se pudo crear la carpeta de descargas: $download_dir"
 }
 
 where_iina() {
@@ -2112,6 +2173,7 @@ update_history() {
 }
 
 download() {
+    prepare_download
     # download subtitle if it's set
     [ -n "$subtitle" ] && curl -s "$subtitle" -o "$download_dir/$2.vtt"
     case $1 in
@@ -2380,7 +2442,7 @@ toggle_close_previous_from_menu() {
 }
 
 playback_menu_options() {
-    printf "siguiente\nanterior\nrepetir_episodio_actual\nelegir_episodio\ncambiar_calidad\n"
+    printf "siguiente\nanterior\nrepetir_episodio_actual\nelegir_episodio\ndescargar_episodio_actual\ncambiar_calidad\n"
     if continuous_enabled; then
         printf "desactivar_modo_continuo\n"
     else
@@ -2435,7 +2497,7 @@ allanime_fallback_ref=""
 allanime_fallback_ref_key=""
 update_url="${ANI_CLI_UPDATE_URL:-}"
 mode="${ANI_CLI_MODE:-sub}"
-download_dir="${ANI_CLI_DOWNLOAD_DIR:-.}"
+download_dir="${ANI_CLI_DOWNLOAD_DIR:-$(default_download_dir)}"
 log_episode="${ANI_CLI_LOG:-1}"
 quality="${ANI_CLI_QUALITY:-best}"
 resolver_timeout="${ANI_CLI_RESOLVER_TIMEOUT:-15}"
@@ -2585,7 +2647,7 @@ esac
 dep_ch "fzf" || true
 case "$player_function" in
     debug) ;;
-    download) dep_ch "ffmpeg" "aria2c" ;;
+    download) prepare_download ;;
     android*) printf "\33[2K\rChecking of players on Android is disabled\n" ;;
     *iSH*) printf "\33[2K\rChecking of players on iOS is disabled\n" ;;
     flatpak_mpv) true ;; # handled out of band in where_mpv
@@ -2700,6 +2762,15 @@ while cmd=$(playback_menu_options | nth "$(playback_menu_prompt) "); do
                 [ "${site_choice:-$current_site}" = "$current_site" ] && [ "$new_quality" = "$current_quality" ] && continue
                 select_quality "$new_quality"
             fi
+            ;;
+        descargar | descargar_episodio_actual)
+            sync_current_episode
+            unset episode
+            get_episode_url
+            download "$episode" "${allanime_title}Episode ${ep_no}" "$subtitle"
+            unset episode
+            printf 'Descarga terminada: %s\n' "$download_dir" 1>&2
+            continue
             ;;
         modo_continuo_on | modo_continuo_off | modo_continuo_desactivado_activar | modo_continuo_activado_desactivar | activar_modo_continuo | desactivar_modo_continuo)
             toggle_continuous_mode_from_menu

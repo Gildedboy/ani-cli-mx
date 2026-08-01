@@ -496,6 +496,10 @@ Download episodes:
 ani-cli-mx -d -e 1-3 "cyberpunk edgerunners"
 ```
 
+The playback menu also includes `descargar_episodio_actual`. Missing download
+tools are installed with the available system package manager. Downloads go to
+the user's Downloads/Descargas folder by default.
+
 More options are available in:
 
 - `ani-cli-mx --help`
@@ -549,7 +553,8 @@ Can I adjust resolution?
 
 How can I download?
 
-- Use `-d`. Files download into the current directory unless `ANI_CLI_DOWNLOAD_DIR` is set.
+- Use `-d` or choose `descargar_episodio_actual` from the playback menu. Files
+  download into Downloads/Descargas unless `ANI_CLI_DOWNLOAD_DIR` is set.
 
 How can I bulk download?
 
