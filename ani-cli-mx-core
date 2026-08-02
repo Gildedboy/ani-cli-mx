@@ -574,13 +574,17 @@ prefix_search_results() {
 }
 
 build_anime_menu() {
-    awk -F '\t' '
-        {
-            label = ($3 != "" ? $3 : $2)
-            language = ($1 ~ /^(anidb|animex):/ ? "[ENGLISH]" : "[ESPAÑOL]")
-            printf "%d\t%s\t%s %s\n", NR, $1, language, label
-        }
-    '
+    menu_index=0
+    while IFS='	' read -r menu_id menu_title menu_label; do
+        [ -n "$menu_id" ] || continue
+        menu_index=$((menu_index + 1))
+        [ -n "$menu_label" ] || menu_label="$menu_title"
+        case "$menu_id" in
+            anidb:* | animex:*) menu_language="[ENGLISH]" ;;
+            *) menu_language="[ESPAÑOL]" ;;
+        esac
+        printf '%d\t%s\t%s %s\n' "$menu_index" "$menu_id" "$menu_language" "$menu_label"
+    done
 }
 
 normalize_info_source() {
@@ -728,7 +732,12 @@ find_link_site() {
 }
 
 find_link_headers() {
-    printf '%s\n' "$1" | awk -F'>' -v ep="$2" '$1=="headers " && $2==ep { print $3; exit }'
+    printf '%s\n' "$1" | while IFS='>' read -r metadata_type metadata_url metadata_value; do
+        if [ "$metadata_type" = "headers " ] && [ "$metadata_url" = "$2" ]; then
+            printf '%s\n' "$metadata_value"
+            break
+        fi
+    done
 }
 
 describe_link_origin() {
@@ -1474,6 +1483,24 @@ find_anidb_curl_exe() {
     return 1
 }
 
+stable_unique_lines() {
+    unique_lines_seen=""
+    while IFS= read -r unique_line || [ -n "$unique_line" ]; do
+        unique_line_seen=0
+        unique_lines_old_ifs=$IFS
+        IFS='
+'
+        for seen_line in $unique_lines_seen; do
+            [ "$seen_line" = "$unique_line" ] && unique_line_seen=1 && break
+        done
+        IFS=$unique_lines_old_ifs
+        [ "$unique_line_seen" = "1" ] && continue
+        printf '%s\n' "$unique_line"
+        unique_lines_seen="${unique_lines_seen}${unique_line}
+"
+    done
+}
+
 anidb_request() {
     [ -n "$anidb_curl_exe" ] || return 1
     "$anidb_curl_exe" -sL -A "$anidb_agent" --max-time "$resolver_timeout" "$@"
@@ -1485,7 +1512,7 @@ search_anidb_catalog() {
     printf '%s' "$anidb_page" | tr '\n' ' ' | sed 's|<a href|\
 <a href|g' |
         sed -nE 's|.*anime/([a-z0-9-]+-[0-9]+)".*alt="([^"]+)".*|\1\t\2|p' |
-        sed -e "s|&#039;|'|g" -e 's|&quot;|"|g' | awk '!seen[$0]++'
+        sed -e "s|&#039;|'|g" -e 's|&quot;|"|g' | stable_unique_lines
 }
 
 select_anidb_ref() {
@@ -1571,7 +1598,7 @@ search_animex_catalog() {
         sed 's|},{"id"|}\
 {"id"|g' |
         sed -nE 's|.*"id":"([^"]+)".*"titleRomaji":"([^"]*)".*|\1\t\2|p' |
-        sed 's|\\/|/|g; s|\\"|"|g' | awk '!seen[$0]++'
+        sed 's|\\/|/|g; s|\\"|"|g' | stable_unique_lines
 }
 
 animex_slug_from_ref() {
@@ -1649,29 +1676,19 @@ resolve_animex_provider() {
 
 animex_proxy_url() {
     animex_proxy_payload="$({ printf '%s\0%s' "$1" "$2"; } | od -An -tu1 -v |
-        awk -v key="$animex_proxy_key" '
-            function ascii(c) {
-                if (c >= "0" && c <= "9") return c + 0 + 48
-                return index("abcdef", c) + 96
-            }
-            function bitxor(a, b, result, bit) {
-                result = 0
-                bit = 1
-                while (a > 0 || b > 0) {
-                    if ((a % 2) != (b % 2)) result += bit
-                    a = int(a / 2)
-                    b = int(b / 2)
-                    bit *= 2
-                }
-                return result
-            }
-            {
-                for (i = 1; i <= NF; i++) {
-                    key_pos = ((byte_index++) % length(key)) + 1
-                    printf "%c", bitxor($i, ascii(substr(key, key_pos, 1)))
-                }
-            }
-        ' | base64 | tr -d '\n' | tr '+/' '-_' | sed 's|=*$||')"
+        tr -s '[:space:]' '\n' | sed '/^$/d' |
+        {
+            proxy_key_index=1
+            proxy_key_length=${#animex_proxy_key}
+            while IFS= read -r proxy_byte; do
+                proxy_key_char="$(printf '%s' "$animex_proxy_key" | cut -c "$proxy_key_index")"
+                proxy_key_byte="$(printf '%d' "'$proxy_key_char")"
+                proxy_encoded_byte=$((proxy_byte ^ proxy_key_byte))
+                proxy_encoded_octal="$(printf '%03o' "$proxy_encoded_byte")"
+                printf "\\${proxy_encoded_octal}"
+                proxy_key_index=$((proxy_key_index % proxy_key_length + 1))
+            done
+        } | base64 | tr -d '\n' | tr '+/' '-_' | sed 's|=*$||')"
     [ -n "$animex_proxy_payload" ] && printf '%s/uwu/%s\n' "$animex_proxy_base" "$animex_proxy_payload"
 }
 
