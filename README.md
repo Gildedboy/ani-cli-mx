@@ -9,7 +9,8 @@ This project prefers these sources in order:
 1. JKAnime
 2. AnimeAV1
 3. AnimeFLV
-4. an English fallback when Spanish sources fail
+4. AniDB as the maintained English fallback
+5. AnimeX as the second English fallback, with multiple mirrors
 
 ## Table of Contents
 
@@ -288,7 +289,7 @@ If these applications were installed only for ani-cli-mx and are not used by
 anything else, they can also be removed:
 
 ```powershell
-scoop uninstall mpv fzf curl grep sed openssl
+scoop uninstall mpv fzf curl grep sed
 ```
 
 Remove optional download tools or VLC only if you installed them specifically
@@ -395,7 +396,6 @@ Required:
 - `sed`
 - `grep`
 - `fzf`
-- `openssl`
 - a supported player, usually `mpv`
 
 Platform notes:
@@ -405,10 +405,9 @@ Platform notes:
 - on Windows, the default history directory is `%LOCALAPPDATA%\ani-cli-mx`
 - `iina` is supported as a macOS player path
 - `vlc` is supported with `--vlc`
-- on Termux, the `openssl` CLI lives in the `openssl-tool` package
-
 ### Optional Dependencies
 
+- `curl-impersonate` (`curl_chrome116` or a compatible wrapper) for AniDB search and playback; AniDB currently rejects regular `curl` through Cloudflare
 - `aria2c` for direct-file download support
 - `yt-dlp` for additional extractor coverage and download handling
 - `ffmpeg` as the m3u8 download fallback
@@ -450,6 +449,22 @@ Play dubbed if available:
 ```sh
 ani-cli-mx --dub "one piece"
 ```
+
+Use the maintained English source directly (requires `curl-impersonate`):
+
+```sh
+ani-cli-mx --source anidb "one piece"
+```
+
+`ANI_CLI_ANIDB_CURL` can point to a compatible curl-impersonate executable when its installed name is not one of the detected wrappers.
+
+Use AnimeX directly (regular `curl` is sufficient):
+
+```sh
+ani-cli-mx --source animex "baki"
+```
+
+Automatic searches group the selector into contiguous `[ESPAÑOL]` results followed by `[ENGLISH]` results from AniDB and AnimeX.
 
 By default, ani-cli-mx keeps using the chosen Spanish source for the rest of the session, falling back to the normal source search if it stops producing valid links:
 

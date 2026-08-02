@@ -1,6 +1,6 @@
 #!/bin/sh
 
-version_number="1.3.1"
+version_number="1.4.0"
 app_name="${ANI_CLI_NAME:-${0##*/}}"
 log_tag="${ANI_CLI_LOG_TAG:-$app_name}"
 hist_state_name="${ANI_CLI_STATE_NAME:-$app_name}"
@@ -82,7 +82,7 @@ help_info() {
       -e, --episode, -r, --range
         Specify the number of episodes to watch
       --source <source>
-        Source to use for search and episode info: auto, animeflv, jkanime, animeav1, allanime
+        Source to use for search and episode info: auto, animeflv, jkanime, animeav1, anidb, animex
       --dub
         Play dubbed version
       --rofi
@@ -270,7 +270,7 @@ open_browser_url() {
 # SCRAPING
 
 animeflv_request() {
-    curl -L --connect-timeout 10 --max-time "$resolver_timeout" -e "$allanime_refr" -s "$1" -A "$agent"
+    curl -L --connect-timeout 10 --max-time "$resolver_timeout" -e "$animeflv_refr" -s "$1" -A "$agent"
 }
 
 jkanime_request() {
@@ -538,7 +538,8 @@ site_name_from_ref() {
         animeflv:*) printf '%s\n' "animeflv" ;;
         jkanime:*) printf '%s\n' "jkanime" ;;
         animeav1:*) printf '%s\n' "animeav1" ;;
-        allanime:*) printf '%s\n' "allanime" ;;
+        anidb:*) printf '%s\n' "anidb" ;;
+        animex:*) printf '%s\n' "animex" ;;
         *:*) return 1 ;;
         "") return 1 ;;
         *) return 1 ;;
@@ -557,16 +558,6 @@ show_ref_value_for_site() {
     esac
 }
 
-allanime_id_from_ref() {
-    allanime_payload="$(show_ref_value_for_site "$1" "allanime")" || return 1
-    printf '%s\n' "$allanime_payload" | cut -d'|' -f1
-}
-
-allanime_count_from_ref() {
-    allanime_payload="$(show_ref_value_for_site "$1" "allanime")" || return 1
-    printf '%s\n' "$allanime_payload" | cut -d'|' -f2
-}
-
 prefix_search_results() {
     site_name="$1"
     old_ifs=$IFS
@@ -582,20 +573,14 @@ prefix_search_results() {
     IFS=$old_ifs
 }
 
-prefix_allanime_search_results() {
-    old_ifs=$IFS
-    IFS='
-'
-    for entry in $1; do
-        result_id="$(printf '%s' "$entry" | cut -f1)"
-        result_title="$(printf '%s' "$entry" | cut -f2)"
-        result_count="$(printf '%s' "$entry" | cut -f3)"
-        [ -z "$result_id" ] && continue
-        [ -z "$result_title" ] && continue
-        [ -z "$result_count" ] && continue
-        printf 'allanime:%s|%s\t%s\t%s [%s]\n' "$result_id" "$result_count" "$result_title" "$result_title" "$(info_source_label "allanime")"
-    done
-    IFS=$old_ifs
+build_anime_menu() {
+    awk -F '\t' '
+        {
+            label = ($3 != "" ? $3 : $2)
+            language = ($1 ~ /^(anidb|animex):/ ? "[ENGLISH]" : "[ESPAÑOL]")
+            printf "%d\t%s\t%s %s\n", NR, $1, language, label
+        }
+    '
 }
 
 normalize_info_source() {
@@ -604,7 +589,8 @@ normalize_info_source() {
         animeflv | flv) printf '%s\n' "animeflv" ;;
         jkanime | jk) printf '%s\n' "jkanime" ;;
         animeav1 | av1) printf '%s\n' "animeav1" ;;
-        allanime | allmanga | english) printf '%s\n' "allanime" ;;
+        anidb | ani-db | english) printf '%s\n' "anidb" ;;
+        animex | anime-x) printf '%s\n' "animex" ;;
         *) return 1 ;;
     esac
 }
@@ -615,7 +601,8 @@ info_source_label() {
         animeflv) printf '%s\n' "AnimeFLV" ;;
         jkanime) printf '%s\n' "JKAnime" ;;
         animeav1) printf '%s\n' "AnimeAV1" ;;
-        allanime) printf '%s\n' "AllManga" ;;
+        anidb) printf '%s\n' "AniDB" ;;
+        animex) printf '%s\n' "AnimeX" ;;
         *) printf '%s\n' "$1" ;;
     esac
 }
@@ -738,6 +725,10 @@ find_link_source() {
 
 find_link_site() {
     printf '%s\n' "$1" | awk -F'>' -v ep="$2" '$1=="site " && $2==ep { print $3; exit }'
+}
+
+find_link_headers() {
+    printf '%s\n' "$1" | awk -F'>' -v ep="$2" '$1=="headers " && $2==ep { print $3; exit }'
 }
 
 describe_link_origin() {
@@ -916,13 +907,16 @@ filter_playable_links() {
         candidate_url="$(printf '%s' "$entry" | cut -d'>' -f2)"
         link_is_probably_broken "$candidate_url" && continue
         candidate_referrer="$(find_link_referrer "$1" "$candidate_url")"
+        candidate_headers="$(find_link_headers "$1" "$candidate_url")"
         # Fast mode has already resolved a concrete stream URL. Starting mpv
         # here would make the user wait for a hidden player before starting the
         # real one, which is especially noticeable for remote HLS playlists.
-        if [ "$stop_after_first" = "first" ] || probe_link_with_mpv "$candidate_url" "$candidate_referrer"; then
+        if [ "$stop_after_first" = "first" ] || probe_link_with_mpv "$candidate_url" "$candidate_referrer" "$candidate_headers"; then
             playable_links="${playable_links}${entry}
 "
             [ -n "$candidate_referrer" ] && playable_links="${playable_links}referrer >${candidate_url}>${candidate_referrer}
+"
+            [ -n "$candidate_headers" ] && playable_links="${playable_links}headers >${candidate_url}>${candidate_headers}
 "
             candidate_source="$(find_link_source "$1" "$candidate_url")"
             [ -n "$candidate_source" ] && playable_links="${playable_links}source >${candidate_url}>${candidate_source}
@@ -1465,145 +1459,229 @@ resolve_animeav1_episode() {
     printf '%s' "$animeav1_links"
 }
 
-allanime_get_links() {
-    response="$(curl -e "$english_source_refr" -s "https://${english_source_base}$*" -A "$agent")" || return 1
-    episode_link="$(printf '%s' "$response" | sed 's|},{|\
-|g' | sed -nE 's|.*link":"([^"]*)".*"resolutionStr":"([^"]*)".*|\2 >\1|p;s|.*hls","url":"([^"]*)".*"hardsub_lang":"en-US".*|\1|p')"
-
-    case "$episode_link" in
-        *repackager.wixmp.com*)
-            extract_link=$(printf "%s" "$episode_link" | cut -d'>' -f2 | sed 's|repackager.wixmp.com/||g;s|\.urlset.*||g')
-            for j in $(printf "%s" "$episode_link" | sed -nE 's|.*/,([^/]*),/mp4.*|\1|p' | sed 's|,|\
-|g'); do
-                printf "%s >%s\n" "$j" "$extract_link" | sed "s|,[^/]*|${j}|g"
-            done | sort -nr | while IFS= read -r line; do
-                [ -z "$line" ] && continue
-                emit_annotated_link_entry "$line" "$provider_name" "AllManga"
-            done
-            ;;
-        *master.m3u8*)
-            m3u8_refr=$(printf '%s' "$response" | sed -nE 's|.*Referer":"([^"]*)".*|\1|p')
-            extract_link=$(printf "%s" "$episode_link" | head -1 | cut -d'>' -f2)
-            relative_link=$(printf "%s" "$extract_link" | sed 's|[^/]*$||')
-            m3u8_streams="$(curl -e "$m3u8_refr" -s "$extract_link" -A "$agent")"
-            printf "%s" "$m3u8_streams" | grep -q "EXTM3U" && printf "%s" "$m3u8_streams" |
-                sed 's|^#EXT-X-STREAM.*x||g; s|,.*|p|g; /^#/d; $!N; s|\n| >|;/EXT-X-I-FRAME/d' |
-                sed "s|>|cc>${relative_link}|g" | sort -nr | while IFS= read -r line; do
-                    [ -z "$line" ] && continue
-                    emit_annotated_link_entry "$line" "$provider_name" "AllManga"
-                done
-            printf '%s' "$response" | sed -nE 's|.*"subtitles":\[\{"lang":"en","label":"English","default":"default","src":"([^"]*)".*|subtitle >\1|p'
-            [ -n "$m3u8_refr" ] && printf '%s\n' "m3u8_refr >$m3u8_refr"
-            ;;
-        *)
-            [ -n "$episode_link" ] && emit_annotated_link_entry "$episode_link" "$provider_name" "AllManga"
-            ;;
-    esac
-
-    printf "%s" "$*" | grep -q "tools.fast4speed.rsvp" && printf "%s\n" "Yt >$*"
-    printf "\033[1;32m%s\033[0m Links Fetched\n" "$provider_name" 1>&2
-}
-
-allanime_provider_init() {
-    provider_name="AllAnime $1"
-    provider_id=$(printf "%s" "$resp" | sed -n "$2" | head -1 | cut -d':' -f2 | sed 's/../&\
-/g' |
-        sed 's/^79$/A/g;s/^7a$/B/g;s/^7b$/C/g;s/^7c$/D/g;s/^7d$/E/g;s/^7e$/F/g;s/^7f$/G/g;s/^70$/H/g;s/^71$/I/g;s/^72$/J/g;s/^73$/K/g;s/^74$/L/g;s/^75$/M/g;s/^76$/N/g;s/^77$/O/g;s/^68$/P/g;s/^69$/Q/g;s/^6a$/R/g;s/^6b$/S/g;s/^6c$/T/g;s/^6d$/U/g;s/^6e$/V/g;s/^6f$/W/g;s/^60$/X/g;s/^61$/Y/g;s/^62$/Z/g;s/^59$/a/g;s/^5a$/b/g;s/^5b$/c/g;s/^5c$/d/g;s/^5d$/e/g;s/^5e$/f/g;s/^5f$/g/g;s/^50$/h/g;s/^51$/i/g;s/^52$/j/g;s/^53$/k/g;s/^54$/l/g;s/^55$/m/g;s/^56$/n/g;s/^57$/o/g;s/^48$/p/g;s/^49$/q/g;s/^4a$/r/g;s/^4b$/s/g;s/^4c$/t/g;s/^4d$/u/g;s/^4e$/v/g;s/^4f$/w/g;s/^40$/x/g;s/^41$/y/g;s/^42$/z/g;s/^08$/0/g;s/^09$/1/g;s/^0a$/2/g;s/^0b$/3/g;s/^0c$/4/g;s/^0d$/5/g;s/^0e$/6/g;s/^0f$/7/g;s/^00$/8/g;s/^01$/9/g;s/^15$/-/g;s/^16$/./g;s/^67$/_/g;s/^46$/~/g;s/^02$/:/g;s/^17$/\//g;s/^07$/?/g;s/^1b$/#/g;s/^63$/\[/g;s/^65$/\]/g;s/^78$/@/g;s/^19$/!/g;s/^1c$/$/g;s/^1e$/&/g;s/^10$/\(/g;s/^11$/\)/g;s/^12$/*/g;s/^13$/+/g;s/^14$/,/g;s/^03$/;/g;s/^05$/=/g;s/^1d$/%/g' |
-        tr -d '\n' | sed 's|/clock|/clock.json|')
-}
-
-allanime_generate_link() {
-    case $1 in
-        1) allanime_provider_init "wixmp" "/Default :/p" ;;
-        2) allanime_provider_init "youtube" "/Yt-mp4 :/p" ;;
-        3) allanime_provider_init "sharepoint" "/S-mp4 :/p" ;;
-        *) allanime_provider_init "hianime" "/Luf-Mp4 :/p" ;;
-    esac
-    [ -n "$provider_id" ] && allanime_get_links "$provider_id"
-}
-
-search_allanime_fallback() {
-    search_gql='query( $search: SearchInput $limit: Int $page: Int $translationType: VaildTranslationTypeEnumType $countryOrigin: VaildCountryOriginEnumType ) { shows( search: $search limit: $limit page: $page translationType: $translationType countryOrigin: $countryOrigin ) { edges { _id name availableEpisodes __typename } }}'
-
-    curl -e "$english_source_refr" -s -H "Content-Type: application/json" -X POST "${english_source_api}/api" \
-        --data "{\"variables\":{\"search\":{\"allowAdult\":false,\"allowUnknown\":false,\"query\":\"$1\"},\"limit\":40,\"page\":1,\"translationType\":\"$mode\",\"countryOrigin\":\"ALL\"},\"query\":\"$search_gql\"}" \
-        -A "$agent" | sed 's|Show|\
-|g' | sed -nE "s|.*_id\":\"([^\"]*)\",\"name\":\"(.+)\",.*${mode}\":([1-9][^,]*).*|\1\t\2 (\3 episodes)|p" | sed 's/\\"//g'
-}
-
-search_allanime_catalog() {
-    search_allanime_fallback "$1" | sed -nE 's|^([^\t]+)\t(.*) \(([0-9]+) episodes\)$|\1\t\2\t\3|p'
-}
-
-select_allanime_ref() {
-    cache_key="$1|$id"
-    [ "$allanime_fallback_ref_key" = "$cache_key" ] && [ -n "$allanime_fallback_ref" ] && printf '%s\n' "$allanime_fallback_ref" && return 0
-
-    explicit_allanime_id="$(allanime_id_from_ref "$id")"
-    explicit_allanime_count="$(allanime_count_from_ref "$id")"
-    if [ -n "$explicit_allanime_id" ] && [ -n "$explicit_allanime_count" ]; then
-        allanime_fallback_ref="${explicit_allanime_id}|${explicit_allanime_count}"
-        allanime_fallback_ref_key="explicit:$id"
-        printf '%s\n' "$allanime_fallback_ref"
+find_anidb_curl_exe() {
+    if [ -n "${ANI_CLI_ANIDB_CURL:-}" ] && [ -x "$ANI_CLI_ANIDB_CURL" ]; then
+        printf '%s\n' "$ANI_CLI_ANIDB_CURL"
         return 0
     fi
 
-    fallback_results="$(search_allanime_catalog "$1")"
-    [ -z "$fallback_results" ] && return 1
+    for anidb_curl_candidate in curl_firefox135 curl_chrome136 curl_chrome116 curl_ff117; do
+        if command -v "$anidb_curl_candidate" >/dev/null 2>&1; then
+            command -v "$anidb_curl_candidate"
+            return 0
+        fi
+    done
+    return 1
+}
 
+anidb_request() {
+    [ -n "$anidb_curl_exe" ] || return 1
+    "$anidb_curl_exe" -sL -A "$anidb_agent" --max-time "$resolver_timeout" "$@"
+}
+
+search_anidb_catalog() {
+    anidb_page="$(anidb_request "${anidb_refr}/browse?q=$1")" || return 1
+    printf '%s' "$anidb_page" | grep -qi "Just a moment" && return 1
+    printf '%s' "$anidb_page" | tr '\n' ' ' | sed 's|<a href|\
+<a href|g' |
+        sed -nE 's|.*anime/([a-z0-9-]+-[0-9]+)".*alt="([^"]+)".*|\1\t\2|p' |
+        sed -e "s|&#039;|'|g" -e 's|&quot;|"|g' | awk '!seen[$0]++'
+}
+
+select_anidb_ref() {
+    cache_key="$1|$id"
+    [ "$anidb_selected_ref_key" = "$cache_key" ] && [ -n "$anidb_selected_ref" ] &&
+        printf '%s\n' "$anidb_selected_ref" && return 0
+
+    explicit_anidb_ref="$(show_ref_value_for_site "$id" "anidb")"
+    if [ -n "$explicit_anidb_ref" ]; then
+        anidb_selected_ref="$explicit_anidb_ref"
+        anidb_selected_ref_key="$cache_key"
+        printf '%s\n' "$anidb_selected_ref"
+        return 0
+    fi
+
+    anidb_results="$(search_anidb_catalog "$(printf '%s' "$1" | sed 's| |+|g')")"
+    [ -n "$anidb_results" ] || return 1
     best_ref=""
     best_score=-999999
     old_ifs=$IFS
     IFS='
 '
-    for entry in $fallback_results; do
+    for entry in $anidb_results; do
         candidate_id="$(printf '%s' "$entry" | cut -f1)"
         candidate_title="$(printf '%s' "$entry" | cut -f2)"
-        candidate_count="$(printf '%s' "$entry" | cut -f3)"
-        [ -z "$candidate_id" ] && continue
-        [ -z "$candidate_count" ] && continue
+        [ -n "$candidate_id" ] || continue
         score="$(title_match_score "$1" "$candidate_id" "$candidate_title")"
-        [ "$score" -gt "$best_score" ] && best_score="$score" && best_ref="${candidate_id}|${candidate_count}"
+        [ "$score" -gt "$best_score" ] && best_score="$score" && best_ref="$candidate_id"
     done
     IFS=$old_ifs
-
     cross_source_match_is_confident "$best_score" || return 1
-    [ -z "$best_ref" ] && best_ref="$(printf '%s\n' "$fallback_results" | sed -n '1p' | cut -f1,3 | tr '\t' '|')"
-    [ -z "$best_ref" ] && return 1
-
-    allanime_fallback_ref="$best_ref"
-    allanime_fallback_ref_key="$cache_key"
-    printf '%s\n' "$allanime_fallback_ref"
+    [ -n "$best_ref" ] || return 1
+    anidb_selected_ref="$best_ref"
+    anidb_selected_ref_key="$cache_key"
+    printf '%s\n' "$anidb_selected_ref"
 }
 
-select_allanime_id() {
-    allanime_ref="$(select_allanime_ref "$1")" || return 1
-    printf '%s\n' "${allanime_ref%%|*}"
+anidb_episode_maps() {
+    anidb_ref="$(show_ref_value_for_site "$1" "anidb")"
+    [ -z "$anidb_ref" ] && anidb_ref="$(select_anidb_ref "$2")"
+    [ -n "$anidb_ref" ] || return 1
+    anidb_request "${anidb_refr}/api/frontend/anime/${anidb_ref##*-}/episodes" |
+        sed 's|},{|}\
+|g' | sed -nE 's|.*"id":([0-9]+).*"number":([0-9]+).*|\1\t\2|p'
 }
 
-resolve_allanime_episode() {
-    fallback_id="$(select_allanime_id "$1")" || return 1
-    episode_embed_gql='query ($showId: String!, $translationType: VaildTranslationTypeEnumType!, $episodeString: String!) { episode( showId: $showId translationType: $translationType episodeString: $episodeString ) { episodeString sourceUrls }}'
+resolve_anidb_episode() {
+    anidb_maps="$(anidb_episode_maps "$id" "$1")" || return 1
+    anidb_episode_id="$(printf '%s\n' "$anidb_maps" | sed -nE "s|^([0-9]+)\t${2}$|\1|p")"
+    [ -n "$anidb_episode_id" ] || return 1
 
-    api_resp="$(curl -e "$english_source_refr" -s -H "Content-Type: application/json" -X POST "${english_source_api}/api" \
-        --data "{\"variables\":{\"showId\":\"$fallback_id\",\"translationType\":\"$mode\",\"episodeString\":\"$2\"},\"query\":\"$episode_embed_gql\"}" -A "$agent")"
-    if printf "%s" "$api_resp" | grep -q '"tobeparsed"'; then
-        blob="$(printf "%s" "$api_resp" | sed -nE 's|.*"tobeparsed":"([^"]*)".*|\1|p')"
-        resp="$(decode_tobeparsed "$blob")"
-    else
-        resp="$(printf "%s" "$api_resp" | tr '{}' '\n' | sed 's|\\u002F|\/|g;s|\\||g' | sed -nE 's|.*sourceUrl":"--([^"]*)".*sourceName":"([^"]*)".*|\2 :\1|p')"
-    fi
-    [ -z "$resp" ] && return 1
+    anidb_lang="jpn"
+    [ "$mode" = "dub" ] && anidb_lang="eng"
+    anidb_languages="$(anidb_request "${anidb_refr}/api/frontend/episode/${anidb_episode_id}/languages")" || return 1
+    anidb_embed="$(printf '%s' "$anidb_languages" | sed 's|},{|}\
+|g' | sed -nE 's|.*'"$anidb_lang"'.*embed_url":"([^"]+)".*|\1|p' | sed 's|\\/|/|g' | head -n1)"
+    [ -n "$anidb_embed" ] || return 1
 
-    cache_dir="$(mktemp -d)"
-    providers="1 2 3 4"
-    for provider in $providers; do
-        allanime_generate_link "$provider" >"$cache_dir"/"$provider" &
+    anidb_embed_page="$(anidb_request "$anidb_embed")" || return 1
+    anidb_master="$(printf '%s' "$anidb_embed_page" | sed -nE "s|.*file: '([^']*)'.*|\1|p" | head -n1)"
+    [ -n "$anidb_master" ] || return 1
+    anidb_variants="$(anidb_request "$anidb_master" |
+        sed 's|^#EXT-X-STREAM.*x||g; s|,.*||g; /^#/d; $!N; s|\n| >|;/EXT-X-I-FRAME/d')"
+    [ -n "$anidb_variants" ] || return 1
+
+    old_ifs=$IFS
+    IFS='
+'
+    for anidb_variant in $anidb_variants; do
+        [ -n "$anidb_variant" ] || continue
+        anidb_url="$(printf '%s' "$anidb_variant" | cut -d'>' -f2)"
+        emit_annotated_link_entry "$anidb_variant" "HLS" "AniDB"
+        printf 'referrer >%s>%s\n' "$anidb_url" "$anidb_refr"
     done
-    wait
-    links="$(cat "$cache_dir"/* | sort -g -r -s)"
-    rm -r "$cache_dir"
-    [ -n "$links" ] && printf '%s' "$links"
+    IFS=$old_ifs
+}
+
+search_animex_catalog() {
+    animex_query="$(printf '%s' "$1" | sed 's|+| |g; s|["\\]| |g')"
+    animex_search_gql='query FastSearch($query:String,$limit:Int){catalogAnime(filter:{query:$query},limit:$limit){items{id anilistId titleRomaji titleEnglish episodeCount}}}'
+    curl -L -sS -A "$agent" -H "Content-Type: application/json" -X POST "${animex_graphql}/graphql" \
+        --data "{\"query\":\"${animex_search_gql}\",\"variables\":{\"query\":\"${animex_query}\",\"limit\":12}}" |
+        sed 's|},{"id"|}\
+{"id"|g' |
+        sed -nE 's|.*"id":"([^"]+)".*"titleRomaji":"([^"]*)".*|\1\t\2|p' |
+        sed 's|\\/|/|g; s|\\"|"|g' | awk '!seen[$0]++'
+}
+
+animex_slug_from_ref() {
+    show_ref_value_for_site "$1" "animex"
+}
+
+select_animex_ref() {
+    cache_key="$1|$id"
+    [ "$animex_selected_ref_key" = "$cache_key" ] && [ -n "$animex_selected_ref" ] &&
+        printf '%s\n' "$animex_selected_ref" && return 0
+    explicit_animex_ref="$(animex_slug_from_ref "$id")"
+    if [ -n "$explicit_animex_ref" ]; then
+        animex_selected_ref="$explicit_animex_ref"
+        animex_selected_ref_key="$cache_key"
+        printf '%s\n' "$animex_selected_ref"
+        return 0
+    fi
+
+    animex_results="$(search_animex_catalog "$1")"
+    [ -n "$animex_results" ] || return 1
+    best_ref=""
+    best_score=-999999
+    old_ifs=$IFS
+    IFS='
+'
+    for entry in $animex_results; do
+        candidate_id="$(printf '%s' "$entry" | cut -f1)"
+        candidate_title="$(printf '%s' "$entry" | cut -f2)"
+        score="$(title_match_score "$1" "$candidate_id" "$candidate_title")"
+        [ "$score" -gt "$best_score" ] && best_score="$score" && best_ref="$candidate_id"
+    done
+    IFS=$old_ifs
+    cross_source_match_is_confident "$best_score" || return 1
+    [ -n "$best_ref" ] || return 1
+    animex_selected_ref="$best_ref"
+    animex_selected_ref_key="$cache_key"
+    printf '%s\n' "$animex_selected_ref"
+}
+
+episodes_list_animex() {
+    animex_slug="$(animex_slug_from_ref "$1")"
+    [ -z "$animex_slug" ] && animex_slug="$(select_animex_ref "$2")"
+    [ -n "$animex_slug" ] || return 1
+    curl -L -sS -A "$agent" "${animex_api}/rest/api/episodes?id=${animex_slug}" |
+        grep -oE '"number":[0-9]+(\.[0-9]+)?' | cut -d: -f2
+}
+
+resolve_animex_provider() {
+    animex_slug="$1"
+    animex_provider="$2"
+    animex_type="sub"
+    [ "$mode" = "dub" ] && animex_type="dub"
+    animex_data="$(curl -L -sS -A "$agent" \
+        "${animex_api}/rest/api/sources?id=${animex_slug}&epNum=${ep_no}&type=${animex_type}&providerId=${animex_provider}")" || return 1
+    animex_referrer="$(printf '%s' "$animex_data" | sed -nE 's|.*"Referer":"([^"]+)".*|\1|p')"
+    animex_origin="$(printf '%s' "$animex_data" | sed -nE 's|.*"Origin":"([^"]+)".*|\1|p')"
+    animex_entries="$(printf '%s' "$animex_data" | sed 's|},{"url"|}\
+{"url"|g' | sed -nE 's|.*"url":"([^"]+)".*"quality":"([^"]+)".*|\2\t\1|p' | sed 's|\\/|/|g')"
+    [ -n "$animex_entries" ] || return 1
+
+    old_ifs=$IFS
+    IFS='
+'
+    for animex_entry in $animex_entries; do
+        animex_quality="$(printf '%s' "$animex_entry" | cut -f1 | sed 's|p$||; s|^auto$|1080|')"
+        animex_url="$(printf '%s' "$animex_entry" | cut -f2)"
+        [ "$animex_provider" = "uwu" ] && animex_url="$(animex_proxy_url "$animex_url" "https://kwik.cx/")"
+        [ -n "$animex_url" ] || continue
+        emit_annotated_link_entry "${animex_quality} >${animex_url}" "AnimeX ${animex_provider}" "AnimeX"
+        [ -n "$animex_referrer" ] && printf 'referrer >%s>%s\n' "$animex_url" "$animex_referrer"
+        [ -n "$animex_origin" ] && printf 'headers >%s>Origin:%s\n' "$animex_url" "$animex_origin"
+    done
+    IFS=$old_ifs
+}
+
+animex_proxy_url() {
+    animex_proxy_payload="$({ printf '%s\0%s' "$1" "$2"; } | od -An -tu1 -v |
+        awk -v key="$animex_proxy_key" '
+            function ascii(c) {
+                if (c >= "0" && c <= "9") return c + 0 + 48
+                return index("abcdef", c) + 96
+            }
+            function bitxor(a, b, result, bit) {
+                result = 0
+                bit = 1
+                while (a > 0 || b > 0) {
+                    if ((a % 2) != (b % 2)) result += bit
+                    a = int(a / 2)
+                    b = int(b / 2)
+                    bit *= 2
+                }
+                return result
+            }
+            {
+                for (i = 1; i <= NF; i++) {
+                    key_pos = ((byte_index++) % length(key)) + 1
+                    printf "%c", bitxor($i, ascii(substr(key, key_pos, 1)))
+                }
+            }
+        ' | base64 | tr -d '\n' | tr '+/' '-_' | sed 's|=*$||')"
+    [ -n "$animex_proxy_payload" ] && printf '%s/uwu/%s\n' "$animex_proxy_base" "$animex_proxy_payload"
+}
+
+resolve_animex_episode() {
+    animex_slug="$(animex_slug_from_ref "$id")"
+    [ -z "$animex_slug" ] && animex_slug="$(select_animex_ref "$1")"
+    [ -n "$animex_slug" ] || return 1
+    for animex_provider in beep uwu kiwi; do
+        resolve_animex_provider "$animex_slug" "$animex_provider"
+    done
 }
 
 pick_animeflv_language() {
@@ -1865,11 +1943,12 @@ select_quality() {
     # add refr,sub flags for m3u8 and refr flag for yt
     printf '%s' "$result" | grep -q "cc>" && subtitle="$(printf '%s' "$links" | sed -nE 's|subtitle >(.*)|\1|p')" &&
         [ -n "$subtitle" ] && subs_flag="--sub-file=$subtitle"
-    printf "%s" "$result" | grep -q "tools.fast4speed.rsvp" && refr_flag="--referrer=$allanime_refr"
     episode=$(printf "%s" "$result" | cut -d'>' -f2)
+    generic_headers="$(find_link_headers "$links" "$episode")"
     case "$episode" in
         https://player.zilla-networks.com/*) headers_flag="--http-header-fields=${zilla_header_fields}" ;;
     esac
+    [ -n "$generic_headers" ] && headers_flag="--http-header-fields=$generic_headers"
     selected_quality="$(printf '%s' "$result" | cut -d'>' -f1 | tr -d '[:space:]')"
     generic_refr="$(printf '%s\n' "$links" | awk -F'>' -v ep="$episode" '$1=="referrer " && $2==ep { print $3; exit }')"
     selected_site="$(find_link_site "$links" "$episode")"
@@ -1877,20 +1956,9 @@ select_quality() {
     selected_origin="$(describe_link_origin "$selected_site" "$selected_source")"
     [ -n "$generic_refr" ] && refr_flag="--referrer=$generic_refr"
 
-    ! (printf '%s' "$result" | grep -qE "(cc>|tools.fast4speed.rsvp)") && unset refr_flag
+    ! (printf '%s' "$result" | grep -q "cc>") && unset refr_flag
     [ -n "$generic_refr" ] && refr_flag="--referrer=$generic_refr"
     ! (printf '%s' "$result" | grep -q "cc>") && unset subs_flag
-}
-
-decode_tobeparsed() {
-    tmp="$(mktemp)"
-    printf '%s' "$1" | base64 -d >"$tmp"
-    iv="$(dd if="$tmp" bs=1 count=12 2>/dev/null | od -A n -t x1 | tr -d ' \n')"
-    ctr="${iv}00000002"
-    decode_key="${allanime_key:-$english_source_key}"
-    plain="$(dd if="$tmp" bs=1 skip=12 2>/dev/null | openssl enc -d -aes-256-ctr -K "$decode_key" -iv "$ctr" -nosalt -nopad 2>/dev/null)"
-    rm -f "$tmp"
-    printf '%s' "$plain" | tr '{}' '\n' | sed -nE 's|.*"sourceUrl":"--([^"]*)".*"sourceName":"([^"]*)".*|\2 :\1|p'
 }
 
 get_episode_url() {
@@ -1902,6 +1970,37 @@ get_episode_url() {
     authoritative_ep_list=""
     [ -n "$authoritative_site" ] && authoritative_ep_list="$(episodes_list_for_source "$authoritative_site" "$id" "$title")"
     [ -z "$authoritative_ep_list" ] && authoritative_ep_list="$ep_list"
+
+    if [ "$authoritative_site" = "anidb" ] && [ -n "$anidb_curl_exe" ]; then
+        links="$(resolve_anidb_episode "$title" "$ep_no" | sort -g -r -s)"
+        if [ "$fast_mode" = "1" ] && [ "$quality" = "best" ]; then
+            links="$(filter_playable_links "$links" "first")"
+        else
+            links="$(filter_playable_links "$links")"
+        fi
+        if [ -n "$links" ]; then
+            printf "Fuente inglesa elegida: AniDB\n" 1>&2
+            select_quality "$quality"
+            [ -n "$episode" ] && return 0
+        fi
+        printf "AniDB no produjo un enlace valido; probando las demas fuentes.\n" 1>&2
+    fi
+
+    if [ "$authoritative_site" = "animex" ]; then
+        links="$(resolve_animex_episode "$title" "$ep_no" | sort -g -r -s)"
+        if [ "$fast_mode" = "1" ] && [ "$quality" = "best" ]; then
+            links="$(filter_playable_links "$links" "first")"
+        else
+            links="$(filter_playable_links "$links")"
+        fi
+        if [ -n "$links" ]; then
+            printf "Fuente inglesa elegida: AnimeX\n" 1>&2
+            select_quality "$quality"
+            [ -n "$episode" ] && return 0
+        fi
+        printf "AnimeX no produjo un enlace valido; probando las demas fuentes.\n" 1>&2
+    fi
+
     seed_fast_mode_source
 
     if [ "$fast_mode" = "1" ] && [ -n "$fast_mode_source" ] && ! source_is_disabled "$fast_mode_source"; then
@@ -1926,8 +2025,25 @@ get_episode_url() {
         [ -n "$selected_spanish_site" ] && printf "Fuente elegida: %s\n" "$selected_spanish_site" 1>&2
     else
         printf "Las fuentes en espanol no funcionaron. Probando fuente en ingles...\n" 1>&2
-        links="$(resolve_allanime_episode "$title" "$ep_no" | sort -g -r -s)"
-        links="$(filter_playable_links "$links")"
+        links=""
+        if [ -n "$anidb_curl_exe" ]; then
+            links="$(resolve_anidb_episode "$title" "$ep_no" | sort -g -r -s)"
+            if [ "$fast_mode" = "1" ] && [ "$quality" = "best" ]; then
+                links="$(filter_playable_links "$links" "first")"
+            else
+                links="$(filter_playable_links "$links")"
+            fi
+            [ -n "$links" ] && printf "Fuente inglesa elegida: AniDB\n" 1>&2
+        fi
+        if [ -z "$links" ]; then
+            links="$(resolve_animex_episode "$title" "$ep_no" | sort -g -r -s)"
+            if [ "$fast_mode" = "1" ] && [ "$quality" = "best" ]; then
+                links="$(filter_playable_links "$links" "first")"
+            else
+                links="$(filter_playable_links "$links")"
+            fi
+            [ -n "$links" ] && printf "Fuente inglesa elegida: AnimeX\n" 1>&2
+        fi
     fi
     select_quality "$quality"
     if printf "%s" "$ep_list" | grep -q "^$ep_no$"; then
@@ -1951,15 +2067,15 @@ search_anime_for_source() {
             source_results="$(search_animeav1_variants "$2")"
             [ -n "$source_results" ] && prefix_search_results "animeav1" "$source_results"
             ;;
-        allanime)
-            source_results=""
-            for fallback_query in $(search_query_candidates_from_text "$2"); do
-                fallback_results="$(search_allanime_catalog "$(printf '%s' "$fallback_query" | sed 's|+| |g')")"
-                [ -n "$fallback_results" ] && source_results="${source_results}${fallback_results}
-"
-            done
-            source_results="$(printf '%s' "$source_results" | sed '/^$/d' | awk '!seen[$0]++')"
-            [ -n "$source_results" ] && prefix_allanime_search_results "$source_results"
+        anidb)
+            [ -n "$anidb_curl_exe" ] ||
+                die "AniDB requiere curl-impersonate. Instala curl_chrome116 o define ANI_CLI_ANIDB_CURL."
+            source_results="$(search_anidb_catalog "$2")"
+            [ -n "$source_results" ] && prefix_search_results "anidb" "$source_results"
+            ;;
+        animex)
+            source_results="$(search_animex_catalog "$2")"
+            [ -n "$source_results" ] && prefix_search_results "animex" "$source_results"
             ;;
     esac
 }
@@ -1983,19 +2099,15 @@ search_anime() {
     [ -n "$animeflv_results" ] && search_results="${search_results}$(prefix_search_results "animeflv" "$animeflv_results")
 "
 
-    if [ -n "$search_results" ]; then
-        printf '%s' "$search_results" | sed '/^$/d'
-        return 0
-    fi
-
-    allanime_results=""
-    for fallback_query in $(search_query_candidates_from_text "$1"); do
-        fallback_results="$(search_allanime_catalog "$(printf '%s' "$fallback_query" | sed 's|+| |g')")"
-        [ -n "$fallback_results" ] && allanime_results="${allanime_results}${fallback_results}
+    if [ -n "$anidb_curl_exe" ]; then
+        anidb_results="$(search_anidb_catalog "$1")"
+        [ -n "$anidb_results" ] && search_results="${search_results}$(prefix_search_results "anidb" "$anidb_results")
 "
-    done
-    allanime_results="$(printf '%s' "$allanime_results" | sed '/^$/d' | awk '!seen[$0]++')"
-    [ -n "$allanime_results" ] && prefix_allanime_search_results "$allanime_results"
+    fi
+    animex_results="$(search_animex_catalog "$1")"
+    [ -n "$animex_results" ] && search_results="${search_results}$(prefix_search_results "animex" "$animex_results")
+"
+    printf '%s' "$search_results" | sed '/^$/d'
 }
 
 time_until_next_ep() {
@@ -2121,10 +2233,12 @@ episodes_list_jkanime() {
     esac
 }
 
-episodes_list_allanime() {
-    episode_count="$(allanime_count_from_ref "$1")" || return 1
-    [ -z "$episode_count" ] && return 1
-    awk -v max="$episode_count" 'BEGIN { for (i = 1; i <= max; i++) print i }'
+episodes_list_anidb() {
+    anidb_episode_maps "$1" "$2" | cut -f2
+}
+
+episodes_list_animex_source() {
+    episodes_list_animex "$1" "$2"
 }
 
 episodes_list_for_source() {
@@ -2138,10 +2252,11 @@ episodes_list_for_source() {
         animeav1)
             episodes_list_animeav1 "$2" "$3"
             ;;
-        allanime)
-            allanime_ref="$(show_ref_value_for_site "$2" "allanime")"
-            [ -z "$allanime_ref" ] && allanime_ref="$(select_allanime_ref "$3")"
-            [ -n "$allanime_ref" ] && episodes_list_allanime "allanime:${allanime_ref}"
+        anidb)
+            episodes_list_anidb "$2" "$3"
+            ;;
+        animex)
+            episodes_list_animex_source "$2" "$3"
             ;;
     esac
 }
@@ -2206,7 +2321,7 @@ episodes_list() {
 
     selected_site="$(site_name_from_ref "$1" 2>/dev/null || true)"
     episodes=""
-    for site_name in "$selected_site" animeav1 jkanime animeflv allanime; do
+    for site_name in "$selected_site" animeav1 jkanime animeflv anidb animex; do
         [ -n "$site_name" ] || continue
         [ -n "$episodes" ] && break
         episodes="$(episodes_list_for_source "$site_name" "$1" "$2")"
@@ -2282,21 +2397,22 @@ update_history() {
 
 download() {
     prepare_download
+    download_referrer="${generic_refr:-$animeflv_refr}"
     # download subtitle if it's set
     [ -n "$subtitle" ] && curl -s "$subtitle" -o "$download_dir/$2.vtt"
     case $1 in
         *m3u8*)
             if command -v "yt-dlp" >/dev/null; then
-                yt-dlp --referer "$m3u8_refr" "$1" --no-skip-unavailable-fragments --fragment-retries infinite -N 16 -o "$download_dir/$2.mp4"
+                yt-dlp --referer "$download_referrer" "$1" --no-skip-unavailable-fragments --fragment-retries infinite -N 16 -o "$download_dir/$2.mp4"
             else
-                ffmpeg -extension_picky 0 -referer "$m3u8_refr" -loglevel error -stats -i "$1" -c copy "$download_dir/$2.mp4"
+                ffmpeg -extension_picky 0 -referer "$download_referrer" -loglevel error -stats -i "$1" -c copy "$download_dir/$2.mp4"
             fi
             # embed subs into downloads
             # [ -e "$download_dir/$2.vtt" ] && ffmpeg -i "$download_dir/$2.mp4" -i "$download_dir/$2.vtt" -c copy -c:s mov_text "$download_dir/$2.bak.mp4" && mv "$download_dir/$2.bak.mp4" "$download_dir/$2.mp4"
             ;;
         *)
             # shellcheck disable=SC2086
-            aria2c --referer="$allanime_refr" --enable-rpc=false --check-certificate=false --continue $iSH_DownFix --summary-interval=0 -x 16 -s 16 "$1" --dir="$download_dir" -o "$2.mp4" --download-result=hide
+            aria2c --referer="$download_referrer" --enable-rpc=false --check-certificate=false --continue $iSH_DownFix --summary-interval=0 -x 16 -s 16 "$1" --dir="$download_dir" -o "$2.mp4" --download-result=hide
             ;;
     esac
 }
@@ -2305,7 +2421,7 @@ play_episode() {
     manual_handoff=0
     player_pid=""
     set_current_episode "$ep_no"
-    [ "$log_episode" = 1 ] && [ "$player_function" != "debug" ] && [ "$player_function" != "download" ] && command -v logger >/dev/null && logger -t "$log_tag" "${allanime_title}${ep_no}"
+    [ "$log_episode" = 1 ] && [ "$player_function" != "debug" ] && [ "$player_function" != "download" ] && command -v logger >/dev/null && logger -t "$log_tag" "${media_title}${ep_no}"
     [ "$skip_intro" = 1 ] && skip_flag="$(ani-skip -q "$mal_id" -e "$ep_no")"
     [ -z "$episode" ] && get_episode_url
     if [ "$selected_source" = "HQQ" ] && [ "$hqq_browser_fallback" = "1" ] &&
@@ -2331,40 +2447,40 @@ play_episode() {
             if [ "$manual_handoff" = 1 ]; then
                 :
             elif [ "$no_detach" = 0 ]; then
-                nohup $player_function $skip_flag --force-media-title="${allanime_title}Episode ${ep_no}" "$episode" $subs_flag $refr_flag $headers_flag >/dev/null 2>&1 &
+                nohup $player_function $skip_flag --force-media-title="${media_title}Episode ${ep_no}" "$episode" $subs_flag $refr_flag $headers_flag >/dev/null 2>&1 &
                 player_pid=$!
             else
-                $player_function $skip_flag $subs_flag $refr_flag $headers_flag --force-media-title="${allanime_title}Episode ${ep_no}" "$episode"
+                $player_function $skip_flag $subs_flag $refr_flag $headers_flag --force-media-title="${media_title}Episode ${ep_no}" "$episode"
                 mpv_exitcode=$?
                 [ "$exit_after_play" = 1 ] && [ -z "$range" ] && exit "$mpv_exitcode"
             fi
             ;;
         android_mpv) nohup am start --user 0 -a android.intent.action.VIEW -d "$episode" -n is.xyz.mpv/.MPVActivity >/dev/null 2>&1 & ;;
-        android_vlc) nohup am start --user 0 -a android.intent.action.VIEW -d "$episode" -n org.videolan.vlc/org.videolan.vlc.gui.video.VideoPlayerActivity -e "title" "${allanime_title}Episode ${ep_no}" >/dev/null 2>&1 & ;;
+        android_vlc) nohup am start --user 0 -a android.intent.action.VIEW -d "$episode" -n org.videolan.vlc/org.videolan.vlc.gui.video.VideoPlayerActivity -e "title" "${media_title}Episode ${ep_no}" >/dev/null 2>&1 & ;;
         *iina*)
             [ -n "$subs_flag" ] && subs_flag="--mpv-${subs_flag#--}"
             [ -n "$refr_flag" ] && refr_flag="--mpv-${refr_flag#--}"
             [ -n "$headers_flag" ] && headers_flag="--mpv-${headers_flag#--}"
             if pgrep -f "IINA" >/dev/null 2>&1; then
                 # omit --keep-running when an IINA instance exists to prevent hanging
-                nohup $player_function --no-stdin --mpv-force-media-title="${allanime_title}Episode ${ep_no}" $subs_flag $refr_flag $headers_flag "$episode" >/dev/null 2>&1 &
+                nohup $player_function --no-stdin --mpv-force-media-title="${media_title}Episode ${ep_no}" $subs_flag $refr_flag $headers_flag "$episode" >/dev/null 2>&1 &
             else
-                nohup $player_function --no-stdin --keep-running --mpv-force-media-title="${allanime_title}Episode ${ep_no}" $subs_flag $refr_flag $headers_flag "$episode" >/dev/null 2>&1 &
+                nohup $player_function --no-stdin --keep-running --mpv-force-media-title="${media_title}Episode ${ep_no}" $subs_flag $refr_flag $headers_flag "$episode" >/dev/null 2>&1 &
             fi
             ;;
         flatpak_mpv)
             if [ "$no_detach" = 0 ]; then
-                flatpak run io.mpv.Mpv --force-media-title="${allanime_title}Episode ${ep_no}" "$episode" $subs_flag $refr_flag $headers_flag >/dev/null 2>&1 &
+                flatpak run io.mpv.Mpv --force-media-title="${media_title}Episode ${ep_no}" "$episode" $subs_flag $refr_flag $headers_flag >/dev/null 2>&1 &
                 player_pid=$!
             else
-                flatpak run io.mpv.Mpv --force-media-title="${allanime_title}Episode ${ep_no}" "$episode" $subs_flag $refr_flag $headers_flag
+                flatpak run io.mpv.Mpv --force-media-title="${media_title}Episode ${ep_no}" "$episode" $subs_flag $refr_flag $headers_flag
                 mpv_exitcode=$?
                 [ "$exit_after_play" = 1 ] && [ -z "$range" ] && exit "$mpv_exitcode"
             fi
             ;;
-        vlc*) nohup $player_function --http-referrer="${allanime_refr}" --play-and-exit --meta-title="${allanime_title}Episode ${ep_no}" "$episode" >/dev/null 2>&1 & ;;
-        *yncpla*) nohup $player_function "$episode" -- --force-media-title="${allanime_title}Episode ${ep_no}" $subs_flag $refr_flag >/dev/null 2>&1 & ;;
-        download) "$player_function" "$episode" "${allanime_title}Episode ${ep_no}" "$subtitle" ;;
+        vlc*) nohup $player_function --http-referrer="${generic_refr:-$animeflv_refr}" --play-and-exit --meta-title="${media_title}Episode ${ep_no}" "$episode" >/dev/null 2>&1 & ;;
+        *yncpla*) nohup $player_function "$episode" -- --force-media-title="${media_title}Episode ${ep_no}" $subs_flag $refr_flag >/dev/null 2>&1 & ;;
+        download) "$player_function" "$episode" "${media_title}Episode ${ep_no}" "$subtitle" ;;
         catt) nohup catt cast "$episode" -s "$subtitle" >/dev/null 2>&1 & ;;
         iSH)
             printf "\e]8;;vlc://%s\a~~~~~~~~~~~~~~~~~~~~\n~ Tap to open VLC ~\n~~~~~~~~~~~~~~~~~~~~\e]8;;\a\n" "$episode"
@@ -2551,7 +2667,7 @@ toggle_close_previous_from_menu() {
 }
 
 playback_menu_options() {
-    printf "siguiente\nanterior\nrepetir_episodio_actual\nelegir_episodio\ndescargar_episodio_actual\ncambiar_calidad\n"
+    printf "siguiente\nanterior\nrepetir_episodio_actual\nelegir_episodio\ndescargar_episodio_actual\n"
     if continuous_enabled; then
         printf "desactivar_modo_continuo\n"
     else
@@ -2586,11 +2702,18 @@ playback_menu_prompt() {
 
 # setup
 agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0"
+anidb_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+anidb_refr="https://anidb.app"
+anidb_curl_exe="$(find_anidb_curl_exe 2>/dev/null || true)"
+anidb_selected_ref=""
+anidb_selected_ref_key=""
+animex_api="https://pp.animex.one"
+animex_graphql="https://graphql.animex.one"
+animex_proxy_base="https://cx.aniwatchtv.site"
+animex_proxy_key="10b06cdc1ca48c9fb0b94af97cc040cf"
+animex_selected_ref=""
+animex_selected_ref_key=""
 zilla_header_fields="Origin:https://player.zilla-networks.com,Sec-Fetch-Dest:empty,Sec-Fetch-Mode:cors,Sec-Fetch-Site:same-origin"
-allanime_refr="https://animeflv.or.at"
-allanime_base="animeflv.or.at"
-allanime_api=""
-allanime_key=""
 animeflv_refr="https://animeflv.or.at"
 animeflv_selected_id=""
 animeflv_selected_id_key=""
@@ -2600,12 +2723,6 @@ jkanime_slug_key=""
 animeav1_refr="https://animeav1.com"
 animeav1_slug=""
 animeav1_slug_key=""
-english_source_refr="https://allmanga.to"
-english_source_base="allanime.day"
-english_source_api="https://api.${english_source_base}"
-english_source_key="$(printf '%s' 'SimtVuagFbGR2K7P' | openssl dgst -sha256 -binary | od -A n -t x1 | tr -d ' \n')"
-allanime_fallback_ref=""
-allanime_fallback_ref_key=""
 update_url="${ANI_CLI_UPDATE_URL:-}"
 mode="${ANI_CLI_MODE:-sub}"
 download_dir="${ANI_CLI_DOWNLOAD_DIR:-$(default_download_dir)}"
@@ -2613,7 +2730,7 @@ log_episode="${ANI_CLI_LOG:-1}"
 quality="${ANI_CLI_QUALITY:-best}"
 resolver_timeout="${ANI_CLI_RESOLVER_TIMEOUT:-15}"
 probe_timeout="${ANI_CLI_PROBE_TIMEOUT:-20}"
-preferred_info_source="$(normalize_info_source "${ANI_CLI_INFO_SOURCE:-auto}")" || die "ANI_CLI_INFO_SOURCE invalido. Usa: auto, animeflv, jkanime, animeav1 o allanime"
+preferred_info_source="$(normalize_info_source "${ANI_CLI_INFO_SOURCE:-auto}")" || die "ANI_CLI_INFO_SOURCE invalido. Usa: auto, animeflv, jkanime, animeav1, anidb o animex"
 case "$(uname -a | cut -d " " -f 1,3-)" in
     *Darwin*) player_function="${ANI_CLI_PLAYER:-$(where_iina)}" ;;   # mac OS
     *ndroid*) player_function="${ANI_CLI_PLAYER:-android_mpv}" ;;     # Android OS (termux)
@@ -2715,7 +2832,7 @@ while [ $# -gt 0 ]; do
         --source | --info-source)
             [ $# -lt 2 ] && die "falta un argumento"
             preferred_info_source="$(normalize_info_source "$2")" ||
-                die "Fuente invalida: $2. Usa: auto, animeflv, jkanime, animeav1 o allanime"
+                die "Fuente invalida: $2. Usa: auto, animeflv, jkanime, animeav1, anidb o animex"
             shift
             ;;
         --dub) mode="dub" ;;
@@ -2750,10 +2867,6 @@ if [ "$continuous_mode" = "1" ]; then
 fi
 printf "\33[2K\r\033[1;34mVerificando dependencias...\033[0m\n"
 dep_ch "curl" "sed" "grep" || true
-case "$(uname -o 2>/dev/null)" in
-    *ndroid*) command -v openssl >/dev/null || die 'No se encontro "openssl". En Termux instalalo con: pkg install openssl-tool' ;;
-    *) dep_ch "openssl" || true ;;
-esac
 [ "$skip_intro" = 1 ] && (dep_ch "ani-skip" || true)
 dep_ch "fzf" || true
 case "$player_function" in
@@ -2778,7 +2891,7 @@ case "$search" in
         ep_list=$(episodes_list "$id" "$title")
         ep_no=$(printf "%s\n" "$anime_list" | awk -F '	' -v target="$id" '$1 == target { print $2; exit }' |
             sed -nE 's/.*- episodio (.+)$/\1/p')
-        allanime_title="$(printf "%s" "$title" | cut -d'(' -f1 | tr -d '[:punct:]')"
+        media_title="$(printf "%s" "$title" | cut -d'(' -f1 | tr -d '[:punct:]')"
         ;;
     *)
         if [ "$use_external_menu" = "0" ]; then
@@ -2797,14 +2910,14 @@ case "$search" in
         [ -z "$anime_list" ] && diagnose_empty_search "$query"
         [ "$index" -eq "$index" ] 2>/dev/null && result=$(printf "%s" "$anime_list" | sed -n "${index}p")
         if [ -z "$index" ]; then
-            anime_menu="$(printf "%s\n" "$anime_list" | awk -F '\t' '{ label = ($3 != "" ? $3 : $2); printf "%d\t%s\t%s\n", NR, $1, label }')"
+            anime_menu="$(printf "%s\n" "$anime_list" | build_anime_menu)"
             result="$(printf "%s" "$anime_menu" | nth "Selecciona anime: ")"
         fi
         [ -z "$result" ] && exit 1
         id=$(printf "%s" "$result" | cut -f1)
         title=$(printf "%s\n" "$anime_list" | awk -F '\t' -v target="$id" '$1 == target { print $2; exit }')
         [ -z "$title" ] && title="$(printf "%s" "$result" | cut -f2)"
-        allanime_title="$(printf "%s" "$title" | cut -d'(' -f1 | tr -d '[:punct:]')"
+        media_title="$(printf "%s" "$title" | cut -d'(' -f1 | tr -d '[:punct:]')"
         ep_list=$(episodes_list "$id" "$title")
         [ -z "$ep_no" ] && ep_no=$(printf "%s" "$ep_list" | select_episode)
         [ -z "$ep_no" ] && exit 1
@@ -2844,41 +2957,11 @@ while cmd=$(playback_menu_options | nth "$(playback_menu_prompt) "); do
             prepare_for_menu_playback
             ep_no=$(printf "%s" "$ep_list" | select_episode)
             ;;
-        cambiar_calidad)
-            prepare_for_menu_playback
-            unset episode
-            get_episode_url
-            current_site="$selected_site"
-            current_quality="$selected_quality"
-            site_choice=""
-            site_entries="$(available_site_entries "$animeflv_links" "$jkanime_links" "$animeav1_links")"
-            site_count="$(printf '%s\n' "$site_entries" | sed '/^$/d' | wc -l | tr -d '[:space:]')"
-            if [ "$site_count" -gt 1 ]; then
-                site_choice="$(printf "%s\n" "$site_entries" | nth "Selecciona fuente: " | cut -f1)"
-                [ -z "$site_choice" ] && continue
-                [ "$site_choice" != "$current_site" ] && set_links_for_site "$site_choice"
-            fi
-            quality_entries="$(quality_menu_entries "$links")"
-            quality_count="$(count_quality_links "$links")"
-            if [ "$quality_count" -le 1 ]; then
-                if [ -n "$site_choice" ] && [ "$site_choice" != "$current_site" ]; then
-                    select_quality best
-                else
-                    printf "Solo hay una calidad disponible para esta fuente\n" 1>&2
-                    continue
-                fi
-            else
-                new_quality="$(printf "%s\n" "$quality_entries" | nth "Selecciona calidad: " | cut -f1)"
-                [ -z "$new_quality" ] && continue
-                [ "${site_choice:-$current_site}" = "$current_site" ] && [ "$new_quality" = "$current_quality" ] && continue
-                select_quality "$new_quality"
-            fi
-            ;;
         descargar | descargar_episodio_actual)
             sync_current_episode
             unset episode
             get_episode_url
-            download "$episode" "${allanime_title}Episode ${ep_no}" "$subtitle"
+            download "$episode" "${media_title}Episode ${ep_no}" "$subtitle"
             unset episode
             printf 'Descarga terminada: %s\n' "$download_dir" 1>&2
             continue

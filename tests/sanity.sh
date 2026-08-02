@@ -20,18 +20,36 @@ run_debug_smoke() {
     clean_file="$(mktemp)"
     trap 'rm -f "$output_file" "$clean_file"' EXIT HUP INT TERM
 
-    env ANI_CLI_PLAYER=debug ANI_CLI_NO_DETACH=1 ./ani-cli-mx \
-        -S 1 -e 1 "school rumble" >"$output_file" 2>&1
-    strip_ansi <"$output_file" >"$clean_file"
-    grep -q "Fuente seleccionada:" "$clean_file"
-    grep -q "Enlace seleccionado:" "$clean_file"
+    anidb_curl="${ANI_CLI_ANIDB_CURL:-}"
+    if [ -z "$anidb_curl" ]; then
+        for candidate in curl_firefox135 curl_chrome136 curl_chrome116 curl_ff117; do
+            if command -v "$candidate" >/dev/null 2>&1; then
+                anidb_curl="$(command -v "$candidate")"
+                break
+            fi
+        done
+    fi
+    [ -n "$anidb_curl" ] || {
+        printf 'Network playback smoke requires curl-impersonate for AniDB. Set ANI_CLI_ANIDB_CURL.\n' >&2
+        return 1
+    }
 
-    env ANI_CLI_PLAYER=debug ANI_CLI_NO_DETACH=1 ./ani-cli-mx \
-        --source animeav1 -S 1 -e 1 "yani neko" >"$output_file" 2>&1
-    strip_ansi <"$output_file" >"$clean_file"
-    grep -q "Fuente seleccionada:" "$clean_file"
-    grep -q "AnimeAV1 / HLS" "$clean_file"
-    ! grep -q "JKAnime" "$clean_file"
+    for provider_case in 'jkanime:JKAnime' 'animeav1:AnimeAV1' 'animeflv:AnimeFLV' 'anidb:AniDB' 'animex:AnimeX'; do
+        provider="${provider_case%%:*}"
+        provider_label="${provider_case#*:}"
+        timeout 120 env ANI_CLI_PLAYER=debug ANI_CLI_NO_DETACH=1 ANI_CLI_FAST_MODE=0 \
+            ANI_CLI_PROBE_TIMEOUT=20 ANI_CLI_ANIDB_CURL="$anidb_curl" ./ani-cli-mx \
+            --source "$provider" -S 1 -e 1 "one piece" >"$output_file" 2>&1 || {
+            strip_ansi <"$output_file" >&2
+            return 1
+        }
+        strip_ansi <"$output_file" >"$clean_file"
+        grep -q "Fuente seleccionada:" "$clean_file"
+        grep -q "$provider_label /" "$clean_file"
+        grep -q "Enlace seleccionado:" "$clean_file"
+        selected_url="$(sed -n '/^Enlace seleccionado:/{n;p;q;}' "$clean_file")"
+        printf '%s\n' "$selected_url" | grep -qE '^https?://'
+    done
 }
 
 run_continuous_toggle_smoke() {
@@ -75,6 +93,8 @@ run_continuous_toggle_smoke() {
 run_download_menu_smoke() {
     menu_options="$(sed -n '/^playback_menu_options()/,/^playback_menu_prompt()/p' ani-cli-mx-core)"
     printf '%s\n' "$menu_options" | grep -q 'descargar_episodio_actual'
+    ! printf '%s\n' "$menu_options" | grep -q 'cambiar_calidad'
+    ! grep -q '^[[:space:]]*cambiar_calidad)' ani-cli-mx-core
     grep -q 'download_dir="${ANI_CLI_DOWNLOAD_DIR:-$(default_download_dir)}"' ani-cli-mx-core
     grep -q "command -v yt-dlp" ani-cli-mx-core
 }
@@ -96,7 +116,7 @@ run_windows_compat_smoke() {
         ANI_CLI_STATE_NAME=ani-cli-mx LOCALAPPDATA="$local_app_data_env" \
         ANI_CLI_PLAYER=debug ./ani-cli-mx-core -V)"
 
-    [ "$version_output" = "1.3.1" ]
+    [ "$version_output" = "1.4.0" ]
     [ -f "$local_app_data/ani-cli-mx/ani-hsts" ]
     grep -q 'GIT_INSTALL_ROOT' ani-cli-mx.cmd
     grep -q 'ANI_CLI_PACKAGE_MANAGER=scoop' ani-cli-mx.cmd
@@ -167,6 +187,79 @@ run_search_query_candidates_smoke() {
     rm -rf "$tmp_dir"
 }
 
+run_language_sections_smoke() {
+    menu_output="$(printf '%b\n' \
+        'jkanime:one-piece\tOne Piece\tOne Piece [JKAnime]' \
+        'anidb:one-piece-3880\tOne Piece\tOne Piece [AniDB]' \
+        'animex:one-piece-p8k27\tOne Piece\tOne Piece [AnimeX]' |
+        sed -n '/./p' | awk -F '\t' '
+            {
+                label = ($3 != "" ? $3 : $2)
+                language = ($1 ~ /^(anidb|animex):/ ? "[ENGLISH]" : "[ESPAÑOL]")
+                printf "%d\t%s\t%s %s\n", NR, $1, language, label
+            }
+        ')"
+    printf '%s\n' "$menu_output" | grep -q '\[ESPAÑOL\].*JKAnime'
+    printf '%s\n' "$menu_output" | grep -q '\[ENGLISH\].*AniDB'
+    printf '%s\n' "$menu_output" | grep -q '\[ENGLISH\].*AnimeX'
+}
+
+run_anidb_provider_smoke() {
+    tmp_dir="$(mktemp -d)"
+    funcs_file="$tmp_dir/anidb-functions.sh"
+    sed -n '/^find_anidb_curl_exe()/,/^pick_animeflv_language()/p' ani-cli-mx-core | sed '$d' >"$funcs_file"
+
+    (
+        # shellcheck disable=SC1090
+        . "$funcs_file"
+
+        show_ref_value_for_site() {
+            case "$1" in
+                "$2":*) printf '%s\n' "${1#"$2:"}" ;;
+                *) return 1 ;;
+            esac
+        }
+        emit_annotated_link_entry() {
+            entry_url="$(printf '%s' "$1" | cut -d'>' -f2)"
+            printf '%s\n' "$1"
+            printf 'source >%s>%s\n' "$entry_url" "$2"
+            printf 'site >%s>%s\n' "$entry_url" "$3"
+        }
+        anidb_fixture_curl() {
+            for fixture_arg; do fixture_url="$fixture_arg"; done
+            case "$fixture_url" in
+                */browse*) printf '%s\n' '<a href="/anime/one-piece-3880"><img alt="One Piece">' ;;
+                */anime/3880/episodes) printf '%s\n' '{"episodes":[{"id":3512,"number":1},{"id":3513,"number":2}]}' ;;
+                */episode/3512/languages) printf '%s\n' '{"languages":[{"code":"jpn","embed_url":"https:\/\/anidb.test\/embed\/one"}]}' ;;
+                */embed/one) printf "%s\n" "sources: [{ file: 'https://hls.anidb.test/master.m3u8', type: 'hls' }]" ;;
+                */master.m3u8) printf '%s\n' '#EXTM3U' '#EXT-X-STREAM-INF:RESOLUTION=1920x1080,BANDWIDTH=1' 'https://hls.anidb.test/1080.m3u8' ;;
+                *) return 1 ;;
+            esac
+        }
+
+        anidb_curl_exe=anidb_fixture_curl
+        anidb_agent=test
+        anidb_refr=https://anidb.test
+        resolver_timeout=1
+        mode=sub
+        id=anidb:one-piece-3880
+        anidb_selected_ref=""
+        anidb_selected_ref_key=""
+
+        search_result="$(search_anidb_catalog one+piece)"
+        [ "$search_result" = "one-piece-3880	One Piece" ]
+        [ "$(anidb_episode_maps "$id" 'One Piece' | cut -f2)" = "1
+2" ]
+        links="$(resolve_anidb_episode 'One Piece' 1)"
+        printf '%s\n' "$links" | grep -q '^1080 >https://hls.anidb.test/1080.m3u8$'
+        printf '%s\n' "$links" | grep -q '^source >https://hls.anidb.test/1080.m3u8>HLS$'
+        printf '%s\n' "$links" | grep -q '^site >https://hls.anidb.test/1080.m3u8>AniDB$'
+        printf '%s\n' "$links" | grep -q '^referrer >https://hls.anidb.test/1080.m3u8>https://anidb.test$'
+    )
+
+    rm -rf "$tmp_dir"
+}
+
 run_fast_link_selection_smoke() {
     tmp_dir="$(mktemp -d)"
     funcs_file="$tmp_dir/link-functions.sh"
@@ -183,6 +276,9 @@ run_fast_link_selection_smoke() {
         }
         find_link_site() {
             printf '%s\n' 'AnimeAV1'
+        }
+        find_link_headers() {
+            return 0
         }
         probe_link_with_mpv() {
             return 1
@@ -219,6 +315,8 @@ case "${1:-}" in
         run_windows_compat_smoke
         run_search_diagnostic_smoke
         run_search_query_candidates_smoke
+        run_language_sections_smoke
+        run_anidb_provider_smoke
         run_fast_link_selection_smoke
         run_debug_smoke
         ;;
@@ -229,6 +327,8 @@ case "${1:-}" in
         run_windows_compat_smoke
         run_search_diagnostic_smoke
         run_search_query_candidates_smoke
+        run_language_sections_smoke
+        run_anidb_provider_smoke
         run_fast_link_selection_smoke
         ;;
     *)
