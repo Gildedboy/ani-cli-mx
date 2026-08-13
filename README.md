@@ -450,6 +450,12 @@ Play dubbed if available:
 ani-cli-mx --dub "one piece"
 ```
 
+Print the resolved links and the selected source instead of playing:
+
+```sh
+ani-cli-mx --debug "one piece"
+```
+
 Use the maintained English source directly (requires `curl-impersonate`):
 
 ```sh
