@@ -1161,6 +1161,7 @@ extract_jkanime_links() {
     player_entries="$(printf '%s' "$jkanime_page" | tr '\n' ' ' |
         grep -oE "video\\[[0-9]+\\][[:space:]]*=[[:space:]]*'<iframe[^']*src=\"[^\"]+\"" |
         sed -E 's|.*src="([^"]+)"$|\1|')"
+    disabled_mirrors="$(disabled_source_mirrors_for_source "jkanime")"
     old_ifs=$IFS
     IFS='
 '
@@ -1169,8 +1170,12 @@ extract_jkanime_links() {
         case "$player_url" in
             /*) player_url="${jkanime_refr}${player_url}" ;;
         esac
-        direct_link="$(extract_jkanime_internal_source "$player_url")"
         source_name="$(jkanime_internal_player_name "$player_url")"
+        if source_mirror_is_disabled_in_list "jkanime" "$source_name" "$disabled_mirrors"; then
+            source_status "$source_name" "disabled"
+            continue
+        fi
+        direct_link="$(extract_jkanime_internal_source "$player_url")"
         if [ -n "$direct_link" ]; then
             if ! printf '%s' "$internal_links" | grep -Fq ">${direct_link}"; then
                 internal_links="${internal_links}$(jkanime_internal_player_priority "$player_url") >${direct_link}
