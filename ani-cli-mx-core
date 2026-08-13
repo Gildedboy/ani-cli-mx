@@ -73,6 +73,8 @@ help_info() {
         Close the previous tracked player before opening another episode
       -q, --quality
         Specify the video quality
+      --debug
+        Print the resolved links and the selected source instead of playing
       -v, --vlc
         Use VLC to play the video
       -V, --version
@@ -2807,6 +2809,9 @@ while [ $# -gt 0 ]; do
                     ;;
                 *) player_function="syncplay" ;;
             esac
+            ;;
+        --debug)
+            player_function="debug"
             ;;
         -q | --quality)
             [ $# -lt 2 ] && die "falta un argumento"
