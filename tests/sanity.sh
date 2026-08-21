@@ -117,8 +117,8 @@ run_continuous_window_state_smoke() {
         grep -q 'observe_property("fullscreen"' "$mpv_window_state_script"
         grep -q 'observe_property("window-maximized"' "$mpv_window_state_script"
         grep -q 'get_property_number("osd-width"' "$mpv_window_state_script"
-        grep -q 'register_event("end-file", finalize_state)' "$mpv_window_state_script"
-        grep -q 'if not finalizing and value ~= nil' "$mpv_window_state_script"
+        ! grep -q 'register_event("end-file", finalize_state)' "$mpv_window_state_script"
+        grep -q 'if value ~= nil then state.fullscreen = value' "$mpv_window_state_script"
         ! grep -q 'os.rename' "$mpv_window_state_script"
 
         if command -v mpv >/dev/null 2>&1; then
@@ -164,6 +164,114 @@ run_continuous_window_state_smoke() {
     grep -q 'mpv_window_script_flag.*mpv_geometry_flag.*mpv_maximized_flag.*mpv_fullscreen_flag' ani-cli-mx-core
     rm -rf "$tmp_dir"
     printf 'Continuous mpv window-state handling passed.\n' >&2
+}
+
+run_persistent_mpv_smoke() {
+    printf 'Checking persistent mpv episode loading...\n' >&2
+    command -v mpv >/dev/null 2>&1 || {
+        printf 'Persistent mpv smoke skipped because mpv is unavailable.\n' >&2
+        return 0
+    }
+
+    tmp_dir="$(mktemp -d)"
+    funcs_file="$tmp_dir/persistent-functions.sh"
+    sed -n '/^create_mpv_window_state_script()/,/^play_episode()/p' ani-cli-mx-core | sed '$d' >"$funcs_file"
+
+    (
+        # shellcheck disable=SC1090
+        . "$funcs_file"
+        player_function='mpv --no-config --untimed'
+        command -v cygpath >/dev/null 2>&1 || player_function='mpv --no-config --untimed --vo=null --audio=no'
+        no_detach=0
+        skip_intro=0
+        continuous_state_file="$tmp_dir/continuous-state"
+        mpv_window_state_file="$tmp_dir/window-state"
+        mpv_window_state_script="$tmp_dir/window-state.lua"
+        mpv_session_command_file="$tmp_dir/session-command"
+        mpv_session_event_file="$tmp_dir/session-event"
+        mpv_session_owner_file="$tmp_dir/session-owner"
+        mpv_session_controller_script="$tmp_dir/session-controller.lua"
+        if command -v cygpath >/dev/null 2>&1; then
+            mpv_window_state_player_file="$(cygpath -m "$mpv_window_state_file")"
+            mpv_window_state_player_script="$(cygpath -m "$mpv_window_state_script")"
+            mpv_session_player_command_file="$(cygpath -m "$mpv_session_command_file")"
+            mpv_session_player_event_file="$(cygpath -m "$mpv_session_event_file")"
+            mpv_session_player_owner_file="$(cygpath -m "$mpv_session_owner_file")"
+            mpv_session_player_controller_script="$(cygpath -m "$mpv_session_controller_script")"
+        else
+            mpv_window_state_player_file="$mpv_window_state_file"
+            mpv_window_state_player_script="$mpv_window_state_script"
+            mpv_session_player_command_file="$mpv_session_command_file"
+            mpv_session_player_event_file="$mpv_session_event_file"
+            mpv_session_player_owner_file="$mpv_session_owner_file"
+            mpv_session_player_controller_script="$mpv_session_controller_script"
+        fi
+        player_supports_continuous() { return 0; }
+        continuous_enabled() { return 1; }
+        find_link_subtitles() { return 0; }
+        close_tracked_player() {
+            kill "$player_pid" 2>/dev/null || true
+            wait "$player_pid" 2>/dev/null || true
+        }
+
+        : >"$mpv_session_owner_file"
+        create_mpv_window_state_script
+        create_mpv_session_controller
+        ANI_CLI_MPV_SESSION_LOG="$tmp_dir/mpv.log"
+        export ANI_CLI_MPV_SESSION_LOG
+        start_persistent_mpv
+        original_pid="$player_pid"
+
+        links=""
+        generic_refr=""
+        generic_headers=""
+        media_title='Persistent "mpv" Test '
+        ep_no=1
+        episode='av://lavfi:testsrc=duration=1:size=320x180:rate=10'
+        queue_persistent_mpv_episode
+
+        event_attempt=0
+        while [ ! -s "$mpv_session_event_file" ] && [ "$event_attempt" -lt 300 ]; do
+            sleep 0.1
+            event_attempt=$((event_attempt + 1))
+        done
+        grep -qx '1' "$mpv_session_event_file"
+        kill -0 "$original_pid"
+
+        ep_no=2
+        episode='av://lavfi:testsrc=duration=1:size=320x180:rate=10'
+        queue_persistent_mpv_episode
+        [ "$player_pid" = "$original_pid" ]
+        event_attempt=0
+        while { [ ! -s "$mpv_session_event_file" ] || ! grep -qx '2' "$mpv_session_event_file"; } && [ "$event_attempt" -lt 300 ]; do
+            sleep 0.1
+            event_attempt=$((event_attempt + 1))
+        done
+        grep -qx '2' "$mpv_session_event_file"
+        kill -0 "$original_pid"
+
+        ep_no=3
+        episode='av://lavfi:testsrc=duration=3:size=320x180:rate=10'
+        queue_persistent_mpv_episode
+        sleep 0.2
+        ep_no=4
+        episode='av://lavfi:testsrc=duration=1:size=320x180:rate=10'
+        queue_persistent_mpv_episode
+        event_attempt=0
+        while { [ ! -s "$mpv_session_event_file" ] || ! grep -qx '4' "$mpv_session_event_file"; } && [ "$event_attempt" -lt 300 ]; do
+            sleep 0.1
+            event_attempt=$((event_attempt + 1))
+        done
+        grep -qx '4' "$mpv_session_event_file"
+        kill -0 "$original_pid"
+
+        kill "$original_pid" 2>/dev/null || true
+        wait "$original_pid" 2>/dev/null || true
+        ! kill -0 "$original_pid" 2>/dev/null
+    )
+
+    rm -rf "$tmp_dir"
+    printf 'Persistent mpv episode loading passed.\n' >&2
 }
 
 run_animex_subtitle_smoke() {
@@ -233,7 +341,7 @@ run_windows_compat_smoke() {
         ANI_CLI_STATE_NAME=ani-cli-mx LOCALAPPDATA="$local_app_data_env" \
         ANI_CLI_PLAYER=debug ./ani-cli-mx-core -V)"
 
-    [ "$version_output" = "1.4.2" ]
+    [ "$version_output" = "1.5.0" ]
     [ -f "$local_app_data/ani-cli-mx/ani-hsts" ]
     grep -q 'GIT_INSTALL_ROOT' ani-cli-mx.cmd
     grep -q 'ANI_CLI_PACKAGE_MANAGER=scoop' ani-cli-mx.cmd
@@ -432,6 +540,7 @@ case "${1:-}" in
         run_syntax_checks
         run_continuous_toggle_smoke
         run_continuous_window_state_smoke
+        run_persistent_mpv_smoke
         run_animex_subtitle_smoke
         run_download_menu_smoke
         run_windows_compat_smoke
@@ -446,6 +555,7 @@ case "${1:-}" in
         run_syntax_checks
         run_continuous_toggle_smoke
         run_continuous_window_state_smoke
+        run_persistent_mpv_smoke
         run_animex_subtitle_smoke
         run_download_menu_smoke
         run_windows_compat_smoke
