@@ -2596,10 +2596,10 @@ play_episode() {
             if [ "$manual_handoff" = 1 ]; then
                 :
             elif [ "$no_detach" = 0 ]; then
-                nohup $player_function $skip_flag $mpv_window_script_flag $mpv_fullscreen_flag $mpv_maximized_flag $mpv_geometry_flag --force-media-title="${media_title}Episode ${ep_no}" "$episode" $subs_flag $refr_flag $headers_flag >/dev/null 2>&1 &
+                nohup $player_function $skip_flag $mpv_window_script_flag $mpv_geometry_flag $mpv_maximized_flag $mpv_fullscreen_flag --force-media-title="${media_title}Episode ${ep_no}" "$episode" $subs_flag $refr_flag $headers_flag >/dev/null 2>&1 &
                 player_pid=$!
             else
-                $player_function $skip_flag $mpv_window_script_flag $mpv_fullscreen_flag $mpv_maximized_flag $mpv_geometry_flag $subs_flag $refr_flag $headers_flag --force-media-title="${media_title}Episode ${ep_no}" "$episode"
+                $player_function $skip_flag $mpv_window_script_flag $mpv_geometry_flag $mpv_maximized_flag $mpv_fullscreen_flag $subs_flag $refr_flag $headers_flag --force-media-title="${media_title}Episode ${ep_no}" "$episode"
                 mpv_exitcode=$?
                 [ "$exit_after_play" = 1 ] && [ -z "$range" ] && exit "$mpv_exitcode"
             fi
@@ -2618,10 +2618,10 @@ play_episode() {
             ;;
         flatpak_mpv)
             if [ "$no_detach" = 0 ]; then
-                flatpak run io.mpv.Mpv $mpv_window_script_flag $mpv_fullscreen_flag $mpv_maximized_flag $mpv_geometry_flag --force-media-title="${media_title}Episode ${ep_no}" "$episode" $subs_flag $refr_flag $headers_flag >/dev/null 2>&1 &
+                flatpak run io.mpv.Mpv $mpv_window_script_flag $mpv_geometry_flag $mpv_maximized_flag $mpv_fullscreen_flag --force-media-title="${media_title}Episode ${ep_no}" "$episode" $subs_flag $refr_flag $headers_flag >/dev/null 2>&1 &
                 player_pid=$!
             else
-                flatpak run io.mpv.Mpv $mpv_window_script_flag $mpv_fullscreen_flag $mpv_maximized_flag $mpv_geometry_flag --force-media-title="${media_title}Episode ${ep_no}" "$episode" $subs_flag $refr_flag $headers_flag
+                flatpak run io.mpv.Mpv $mpv_window_script_flag $mpv_geometry_flag $mpv_maximized_flag $mpv_fullscreen_flag --force-media-title="${media_title}Episode ${ep_no}" "$episode" $subs_flag $refr_flag $headers_flag
                 mpv_exitcode=$?
                 [ "$exit_after_play" = 1 ] && [ -z "$range" ] && exit "$mpv_exitcode"
             fi

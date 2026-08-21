@@ -122,14 +122,28 @@ run_continuous_window_state_smoke() {
         ! grep -q 'os.rename' "$mpv_window_state_script"
 
         if command -v mpv >/dev/null 2>&1; then
+            mpv_window_args='--vo=null'
+            command -v cygpath >/dev/null 2>&1 && mpv_window_args='--force-window=yes'
             fullscreen_script="$tmp_dir/simulate-user-fullscreen.lua"
             printf '%s\n' \
                 'mp.register_event("file-loaded", function() mp.set_property_native("fullscreen", true) end)' >"$fullscreen_script"
-            mpv --no-config --audio=no --vo=null --really-quiet \
+            # shellcheck disable=SC2086
+            mpv --no-config --audio=no $mpv_window_args --really-quiet \
                 --force-media-title='Mushoku Tensei Episode 7' \
                 --script="$mpv_window_state_script" --script="$fullscreen_script" \
                 'av://lavfi:testsrc=duration=1:size=320x180:rate=10'
             grep -qx 'fullscreen=yes' "$mpv_window_state_file"
+
+            maximized_script="$tmp_dir/simulate-user-maximized.lua"
+            printf '%s\n' \
+                'mp.register_event("file-loaded", function() mp.set_property_native("window-maximized", true) end)' >"$maximized_script"
+            : >"$mpv_window_state_file"
+            # shellcheck disable=SC2086
+            mpv --no-config --audio=no $mpv_window_args --really-quiet \
+                --force-media-title='Mushoku Tensei Episode 7' \
+                --script="$mpv_window_state_script" --script="$maximized_script" \
+                'av://lavfi:testsrc=duration=1:size=320x180:rate=10'
+            grep -qx 'maximized=yes' "$mpv_window_state_file"
         fi
 
         printf '%s\n' 1 >"$continuous_state_file"
@@ -139,9 +153,15 @@ run_continuous_window_state_smoke() {
         [ "$mpv_fullscreen_flag" = '--fullscreen=yes' ]
         [ "$mpv_maximized_flag" = '--window-maximized=no' ]
         [ "$mpv_geometry_flag" = '--geometry=1280x720' ]
+
+        printf '%s\n' 'fullscreen=no' 'maximized=yes' 'geometry=1024x576' >"$mpv_window_state_file"
+        prepare_mpv_window_state_flags
+        [ "$mpv_fullscreen_flag" = '--fullscreen=no' ]
+        [ "$mpv_maximized_flag" = '--window-maximized=yes' ]
+        [ "$mpv_geometry_flag" = '--geometry=1024x576' ]
     )
 
-    grep -q 'mpv_window_script_flag.*mpv_fullscreen_flag.*mpv_maximized_flag.*mpv_geometry_flag' ani-cli-mx-core
+    grep -q 'mpv_window_script_flag.*mpv_geometry_flag.*mpv_maximized_flag.*mpv_fullscreen_flag' ani-cli-mx-core
     rm -rf "$tmp_dir"
     printf 'Continuous mpv window-state handling passed.\n' >&2
 }

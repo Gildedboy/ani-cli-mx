@@ -51,10 +51,19 @@ jobs:
               throw "Scoop could not add the extras bucket after installing Git"
             }
           }
+          scoop install mpv
+          if ($LASTEXITCODE -ne 0) {
+            throw "Scoop could not install mpv"
+          }
           $env:GIT_INSTALL_ROOT = $gitRoot
           $version = & .\ani-cli-mx.cmd -V
           if ($version -ne "1.4.2") {
             throw "The launcher did not use Scoop Git correctly: $version"
+          }
+
+          & $bashPath ./tests/sanity.sh --syntax
+          if ($LASTEXITCODE -ne 0) {
+            throw "The Scoop mpv window-state smoke test failed"
           }
 
       - name: Run the Windows launcher from PowerShell
