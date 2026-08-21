@@ -1,6 +1,6 @@
 #!/bin/sh
 
-version_number="1.4.2"
+version_number="1.5.0"
 app_name="${ANI_CLI_NAME:-${0##*/}}"
 log_tag="${ANI_CLI_LOG_TAG:-$app_name}"
 hist_state_name="${ANI_CLI_STATE_NAME:-$app_name}"
@@ -68,9 +68,9 @@ help_info() {
       --slow, --classic, --no-fast
         Use the previous source search behavior for every episode
       --continuous, --auto-next
-        Automatically play the next episode after mpv exits
+        Automatically load the next episode in the same mpv window
       --close-previous
-        Close the previous tracked player before opening another episode
+        Restart the tracked player before opening another episode
       -q, --quality
         Specify the video quality
       -v, --vlc
@@ -2488,7 +2488,6 @@ create_mpv_window_state_script() {
     printf '%s\n' \
         "local state_path = [[$mpv_window_state_player_file]]" \
         'local state = { fullscreen = false, maximized = false }' \
-        'local finalizing = false' \
         'local function save_state()' \
         '    local file = io.open(state_path, "w")' \
         '    if not file then return end' \
@@ -2498,28 +2497,149 @@ create_mpv_window_state_script() {
         '    file:close()' \
         'end' \
         'local function finalize_state()' \
-        '    if finalizing then return end' \
-        '    finalizing = true' \
         '    state.fullscreen = mp.get_property_native("fullscreen", state.fullscreen)' \
         '    state.maximized = mp.get_property_native("window-maximized", state.maximized)' \
         '    save_state()' \
         'end' \
         'mp.observe_property("fullscreen", "bool", function(_, value)' \
-        '    if not finalizing and value ~= nil then state.fullscreen = value; save_state() end' \
+        '    if value ~= nil then state.fullscreen = value; save_state() end' \
         'end)' \
         'mp.observe_property("window-maximized", "bool", function(_, value)' \
-        '    if not finalizing and value ~= nil then state.maximized = value; save_state() end' \
+        '    if value ~= nil then state.maximized = value; save_state() end' \
         'end)' \
         'mp.add_periodic_timer(0.25, function()' \
-        '    if finalizing or state.fullscreen or state.maximized then return end' \
+        '    if state.fullscreen or state.maximized then return end' \
         '    local width = mp.get_property_number("osd-width", 0)' \
         '    local height = mp.get_property_number("osd-height", 0)' \
         '    if width <= 0 or height <= 0 then return end' \
         '    local geometry = string.format("%dx%d", math.floor(width), math.floor(height))' \
         '    if geometry ~= state.geometry then state.geometry = geometry; save_state() end' \
         'end)' \
-        'mp.register_event("end-file", finalize_state)' \
         'mp.register_event("shutdown", finalize_state)' >"$mpv_window_state_script"
+}
+
+create_mpv_session_controller() {
+    printf '%s\n' \
+        'local utils = require "mp.utils"' \
+        "local command_path = [[$mpv_session_player_command_file]]" \
+        "local event_path = [[$mpv_session_player_event_file]]" \
+        "local owner_path = [[$mpv_session_player_owner_file]]" \
+        "local controller_path = [[$mpv_session_player_controller_script]]" \
+        "local state_path = [[$mpv_window_state_player_file]]" \
+        "local state_script_path = [[$mpv_window_state_player_script]]" \
+        'local current_episode = ""' \
+        'local finished_episode = ""' \
+        'local pending_subtitles = {}' \
+        'local owner_gone = false' \
+        'local function file_exists(path)' \
+        '    local file = io.open(path, "r")' \
+        '    if not file then return false end' \
+        '    file:close()' \
+        '    return true' \
+        'end' \
+        'local function write_event(value)' \
+        '    local file = io.open(event_path, "w")' \
+        '    if not file then return end' \
+        '    file:write(value .. "\n")' \
+        '    file:close()' \
+        'end' \
+        'local function mark_finished()' \
+        '    if not owner_gone and current_episode ~= "" and finished_episode ~= current_episode then' \
+        '        finished_episode = current_episode' \
+        '        write_event(current_episode)' \
+        '    end' \
+        'end' \
+        'local function process_command()' \
+        '    local file = io.open(command_path, "r")' \
+        '    if not file then return end' \
+        '    local payload = file:read("*a")' \
+        '    file:close()' \
+        '    os.remove(command_path)' \
+        '    local command = utils.parse_json(payload)' \
+        '    if type(command) ~= "table" or command.action ~= "load" or not command.url then return end' \
+        '    current_episode = tostring(command.episode or "")' \
+        '    finished_episode = ""' \
+        '    pending_subtitles = command.subtitles or {}' \
+        '    mp.set_property("force-media-title", command.title or "")' \
+        '    mp.set_property("referrer", command.referrer or "")' \
+        '    mp.set_property("http-header-fields", command.headers or "")' \
+        '    mp.commandv("loadfile", command.url, "replace")' \
+        'end' \
+        'mp.register_event("file-loaded", function()' \
+        '    mp.set_property_native("pause", false)' \
+        '    mp.add_timeout(0.1, function() mp.set_property_native("pause", false) end)' \
+        '    for _, subtitle in ipairs(pending_subtitles) do mp.commandv("sub-add", subtitle, "auto") end' \
+        '    pending_subtitles = {}' \
+        'end)' \
+        'mp.observe_property("eof-reached", "bool", function(_, value)' \
+        '    if value then mark_finished() end' \
+        'end)' \
+        'mp.register_event("end-file", function(event)' \
+        '    if not owner_gone and event.reason == "error" and current_episode ~= "" then write_event(current_episode) end' \
+        'end)' \
+        'mp.add_periodic_timer(0.1, function()' \
+        '    if not owner_gone and not file_exists(owner_path) then' \
+        '        owner_gone = true' \
+        '        mp.set_property_native("keep-open", false)' \
+        '        mp.set_property_native("idle", false)' \
+        '    end' \
+        '    process_command()' \
+        '    if mp.get_property_native("eof-reached", false) then mark_finished() end' \
+        'end)' \
+        'mp.register_event("shutdown", function()' \
+        '    os.remove(command_path)' \
+        '    os.remove(event_path)' \
+        '    os.remove(owner_path)' \
+        '    os.remove(controller_path)' \
+        '    os.remove(state_path)' \
+        '    os.remove(state_script_path)' \
+        'end)' >"$mpv_session_controller_script"
+}
+
+mpv_json_escape() {
+    printf '%s' "$1" | sed \
+        -e 's/\\/\\\\/g' \
+        -e 's/"/\\"/g' \
+        -e 's/\r/\\r/g' \
+        -e 's/	/\\t/g'
+}
+
+create_mpv_session_files() {
+    if [ "$player_function" = "flatpak_mpv" ]; then
+        mpv_session_command_file="$(mktemp "${mpv_flatpak_cache_dir}/session-command.XXXXXX")"
+        mpv_session_event_file="$(mktemp "${mpv_flatpak_cache_dir}/session-event.XXXXXX")"
+        mpv_session_owner_file="$(mktemp "${mpv_flatpak_cache_dir}/session-owner.XXXXXX")"
+        mpv_session_controller_script="$(mktemp "${mpv_flatpak_cache_dir}/session-controller.XXXXXX.lua")"
+        mpv_session_player_command_file="${HOME}/.cache/ani-cli-mx/${mpv_session_command_file##*/}"
+        mpv_session_player_event_file="${HOME}/.cache/ani-cli-mx/${mpv_session_event_file##*/}"
+        mpv_session_player_owner_file="${HOME}/.cache/ani-cli-mx/${mpv_session_owner_file##*/}"
+        mpv_session_player_controller_script="${HOME}/.cache/ani-cli-mx/${mpv_session_controller_script##*/}"
+    else
+        mpv_session_command_file="$(mktemp)"
+        mpv_session_event_file="$(mktemp)"
+        mpv_session_owner_file="$(mktemp)"
+        mpv_session_controller_base="$(mktemp)"
+        mpv_session_controller_script="${mpv_session_controller_base}.lua"
+        mv "$mpv_session_controller_base" "$mpv_session_controller_script"
+        case "$player_function" in
+            mpv.exe | */mpv.exe)
+                mpv_session_player_command_file="$(posix_path_to_windows "$mpv_session_command_file")"
+                mpv_session_player_event_file="$(posix_path_to_windows "$mpv_session_event_file")"
+                mpv_session_player_owner_file="$(posix_path_to_windows "$mpv_session_owner_file")"
+                mpv_session_player_controller_script="$(posix_path_to_windows "$mpv_session_controller_script")"
+                ;;
+            *)
+                mpv_session_player_command_file="$mpv_session_command_file"
+                mpv_session_player_event_file="$mpv_session_event_file"
+                mpv_session_player_owner_file="$mpv_session_owner_file"
+                mpv_session_player_controller_script="$mpv_session_controller_script"
+                ;;
+        esac
+    fi
+    : >"$mpv_session_command_file"
+    : >"$mpv_session_event_file"
+    : >"$mpv_session_owner_file"
+    create_mpv_session_controller
 }
 
 create_mpv_window_state_files() {
@@ -2545,6 +2665,15 @@ create_mpv_window_state_files() {
         esac
     fi
     create_mpv_window_state_script
+    create_mpv_session_files
+}
+
+ensure_mpv_session_files() {
+    [ -f "$mpv_session_controller_script" ] && [ -f "$mpv_window_state_script" ] && return 0
+    rm -f "${mpv_session_command_file:-}" "${mpv_session_event_file:-}" \
+        "${mpv_session_owner_file:-}" "${mpv_session_controller_script:-}" \
+        "${mpv_window_state_file:-}" "${mpv_window_state_script:-}"
+    create_mpv_window_state_files
 }
 
 prepare_mpv_window_state_flags() {
@@ -2565,9 +2694,74 @@ prepare_mpv_window_state_flags() {
     esac
 }
 
+persistent_mpv_supported() {
+    [ "$no_detach" = "0" ] || return 1
+    [ "$skip_intro" = "0" ] || return 1
+    [ -z "${range:-}${start:-}${end:-}" ] || return 1
+    case "$player_function" in
+        mpv* | */mpv | */mpv.exe | flatpak_mpv) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+persistent_mpv_alive() {
+    persistent_mpv_supported || return 1
+    [ -n "${player_pid:-}" ] || return 1
+    kill -0 "$player_pid" 2>/dev/null
+}
+
+queue_persistent_mpv_episode() {
+    persistent_mpv_alive || return 1
+    command_tmp="${mpv_session_command_file}.new.$$"
+    subtitles_json=""
+    old_ifs=$IFS
+    IFS='
+'
+    for subtitle_url in $(find_link_subtitles "$links" "$episode"); do
+        [ -n "$subtitle_url" ] || continue
+        escaped_subtitle="$(mpv_json_escape "$subtitle_url")"
+        subtitles_json="${subtitles_json}${subtitles_json:+,}\"${escaped_subtitle}\""
+    done
+    IFS=$old_ifs
+
+    printf '{"action":"load","episode":"%s","url":"%s","title":"%s","referrer":"%s","headers":"%s","subtitles":[%s]}\n' \
+        "$(mpv_json_escape "$ep_no")" \
+        "$(mpv_json_escape "$episode")" \
+        "$(mpv_json_escape "${media_title}Episode ${ep_no}")" \
+        "$(mpv_json_escape "${generic_refr:-}")" \
+        "$(mpv_json_escape "${generic_headers:-}")" \
+        "$subtitles_json" >"$command_tmp"
+    rm -f "$mpv_session_event_file"
+    mv "$command_tmp" "$mpv_session_command_file"
+    kill -0 "$player_pid" 2>/dev/null
+}
+
+start_persistent_mpv() {
+    ensure_mpv_session_files
+    : >"$mpv_session_owner_file"
+    rm -f "$mpv_session_command_file" "$mpv_session_event_file"
+    prepare_mpv_window_state_flags
+    mpv_session_log="${ANI_CLI_MPV_SESSION_LOG:-/dev/null}"
+    case "$player_function" in
+        flatpak_mpv)
+            nohup flatpak run io.mpv.Mpv --idle=yes --keep-open=yes --force-window=immediate \
+                "$mpv_window_script_flag" --script="$mpv_session_player_controller_script" \
+                ${mpv_geometry_flag:-} ${mpv_maximized_flag:-} ${mpv_fullscreen_flag:-} >"$mpv_session_log" 2>&1 &
+            ;;
+        *)
+            nohup $player_function --idle=yes --keep-open=yes --force-window=immediate \
+                "$mpv_window_script_flag" --script="$mpv_session_player_controller_script" \
+                ${mpv_geometry_flag:-} ${mpv_maximized_flag:-} ${mpv_fullscreen_flag:-} >"$mpv_session_log" 2>&1 &
+            ;;
+    esac
+    player_pid=$!
+    kill -0 "$player_pid" 2>/dev/null
+}
+
 play_episode() {
     manual_handoff=0
-    player_pid=""
+    persistent_episode_loaded=0
+    persistent_mpv_alive || player_pid=""
     set_current_episode "$ep_no"
     [ "$log_episode" = 1 ] && [ "$player_function" != "debug" ] && [ "$player_function" != "download" ] && command -v logger >/dev/null && logger -t "$log_tag" "${media_title}${ep_no}"
     [ "$skip_intro" = 1 ] && skip_flag="$(ani-skip -q "$mal_id" -e "$ep_no")"
@@ -2583,6 +2777,15 @@ play_episode() {
         fi
         manual_handoff=1
     fi
+    if [ "$manual_handoff" = "0" ] && persistent_mpv_supported; then
+        if persistent_mpv_alive || start_persistent_mpv; then
+            if queue_persistent_mpv_episode; then
+                persistent_episode_loaded=1
+            else
+                close_tracked_player
+            fi
+        fi
+    fi
     # shellcheck disable=SC2086
     case "$player_function" in
         debug)
@@ -2595,11 +2798,13 @@ play_episode() {
             [ -n "$selected_origin" ] && [ "$manual_handoff" = 0 ] && printf "Fuente seleccionada: %s\n" "$selected_origin" 1>&2
             if [ "$manual_handoff" = 1 ]; then
                 :
+            elif [ "$persistent_episode_loaded" = "1" ]; then
+                :
             elif [ "$no_detach" = 0 ]; then
-                nohup $player_function $skip_flag $mpv_window_script_flag $mpv_fullscreen_flag $mpv_maximized_flag $mpv_geometry_flag --force-media-title="${media_title}Episode ${ep_no}" "$episode" $subs_flag $refr_flag $headers_flag >/dev/null 2>&1 &
+                nohup $player_function $skip_flag $mpv_window_script_flag $mpv_geometry_flag $mpv_maximized_flag $mpv_fullscreen_flag --force-media-title="${media_title}Episode ${ep_no}" "$episode" $subs_flag $refr_flag $headers_flag >/dev/null 2>&1 &
                 player_pid=$!
             else
-                $player_function $skip_flag $mpv_window_script_flag $mpv_fullscreen_flag $mpv_maximized_flag $mpv_geometry_flag $subs_flag $refr_flag $headers_flag --force-media-title="${media_title}Episode ${ep_no}" "$episode"
+                $player_function $skip_flag $mpv_window_script_flag $mpv_geometry_flag $mpv_maximized_flag $mpv_fullscreen_flag $subs_flag $refr_flag $headers_flag --force-media-title="${media_title}Episode ${ep_no}" "$episode"
                 mpv_exitcode=$?
                 [ "$exit_after_play" = 1 ] && [ -z "$range" ] && exit "$mpv_exitcode"
             fi
@@ -2617,11 +2822,13 @@ play_episode() {
             fi
             ;;
         flatpak_mpv)
-            if [ "$no_detach" = 0 ]; then
-                flatpak run io.mpv.Mpv $mpv_window_script_flag $mpv_fullscreen_flag $mpv_maximized_flag $mpv_geometry_flag --force-media-title="${media_title}Episode ${ep_no}" "$episode" $subs_flag $refr_flag $headers_flag >/dev/null 2>&1 &
+            if [ "$persistent_episode_loaded" = "1" ]; then
+                :
+            elif [ "$no_detach" = 0 ]; then
+                flatpak run io.mpv.Mpv $mpv_window_script_flag $mpv_geometry_flag $mpv_maximized_flag $mpv_fullscreen_flag --force-media-title="${media_title}Episode ${ep_no}" "$episode" $subs_flag $refr_flag $headers_flag >/dev/null 2>&1 &
                 player_pid=$!
             else
-                flatpak run io.mpv.Mpv $mpv_window_script_flag $mpv_fullscreen_flag $mpv_maximized_flag $mpv_geometry_flag --force-media-title="${media_title}Episode ${ep_no}" "$episode" $subs_flag $refr_flag $headers_flag
+                flatpak run io.mpv.Mpv $mpv_window_script_flag $mpv_geometry_flag $mpv_maximized_flag $mpv_fullscreen_flag --force-media-title="${media_title}Episode ${ep_no}" "$episode" $subs_flag $refr_flag $headers_flag
                 mpv_exitcode=$?
                 [ "$exit_after_play" = 1 ] && [ -z "$range" ] && exit "$mpv_exitcode"
             fi
@@ -2640,8 +2847,8 @@ play_episode() {
     unset episode
     [ "$manual_handoff" = 1 ] || update_history
     [ "$manual_handoff" = 1 ] && [ "$exit_after_play" = 1 ] && [ -z "$range" ] && exit 0
-    [ "$use_external_menu" = "1" ] && wait
-    [ "$use_external_menu" = "2" ] && wait
+    [ "$persistent_episode_loaded" = "0" ] && [ "$use_external_menu" = "1" ] && wait
+    [ "$persistent_episode_loaded" = "0" ] && [ "$use_external_menu" = "2" ] && wait
 }
 
 play() {
@@ -2720,7 +2927,12 @@ set_continuous_mode() {
 
 disable_continuous_mode() {
     set_continuous_mode 0
+    stop_continuous_worker
+}
+
+stop_continuous_worker() {
     [ -n "${continuous_worker_pid:-}" ] && kill "$continuous_worker_pid" 2>/dev/null || true
+    [ -n "${continuous_worker_pid:-}" ] && wait "$continuous_worker_pid" 2>/dev/null || true
     continuous_worker_pid=""
 }
 
@@ -2741,6 +2953,7 @@ close_tracked_player() {
 }
 
 prepare_for_menu_playback() {
+    stop_continuous_worker
     if close_previous_enabled; then
         close_tracked_player
     fi
@@ -2752,7 +2965,7 @@ start_continuous_worker_for_current_player() {
     [ -n "${player_pid:-}" ] || return 1
     kill -0 "$player_pid" 2>/dev/null || return 1
 
-    [ -n "${continuous_worker_pid:-}" ] && kill "$continuous_worker_pid" 2>/dev/null || true
+    stop_continuous_worker
     continuous_worker_loop "$player_pid" &
     continuous_worker_pid=$!
     return 0
@@ -2765,9 +2978,26 @@ wait_for_pid_to_exit() {
     done
 }
 
+wait_for_persistent_episode_end() {
+    watched_pid="$1"
+    while kill -0 "$watched_pid" 2>/dev/null; do
+        if [ -s "$mpv_session_event_file" ]; then
+            ended_ep="$(sed -n '1p' "$mpv_session_event_file")"
+            rm -f "$mpv_session_event_file"
+            [ "$ended_ep" = "$(current_episode_number)" ] && return 0
+        fi
+        sleep 0.2
+    done
+    return 0
+}
+
 continuous_worker_loop() {
     watched_pid="$1"
-    wait_for_pid_to_exit "$watched_pid"
+    if persistent_mpv_alive; then
+        wait_for_persistent_episode_end "$watched_pid"
+    else
+        wait_for_pid_to_exit "$watched_pid"
+    fi
     while continuous_enabled; do
         next_ep="$(next_episode_number "$(current_episode_number)")"
         if [ -z "$next_ep" ]; then
@@ -2780,7 +3010,11 @@ continuous_worker_loop() {
         set_current_episode "$ep_no"
         printf "\33[2K\r\033[1;34mReproduciendo episodio %s...\033[0m\n" "$ep_no"
         play_episode
-        wait_for_pid_to_exit "${player_pid:-}"
+        if persistent_mpv_alive; then
+            wait_for_persistent_episode_end "$player_pid"
+        else
+            wait_for_pid_to_exit "${player_pid:-}"
+        fi
     done
 }
 
@@ -2798,7 +3032,7 @@ toggle_continuous_mode_from_menu() {
 
     set_continuous_mode 1
     if start_continuous_worker_for_current_player; then
-        printf "Modo continuo activado. Se abrira el siguiente capitulo al terminar o cerrar el reproductor actual.\n" 1>&2
+        printf "Modo continuo activado. El siguiente capitulo se cargara en la misma ventana de mpv al terminar.\n" 1>&2
     else
         printf "Modo continuo activado. El proximo capitulo que reproduzcas avanzara automaticamente al terminar o cerrar el reproductor.\n" 1>&2
     fi
@@ -2905,9 +3139,12 @@ current_episode_file="$(mktemp)"
 create_mpv_window_state_files
 continuous_worker_pid=""
 cleanup() {
-    [ -n "${continuous_worker_pid:-}" ] && kill "$continuous_worker_pid" 2>/dev/null || true
-    rm -f "$fast_mode_mirror_file" "$continuous_state_file" "$current_episode_file" \
-        "$mpv_window_state_file" "$mpv_window_state_script"
+    stop_continuous_worker
+    persistent_mpv_alive && close_tracked_player
+    rm -f "$fast_mode_mirror_file" "$continuous_state_file" "$current_episode_file"
+    rm -f "$mpv_window_state_file" "$mpv_window_state_script" \
+        "$mpv_session_command_file" "$mpv_session_event_file" \
+        "$mpv_session_owner_file" "$mpv_session_controller_script"
 }
 trap cleanup EXIT
 trap 'cleanup; exit 130' HUP INT TERM

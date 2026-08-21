@@ -63,10 +63,10 @@ Fast mode is the default. Keep using the chosen Spanish source for later episode
 Use the previous source search behavior, checking sources again for each episode.
 .TP
 \fB\--continuous | --auto-next\fR
-Start in continuous playback mode. This requires mpv because ani-cli-mx must detect when the player process finishes. With this flag, ani-cli-mx starts playback and opens the playback menu with continuous mode already enabled. The menu shows the current mode and can toggle it with activar_modo_continuo or desactivar_modo_continuo; when enabled from the menu, ani-cli-mx tracks the currently running player if possible, otherwise the next episode played from the menu advances automatically after its player finishes. Fullscreen, maximized state, and the last normal window size are carried over to each automatically opened episode.
+Start in continuous playback mode. Detached interactive mpv playback reuses one player process and window for Next, Previous, Repeat, and episode selection. After a natural end-of-file event, continuous mode resolves and loads the next episode in that same window. Manual episode changes are not treated as automatic advancement. Fullscreen, maximized state, window geometry, and volume remain unchanged naturally. Leaving the playback menu closes this managed mpv window. No-detach, exit-after-play, episode ranges, and skip mode retain separate-process playback.
 .TP
 \fB\--close-previous\fR
-Close the previous tracked player before opening another episode from the playback menu. This can also be toggled from the playback menu with activar_cerrar_reproductor_anterior or desactivar_cerrar_reproductor_anterior.
+Restart the tracked player instead of reusing its window when opening another episode from the playback menu. This can also be toggled from the playback menu with activar_cerrar_reproductor_anterior or desactivar_cerrar_reproductor_anterior.
 .TP
 \fB\--source | --info-source\fR \fI\,<auto|animeflv|jkanime|animeav1|anidb|animex>\/\fR
 Choose which source provides search results and episode information. Default is auto.
