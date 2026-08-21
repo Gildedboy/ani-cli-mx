@@ -101,19 +101,41 @@ run_continuous_window_state_smoke() {
         . "$funcs_file"
         mpv_window_state_file="$tmp_dir/window-state"
         mpv_window_state_script="$tmp_dir/window-state.lua"
+        if command -v cygpath >/dev/null 2>&1; then
+            mpv_window_state_player_file="$(cygpath -m "$mpv_window_state_file")"
+            mpv_window_state_player_script="$(cygpath -m "$mpv_window_state_script")"
+        else
+            mpv_window_state_player_file="$mpv_window_state_file"
+            mpv_window_state_player_script="$mpv_window_state_script"
+        fi
         continuous_state_file="$tmp_dir/continuous-state"
         player_supports_continuous() { return 0; }
         continuous_enabled() { grep -qx '1' "$continuous_state_file"; }
 
         create_mpv_window_state_script
+        grep -Fq "local state_path = [[$mpv_window_state_player_file]]" "$mpv_window_state_script"
         grep -q 'observe_property("fullscreen"' "$mpv_window_state_script"
         grep -q 'observe_property("window-maximized"' "$mpv_window_state_script"
         grep -q 'get_property_number("osd-width"' "$mpv_window_state_script"
+        grep -q 'register_event("end-file", finalize_state)' "$mpv_window_state_script"
+        grep -q 'if not finalizing and value ~= nil' "$mpv_window_state_script"
+        ! grep -q 'os.rename' "$mpv_window_state_script"
+
+        if command -v mpv >/dev/null 2>&1; then
+            fullscreen_script="$tmp_dir/simulate-user-fullscreen.lua"
+            printf '%s\n' \
+                'mp.register_event("file-loaded", function() mp.set_property_native("fullscreen", true) end)' >"$fullscreen_script"
+            mpv --no-config --audio=no --vo=null --really-quiet \
+                --force-media-title='Mushoku Tensei Episode 7' \
+                --script="$mpv_window_state_script" --script="$fullscreen_script" \
+                'av://lavfi:testsrc=duration=1:size=320x180:rate=10'
+            grep -qx 'fullscreen=yes' "$mpv_window_state_file"
+        fi
 
         printf '%s\n' 1 >"$continuous_state_file"
         printf '%s\n' 'fullscreen=yes' 'maximized=no' 'geometry=1280x720' >"$mpv_window_state_file"
         prepare_mpv_window_state_flags
-        [ "$mpv_window_script_flag" = "--script=$mpv_window_state_script" ]
+        [ "$mpv_window_script_flag" = "--script=$mpv_window_state_player_script" ]
         [ "$mpv_fullscreen_flag" = '--fullscreen=yes' ]
         [ "$mpv_maximized_flag" = '--window-maximized=no' ]
         [ "$mpv_geometry_flag" = '--geometry=1280x720' ]
@@ -137,7 +159,7 @@ run_animex_subtitle_smoke() {
         # shellcheck disable=SC1090
         . "$funcs_file"
         curl() {
-            printf '%s\n' '{"sources":[{"url":"https://video.animex.test/master.m3u8","quality":"auto","type":"video/mpegurl"}],"tracks":[{"id":"captions-1","url":"https://subs.animex.test/kaijuu-8.vtt","lang":"","label":"English","kind":"captions","default":true}],"headers":{"Referer":"https://video.animex.test/"}}'
+            printf '%s\n' '{"sources":[{"url":"https://video.animex.test/master.m3u8","quality":"auto","type":"video/mpegurl"}],"tracks":[{"id":"captions-1","url":"https://subs.animex.test/kaijuu-8-en.vtt","lang":"en","label":"English","kind":"captions","default":true},{"id":"captions-2","url":"https://subs.animex.test/kaijuu-8-es.vtt","lang":"es","label":"Spanish","kind":"captions","default":false}],"headers":{"Referer":"https://video.animex.test/"}}'
         }
         animex_proxy_url() { printf '%s\n' "$1"; }
         mode=sub
@@ -150,12 +172,15 @@ run_animex_subtitle_smoke() {
 
         links="$(resolve_animex_provider 'kaiju-no-8-bqnnd' beep)"
         printf '%s\n' "$links" | grep -q '^1080 >https://video.animex.test/master.m3u8>cc>$'
-        printf '%s\n' "$links" | grep -q '^subtitle >https://video.animex.test/master.m3u8>https://subs.animex.test/kaijuu-8.vtt$'
-        [ "$(find_link_subtitle "$links" 'https://video.animex.test/master.m3u8')" = 'https://subs.animex.test/kaijuu-8.vtt' ]
+        printf '%s\n' "$links" | grep -q '^subtitle >https://video.animex.test/master.m3u8>https://subs.animex.test/kaijuu-8-en.vtt$'
+        printf '%s\n' "$links" | grep -q '^subtitle >https://video.animex.test/master.m3u8>https://subs.animex.test/kaijuu-8-es.vtt$'
+        [ "$(find_link_subtitles "$links" 'https://video.animex.test/master.m3u8')" = 'https://subs.animex.test/kaijuu-8-en.vtt
+https://subs.animex.test/kaijuu-8-es.vtt' ]
 
         select_quality best
         [ "$episode" = 'https://video.animex.test/master.m3u8' ]
-        [ "$subs_flag" = '--sub-file=https://subs.animex.test/kaijuu-8.vtt' ]
+        [ "$subs_flag" = '--sub-file=https://subs.animex.test/kaijuu-8-en.vtt --sub-file=https://subs.animex.test/kaijuu-8-es.vtt ' ]
+        [ "$iina_subs_flag" = '--mpv-sub-file=https://subs.animex.test/kaijuu-8-en.vtt --mpv-sub-file=https://subs.animex.test/kaijuu-8-es.vtt ' ]
     )
 
     rm -rf "$tmp_dir"
@@ -188,7 +213,7 @@ run_windows_compat_smoke() {
         ANI_CLI_STATE_NAME=ani-cli-mx LOCALAPPDATA="$local_app_data_env" \
         ANI_CLI_PLAYER=debug ./ani-cli-mx-core -V)"
 
-    [ "$version_output" = "1.4.1" ]
+    [ "$version_output" = "1.4.2" ]
     [ -f "$local_app_data/ani-cli-mx/ani-hsts" ]
     grep -q 'GIT_INSTALL_ROOT' ani-cli-mx.cmd
     grep -q 'ANI_CLI_PACKAGE_MANAGER=scoop' ani-cli-mx.cmd
@@ -352,7 +377,7 @@ run_fast_link_selection_smoke() {
         find_link_headers() {
             return 0
         }
-        find_link_subtitle() {
+        find_link_subtitles() {
             return 0
         }
         probe_link_with_mpv() {

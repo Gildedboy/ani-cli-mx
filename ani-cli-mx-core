@@ -1,6 +1,6 @@
 #!/bin/sh
 
-version_number="1.4.1"
+version_number="1.4.2"
 app_name="${ANI_CLI_NAME:-${0##*/}}"
 log_tag="${ANI_CLI_LOG_TAG:-$app_name}"
 hist_state_name="${ANI_CLI_STATE_NAME:-$app_name}"
@@ -151,6 +151,16 @@ is_windows() {
 windows_path_to_posix() {
     if command -v cygpath >/dev/null 2>&1; then
         cygpath -u "$1"
+    else
+        printf '%s\n' "$1"
+    fi
+}
+
+posix_path_to_windows() {
+    if command -v cygpath >/dev/null 2>&1; then
+        cygpath -m "$1"
+    elif command -v wslpath >/dev/null 2>&1; then
+        wslpath -m "$1"
     else
         printf '%s\n' "$1"
     fi
@@ -740,13 +750,16 @@ find_link_headers() {
     done
 }
 
-find_link_subtitle() {
+find_link_subtitles() {
     printf '%s\n' "$1" | while IFS='>' read -r metadata_type metadata_url metadata_value; do
         if [ "$metadata_type" = "subtitle " ] && [ "$metadata_url" = "$2" ]; then
             printf '%s\n' "$metadata_value"
-            break
         fi
     done
+}
+
+find_link_subtitle() {
+    find_link_subtitles "$1" "$2" | head -n1
 }
 
 describe_link_origin() {
@@ -926,7 +939,7 @@ filter_playable_links() {
         link_is_probably_broken "$candidate_url" && continue
         candidate_referrer="$(find_link_referrer "$1" "$candidate_url")"
         candidate_headers="$(find_link_headers "$1" "$candidate_url")"
-        candidate_subtitle="$(find_link_subtitle "$1" "$candidate_url")"
+        candidate_subtitles="$(find_link_subtitles "$1" "$candidate_url")"
         # Fast mode has already resolved a concrete stream URL. Starting mpv
         # here would make the user wait for a hidden player before starting the
         # real one, which is especially noticeable for remote HLS playlists.
@@ -937,8 +950,16 @@ filter_playable_links() {
 "
             [ -n "$candidate_headers" ] && playable_links="${playable_links}headers >${candidate_url}>${candidate_headers}
 "
-            [ -n "$candidate_subtitle" ] && playable_links="${playable_links}subtitle >${candidate_url}>${candidate_subtitle}
+            if [ -n "$candidate_subtitles" ]; then
+                candidate_subtitle_ifs=$IFS
+                IFS='
+'
+                for candidate_subtitle in $candidate_subtitles; do
+                    playable_links="${playable_links}subtitle >${candidate_url}>${candidate_subtitle}
 "
+                done
+                IFS=$candidate_subtitle_ifs
+            fi
             candidate_source="$(find_link_source "$1" "$candidate_url")"
             [ -n "$candidate_source" ] && playable_links="${playable_links}source >${candidate_url}>${candidate_source}
 "
@@ -1667,8 +1688,8 @@ resolve_animex_provider() {
         "${animex_api}/rest/api/sources?id=${animex_slug}&epNum=${ep_no}&type=${animex_type}&providerId=${animex_provider}")" || return 1
     animex_referrer="$(printf '%s' "$animex_data" | sed -nE 's|.*"Referer":"([^"]+)".*|\1|p')"
     animex_origin="$(printf '%s' "$animex_data" | sed -nE 's|.*"Origin":"([^"]+)".*|\1|p')"
-    animex_subtitle="$(printf '%s' "$animex_data" | sed 's|},{|}\
-{|g' | sed -nE 's|.*"url":"([^"]+)".*"kind":"captions".*|\1|p; s|.*"url":"([^"]+)".*"kind":"subtitles".*|\1|p' | sed 's|\\/|/|g' | head -n1)"
+    animex_subtitles="$(printf '%s' "$animex_data" | sed 's|},{|}\
+{|g' | sed -nE 's|.*"url":"([^"]+)".*"kind":"captions".*|\1|p; s|.*"url":"([^"]+)".*"kind":"subtitles".*|\1|p' | sed 's|\\/|/|g')"
     animex_entries="$(printf '%s' "$animex_data" | sed 's|},{"url"|}\
 {"url"|g' | sed -nE 's|.*"url":"([^"]+)".*"quality":"([^"]+)".*|\2\t\1|p' | sed 's|\\/|/|g')"
     [ -n "$animex_entries" ] || return 1
@@ -1681,9 +1702,15 @@ resolve_animex_provider() {
         animex_url="$(printf '%s' "$animex_entry" | cut -f2)"
         [ "$animex_provider" = "uwu" ] && animex_url="$(animex_proxy_url "$animex_url" "https://kwik.cx/")"
         [ -n "$animex_url" ] || continue
-        if [ -n "$animex_subtitle" ]; then
+        if [ -n "$animex_subtitles" ]; then
             emit_annotated_link_entry "${animex_quality} >${animex_url}>cc>" "AnimeX ${animex_provider}" "AnimeX"
-            printf 'subtitle >%s>%s\n' "$animex_url" "$animex_subtitle"
+            animex_subtitle_ifs=$IFS
+            IFS='
+'
+            for animex_subtitle in $animex_subtitles; do
+                printf 'subtitle >%s>%s\n' "$animex_url" "$animex_subtitle"
+            done
+            IFS=$animex_subtitle_ifs
         else
             emit_annotated_link_entry "${animex_quality} >${animex_url}" "AnimeX ${animex_provider}" "AnimeX"
         fi
@@ -1963,7 +1990,7 @@ store_spanish_links_for_source() {
 }
 
 select_quality() {
-    unset headers_flag subs_flag subtitle
+    unset headers_flag subs_flag iina_subs_flag subtitle
     # removing urls which have soft subs to avoid playing on android, iSH and vlc (m3u8 streams don't get correct referrer)
     printf '%s' "$player_function" | cut -f1 -d" " | grep -qE '(android|iSH|vlc)' && links=$(printf '%s' "$links" | sed '/cc>/d;/subtitle >/d;/m3u8_refr >/d')
     printf '%s' "$player_function" | cut -f1 -d" " | grep -qE '(android|iSH)' && links=$(printf '%s' "$links" | sed '/Yt >/d')
@@ -1977,9 +2004,12 @@ select_quality() {
         result=$(printf "%s" "$links" | grep -E '^[0-9]{3,4} >' | head -n1)
 
     # add refr,sub flags for m3u8 and refr flag for yt
-    printf '%s' "$result" | grep -q "cc>" && subtitle="$(find_link_subtitle "$links" "$(printf "%s" "$result" | cut -d'>' -f2)")" &&
-        [ -n "$subtitle" ] && subs_flag="--sub-file=$subtitle"
     episode=$(printf "%s" "$result" | cut -d'>' -f2)
+    if printf '%s' "$result" | grep -q "cc>"; then
+        subtitle="$(find_link_subtitle "$links" "$episode")"
+        subs_flag="$(find_link_subtitles "$links" "$episode" | sed 's|^|--sub-file=|' | tr '\n' ' ')"
+        iina_subs_flag="$(find_link_subtitles "$links" "$episode" | sed 's|^|--mpv-sub-file=|' | tr '\n' ' ')"
+    fi
     generic_headers="$(find_link_headers "$links" "$episode")"
     case "$episode" in
         https://player.zilla-networks.com/*) headers_flag="--http-header-fields=${zilla_header_fields}" ;;
@@ -2456,37 +2486,71 @@ download() {
 
 create_mpv_window_state_script() {
     printf '%s\n' \
-        "local state_path = [[$mpv_window_state_file]]" \
+        "local state_path = [[$mpv_window_state_player_file]]" \
         'local state = { fullscreen = false, maximized = false }' \
+        'local finalizing = false' \
         'local function save_state()' \
-        '    local file = io.open(state_path .. ".new", "w")' \
+        '    local file = io.open(state_path, "w")' \
         '    if not file then return end' \
         '    file:write("fullscreen=" .. (state.fullscreen and "yes" or "no") .. "\n")' \
         '    file:write("maximized=" .. (state.maximized and "yes" or "no") .. "\n")' \
         '    if state.geometry then file:write("geometry=" .. state.geometry .. "\n") end' \
         '    file:close()' \
-        '    os.rename(state_path .. ".new", state_path)' \
+        'end' \
+        'local function finalize_state()' \
+        '    if finalizing then return end' \
+        '    finalizing = true' \
+        '    state.fullscreen = mp.get_property_native("fullscreen", state.fullscreen)' \
+        '    state.maximized = mp.get_property_native("window-maximized", state.maximized)' \
+        '    save_state()' \
         'end' \
         'mp.observe_property("fullscreen", "bool", function(_, value)' \
-        '    if value ~= nil then state.fullscreen = value; save_state() end' \
+        '    if not finalizing and value ~= nil then state.fullscreen = value; save_state() end' \
         'end)' \
         'mp.observe_property("window-maximized", "bool", function(_, value)' \
-        '    if value ~= nil then state.maximized = value; save_state() end' \
+        '    if not finalizing and value ~= nil then state.maximized = value; save_state() end' \
         'end)' \
         'mp.add_periodic_timer(0.25, function()' \
-        '    if state.fullscreen or state.maximized then return end' \
+        '    if finalizing or state.fullscreen or state.maximized then return end' \
         '    local width = mp.get_property_number("osd-width", 0)' \
         '    local height = mp.get_property_number("osd-height", 0)' \
         '    if width <= 0 or height <= 0 then return end' \
         '    local geometry = string.format("%dx%d", math.floor(width), math.floor(height))' \
         '    if geometry ~= state.geometry then state.geometry = geometry; save_state() end' \
-        'end)' >"$mpv_window_state_script"
+        'end)' \
+        'mp.register_event("end-file", finalize_state)' \
+        'mp.register_event("shutdown", finalize_state)' >"$mpv_window_state_script"
+}
+
+create_mpv_window_state_files() {
+    if [ "$player_function" = "flatpak_mpv" ]; then
+        mpv_flatpak_cache_dir="${HOME}/.var/app/io.mpv.Mpv/cache/ani-cli-mx"
+        mkdir -p "$mpv_flatpak_cache_dir"
+        mpv_window_state_file="$(mktemp "${mpv_flatpak_cache_dir}/window-state.XXXXXX")"
+        mpv_window_state_script="$(mktemp "${mpv_flatpak_cache_dir}/window-state.XXXXXX.lua")"
+        mpv_window_state_player_file="${HOME}/.cache/ani-cli-mx/${mpv_window_state_file##*/}"
+        mpv_window_state_player_script="${HOME}/.cache/ani-cli-mx/${mpv_window_state_script##*/}"
+    else
+        mpv_window_state_file="$(mktemp)"
+        mpv_window_state_script="$(mktemp)"
+        case "$player_function" in
+            mpv.exe | */mpv.exe)
+                mpv_window_state_player_file="$(posix_path_to_windows "$mpv_window_state_file")"
+                mpv_window_state_player_script="$(posix_path_to_windows "$mpv_window_state_script")"
+                ;;
+            *)
+                mpv_window_state_player_file="$mpv_window_state_file"
+                mpv_window_state_player_script="$mpv_window_state_script"
+                ;;
+        esac
+    fi
+    create_mpv_window_state_script
 }
 
 prepare_mpv_window_state_flags() {
     unset mpv_window_script_flag mpv_fullscreen_flag mpv_maximized_flag mpv_geometry_flag
     player_supports_continuous || return 0
-    mpv_window_script_flag="--script=$mpv_window_state_script"
+    mpv_window_script_flag="--script=$mpv_window_state_player_script"
     continuous_enabled || return 0
     [ -s "$mpv_window_state_file" ] || return 0
 
@@ -2543,14 +2607,13 @@ play_episode() {
         android_mpv) nohup am start --user 0 -a android.intent.action.VIEW -d "$episode" -n is.xyz.mpv/.MPVActivity >/dev/null 2>&1 & ;;
         android_vlc) nohup am start --user 0 -a android.intent.action.VIEW -d "$episode" -n org.videolan.vlc/org.videolan.vlc.gui.video.VideoPlayerActivity -e "title" "${media_title}Episode ${ep_no}" >/dev/null 2>&1 & ;;
         *iina*)
-            [ -n "$subs_flag" ] && subs_flag="--mpv-${subs_flag#--}"
             [ -n "$refr_flag" ] && refr_flag="--mpv-${refr_flag#--}"
             [ -n "$headers_flag" ] && headers_flag="--mpv-${headers_flag#--}"
             if pgrep -f "IINA" >/dev/null 2>&1; then
                 # omit --keep-running when an IINA instance exists to prevent hanging
-                nohup $player_function --no-stdin --mpv-force-media-title="${media_title}Episode ${ep_no}" $subs_flag $refr_flag $headers_flag "$episode" >/dev/null 2>&1 &
+                nohup $player_function --no-stdin --mpv-force-media-title="${media_title}Episode ${ep_no}" $iina_subs_flag $refr_flag $headers_flag "$episode" >/dev/null 2>&1 &
             else
-                nohup $player_function --no-stdin --keep-running --mpv-force-media-title="${media_title}Episode ${ep_no}" $subs_flag $refr_flag $headers_flag "$episode" >/dev/null 2>&1 &
+                nohup $player_function --no-stdin --keep-running --mpv-force-media-title="${media_title}Episode ${ep_no}" $iina_subs_flag $refr_flag $headers_flag "$episode" >/dev/null 2>&1 &
             fi
             ;;
         flatpak_mpv)
@@ -2839,14 +2902,12 @@ disabled_spanish_sources=""
 fast_mode_mirror_file="$(mktemp)"
 continuous_state_file="$(mktemp)"
 current_episode_file="$(mktemp)"
-mpv_window_state_file="$(mktemp)"
-mpv_window_state_script="$(mktemp)"
-create_mpv_window_state_script
+create_mpv_window_state_files
 continuous_worker_pid=""
 cleanup() {
     [ -n "${continuous_worker_pid:-}" ] && kill "$continuous_worker_pid" 2>/dev/null || true
     rm -f "$fast_mode_mirror_file" "$continuous_state_file" "$current_episode_file" \
-        "$mpv_window_state_file" "${mpv_window_state_file}.new" "$mpv_window_state_script"
+        "$mpv_window_state_file" "$mpv_window_state_script"
 }
 trap cleanup EXIT
 trap 'cleanup; exit 130' HUP INT TERM
