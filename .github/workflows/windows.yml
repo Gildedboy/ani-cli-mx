@@ -53,7 +53,7 @@ jobs:
           }
           $env:GIT_INSTALL_ROOT = $gitRoot
           $version = & .\ani-cli-mx.cmd -V
-          if ($version -ne "1.4.0") {
+          if ($version -ne "1.4.1") {
             throw "The launcher did not use Scoop Git correctly: $version"
           }
 
@@ -61,7 +61,7 @@ jobs:
         shell: powershell
         run: |
           $version = & .\ani-cli-mx.cmd -V
-          if ($version -ne "1.4.0") {
+          if ($version -ne "1.4.1") {
             throw "Unexpected ani-cli-mx version: $version"
           }
 

@@ -90,6 +90,78 @@ run_continuous_toggle_smoke() {
     rm -rf "$tmp_dir"
 }
 
+run_continuous_window_state_smoke() {
+    printf 'Checking continuous mpv window-state handling...\n' >&2
+    tmp_dir="$(mktemp -d)"
+    funcs_file="$tmp_dir/window-functions.sh"
+    sed -n '/^create_mpv_window_state_script()/,/^play_episode()/p' ani-cli-mx-core | sed '$d' >"$funcs_file"
+
+    (
+        # shellcheck disable=SC1090
+        . "$funcs_file"
+        mpv_window_state_file="$tmp_dir/window-state"
+        mpv_window_state_script="$tmp_dir/window-state.lua"
+        continuous_state_file="$tmp_dir/continuous-state"
+        player_supports_continuous() { return 0; }
+        continuous_enabled() { grep -qx '1' "$continuous_state_file"; }
+
+        create_mpv_window_state_script
+        grep -q 'observe_property("fullscreen"' "$mpv_window_state_script"
+        grep -q 'observe_property("window-maximized"' "$mpv_window_state_script"
+        grep -q 'get_property_number("osd-width"' "$mpv_window_state_script"
+
+        printf '%s\n' 1 >"$continuous_state_file"
+        printf '%s\n' 'fullscreen=yes' 'maximized=no' 'geometry=1280x720' >"$mpv_window_state_file"
+        prepare_mpv_window_state_flags
+        [ "$mpv_window_script_flag" = "--script=$mpv_window_state_script" ]
+        [ "$mpv_fullscreen_flag" = '--fullscreen=yes' ]
+        [ "$mpv_maximized_flag" = '--window-maximized=no' ]
+        [ "$mpv_geometry_flag" = '--geometry=1280x720' ]
+    )
+
+    grep -q 'mpv_window_script_flag.*mpv_fullscreen_flag.*mpv_maximized_flag.*mpv_geometry_flag' ani-cli-mx-core
+    rm -rf "$tmp_dir"
+    printf 'Continuous mpv window-state handling passed.\n' >&2
+}
+
+run_animex_subtitle_smoke() {
+    printf 'Checking AnimeX external subtitle handling...\n' >&2
+    tmp_dir="$(mktemp -d)"
+    funcs_file="$tmp_dir/animex-functions.sh"
+    sed -n '/^find_link_referrer()/,/^count_quality_links()/p' ani-cli-mx-core | sed '$d' >"$funcs_file"
+    sed -n '/^emit_annotated_link_entry()/,/^quality_menu_entries()/p' ani-cli-mx-core | sed '$d' >>"$funcs_file"
+    sed -n '/^resolve_animex_provider()/,/^animex_proxy_url()/p' ani-cli-mx-core | sed '$d' >>"$funcs_file"
+    sed -n '/^select_quality()/,/^get_episode_url()/p' ani-cli-mx-core | sed '$d' >>"$funcs_file"
+
+    (
+        # shellcheck disable=SC1090
+        . "$funcs_file"
+        curl() {
+            printf '%s\n' '{"sources":[{"url":"https://video.animex.test/master.m3u8","quality":"auto","type":"video/mpegurl"}],"tracks":[{"id":"captions-1","url":"https://subs.animex.test/kaijuu-8.vtt","lang":"","label":"English","kind":"captions","default":true}],"headers":{"Referer":"https://video.animex.test/"}}'
+        }
+        animex_proxy_url() { printf '%s\n' "$1"; }
+        mode=sub
+        ep_no=1
+        agent=test
+        animex_api=https://animex.test
+        player_function=mpv
+        quality=best
+        zilla_header_fields=''
+
+        links="$(resolve_animex_provider 'kaiju-no-8-bqnnd' beep)"
+        printf '%s\n' "$links" | grep -q '^1080 >https://video.animex.test/master.m3u8>cc>$'
+        printf '%s\n' "$links" | grep -q '^subtitle >https://video.animex.test/master.m3u8>https://subs.animex.test/kaijuu-8.vtt$'
+        [ "$(find_link_subtitle "$links" 'https://video.animex.test/master.m3u8')" = 'https://subs.animex.test/kaijuu-8.vtt' ]
+
+        select_quality best
+        [ "$episode" = 'https://video.animex.test/master.m3u8' ]
+        [ "$subs_flag" = '--sub-file=https://subs.animex.test/kaijuu-8.vtt' ]
+    )
+
+    rm -rf "$tmp_dir"
+    printf 'AnimeX external subtitle handling passed.\n' >&2
+}
+
 run_download_menu_smoke() {
     menu_options="$(sed -n '/^playback_menu_options()/,/^playback_menu_prompt()/p' ani-cli-mx-core)"
     printf '%s\n' "$menu_options" | grep -q 'descargar_episodio_actual'
@@ -116,7 +188,7 @@ run_windows_compat_smoke() {
         ANI_CLI_STATE_NAME=ani-cli-mx LOCALAPPDATA="$local_app_data_env" \
         ANI_CLI_PLAYER=debug ./ani-cli-mx-core -V)"
 
-    [ "$version_output" = "1.4.0" ]
+    [ "$version_output" = "1.4.1" ]
     [ -f "$local_app_data/ani-cli-mx/ani-hsts" ]
     grep -q 'GIT_INSTALL_ROOT' ani-cli-mx.cmd
     grep -q 'ANI_CLI_PACKAGE_MANAGER=scoop' ani-cli-mx.cmd
@@ -280,6 +352,9 @@ run_fast_link_selection_smoke() {
         find_link_headers() {
             return 0
         }
+        find_link_subtitle() {
+            return 0
+        }
         probe_link_with_mpv() {
             return 1
         }
@@ -311,6 +386,8 @@ case "${1:-}" in
     --network)
         run_syntax_checks
         run_continuous_toggle_smoke
+        run_continuous_window_state_smoke
+        run_animex_subtitle_smoke
         run_download_menu_smoke
         run_windows_compat_smoke
         run_search_diagnostic_smoke
@@ -323,6 +400,8 @@ case "${1:-}" in
     "" | --syntax)
         run_syntax_checks
         run_continuous_toggle_smoke
+        run_continuous_window_state_smoke
+        run_animex_subtitle_smoke
         run_download_menu_smoke
         run_windows_compat_smoke
         run_search_diagnostic_smoke

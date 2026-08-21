@@ -496,7 +496,7 @@ Start in continuous playback mode:
 ani-cli-mx --continuous "one piece"
 ```
 
-Continuous mode requires mpv because ani-cli-mx needs to detect when the player process finishes. With `--continuous`, ani-cli-mx starts playback and opens the playback menu with continuous mode already enabled. The menu shows the current mode in its prompt and lets you toggle it with `activar_modo_continuo` or `desactivar_modo_continuo`; when enabled from the menu, ani-cli-mx tracks the currently running player if possible, otherwise the next episode you play from the menu will advance automatically after its player finishes.
+Continuous mode requires mpv because ani-cli-mx needs to detect when the player process finishes. With `--continuous`, ani-cli-mx starts playback and opens the playback menu with continuous mode already enabled. The menu shows the current mode in its prompt and lets you toggle it with `activar_modo_continuo` or `desactivar_modo_continuo`; when enabled from the menu, ani-cli-mx tracks the currently running player if possible, otherwise the next episode you play from the menu will advance automatically after its player finishes. Fullscreen, maximized state, and the last normal window size are carried over to each automatically opened episode.
 
 Close the previous tracked player before opening another episode from the playback menu:
 
@@ -553,7 +553,7 @@ Can I change the download directory?
 
 Can I change subtitle language or turn subtitles off?
 
-- No. For these sources, subtitles are typically baked into the video.
+- Most Spanish sources bake subtitles into the video. When AnimeX supplies an external caption track, ani-cli-mx loads it into mpv automatically; mpv's normal subtitle controls can then show or hide it.
 
 Can I change dub language?
 
