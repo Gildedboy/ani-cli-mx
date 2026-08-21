@@ -553,7 +553,7 @@ Can I change the download directory?
 
 Can I change subtitle language or turn subtitles off?
 
-- Most Spanish sources bake subtitles into the video. When AnimeX supplies an external caption track, ani-cli-mx loads it into mpv automatically; mpv's normal subtitle controls can then show or hide it.
+- Most Spanish sources bake subtitles into the video. When AnimeX supplies external caption tracks, ani-cli-mx loads all of them into mpv automatically; mpv's normal subtitle controls can then switch, show, or hide them.
 
 Can I change dub language?
 
