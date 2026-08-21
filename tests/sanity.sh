@@ -91,6 +91,7 @@ run_continuous_toggle_smoke() {
 }
 
 run_continuous_window_state_smoke() {
+    printf 'Checking continuous mpv window-state handling...\n' >&2
     tmp_dir="$(mktemp -d)"
     funcs_file="$tmp_dir/window-functions.sh"
     sed -n '/^create_mpv_window_state_script()/,/^play_episode()/p' ani-cli-mx-core | sed '$d' >"$funcs_file"
@@ -120,9 +121,11 @@ run_continuous_window_state_smoke() {
 
     grep -q 'mpv_window_script_flag.*mpv_fullscreen_flag.*mpv_maximized_flag.*mpv_geometry_flag' ani-cli-mx-core
     rm -rf "$tmp_dir"
+    printf 'Continuous mpv window-state handling passed.\n' >&2
 }
 
 run_animex_subtitle_smoke() {
+    printf 'Checking AnimeX external subtitle handling...\n' >&2
     tmp_dir="$(mktemp -d)"
     funcs_file="$tmp_dir/animex-functions.sh"
     sed -n '/^find_link_referrer()/,/^count_quality_links()/p' ani-cli-mx-core | sed '$d' >"$funcs_file"
@@ -156,6 +159,7 @@ run_animex_subtitle_smoke() {
     )
 
     rm -rf "$tmp_dir"
+    printf 'AnimeX external subtitle handling passed.\n' >&2
 }
 
 run_download_menu_smoke() {
