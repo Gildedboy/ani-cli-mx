@@ -1062,7 +1062,7 @@ search_hentaila_variants() {
         [ -n "$current_results" ] && variant_results="${variant_results}${current_results}
 "
     done
-    printf '%s' "$variant_results" | sed '/^$/d' | awk -F '\t' '!seen[$1]++'
+    printf '%s' "$variant_results" | sed '/^$/d' | stable_unique_lines
 }
 
 episodes_list_hentaila() {
@@ -1072,7 +1072,7 @@ episodes_list_hentaila() {
     printf '%s' "$hentaila_page" | tr '\n' ' ' |
         grep -oE 'episodes:\[[^]]*\]' | tail -n1 |
         grep -oE 'number:[0-9]+([.][0-9]+)?' | cut -d: -f2 |
-        awk '!seen[$0]++' | sort -n
+        stable_unique_lines | sort -n
 }
 
 hentaila_server_priority() {
