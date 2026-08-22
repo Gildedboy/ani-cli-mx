@@ -3804,7 +3804,6 @@ if [ "$continuous_mode" = "1" ]; then
             ;;
     esac
 fi
-printf "\33[2K\r\033[1;34mVerificando dependencias...\033[0m\n"
 dep_ch "curl" "sed" "grep" || true
 [ "$skip_intro" = 1 ] && (dep_ch "ani-skip" || true)
 dep_ch "fzf" || true
