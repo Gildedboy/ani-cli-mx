@@ -1,6 +1,6 @@
 #!/bin/sh
 
-version_number="1.5.0"
+version_number="1.5.1"
 app_name="${ANI_CLI_NAME:-${0##*/}}"
 log_tag="${ANI_CLI_LOG_TAG:-$app_name}"
 hist_state_name="${ANI_CLI_STATE_NAME:-$app_name}"
@@ -314,6 +314,7 @@ probe_search_endpoint() {
 
 diagnose_empty_search() {
     diagnostic_query="$1"
+    [ "${hentaila_mode:-0}" = "1" ] && die "No se encontraron resultados"
     diagnostic_failed=0
     probe_search_endpoint "AnimeAV1" "${animeav1_refr}/catalogo?search=${diagnostic_query}" || diagnostic_failed=1
     probe_search_endpoint "JKAnime" "${jkanime_refr}/buscar?q=${diagnostic_query}" || diagnostic_failed=1
@@ -545,6 +546,7 @@ cross_source_match_is_confident() {
 
 site_name_from_ref() {
     case "$1" in
+        hentaila:*) printf '%s\n' "hentaila" ;;
         animeflv:*) printf '%s\n' "animeflv" ;;
         jkanime:*) printf '%s\n' "jkanime" ;;
         animeav1:*) printf '%s\n' "animeav1" ;;
@@ -611,6 +613,7 @@ normalize_info_source() {
 
 info_source_label() {
     case "$1" in
+        hentaila) printf '%s\n' "Hentaila" ;;
         auto) printf '%s\n' "Auto" ;;
         animeflv) printf '%s\n' "AnimeFLV" ;;
         jkanime) printf '%s\n' "JKAnime" ;;
@@ -1028,6 +1031,99 @@ extract_yourupload_link() {
 
     printf '%s' "$yourupload_page" | tr '\n' ' ' |
         grep -oE 'file:[[:space:]]*"[^"]+"' | head -n1 | sed -E 's|file:[[:space:]]*"([^"]+)"|\1|'
+}
+
+hentaila_request() {
+    curl -L --connect-timeout 10 --max-time "$resolver_timeout" -s \
+        -A "$agent" -e "$hentaila_refr/" "$1"
+}
+
+hentaila_result_allowed() {
+    candidate_words="$(normalize_match_words "$1 $2")"
+    ! printf '%s\n' "$candidate_words" | grep -Eqi '(^| )(loli|lolicon|shota|shotacon|kodomo|underage|minor)( |$)'
+}
+
+search_hentaila() {
+    hentaila_request "${hentaila_refr}/catalogo?search=$1" | tr '\n' ' ' |
+        sed 's|<article class="group/item|\
+&|g' |
+        sed -nE 's|.*<h3[^>]*>([^<]+)</h3>.*href="/media/([^"/?]+)".*|\2\t\1|p' |
+        while IFS='	' read -r result_slug result_title; do
+            [ -n "$result_slug" ] && [ -n "$result_title" ] || continue
+            hentaila_result_allowed "$result_slug" "$result_title" || continue
+            printf '%s\t%s\n' "$result_slug" "$result_title"
+        done
+}
+
+search_hentaila_variants() {
+    variant_results=""
+    for variant_query in $(search_query_candidates_from_text "$1"); do
+        current_results="$(search_hentaila "$variant_query")"
+        [ -n "$current_results" ] && variant_results="${variant_results}${current_results}
+"
+    done
+    printf '%s' "$variant_results" | sed '/^$/d' | stable_unique_lines
+}
+
+episodes_list_hentaila() {
+    hentaila_slug="$(show_ref_value_for_site "$1" "hentaila")"
+    [ -n "$hentaila_slug" ] || return 1
+    hentaila_page="$(hentaila_request "${hentaila_refr}/media/${hentaila_slug}")" || return 1
+    printf '%s' "$hentaila_page" | tr '\n' ' ' |
+        grep -oE 'episodes:\[[^]]*\]' | tail -n1 |
+        grep -oE 'number:[0-9]+([.][0-9]+)?' | cut -d: -f2 |
+        stable_unique_lines | sort -n
+}
+
+hentaila_server_priority() {
+    case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
+        yourupload) printf '%s' "970" ;;
+        voe) printf '%s' "960" ;;
+        vidhide*) printf '%s' "950" ;;
+        mp4upload) printf '%s' "940" ;;
+        netu) printf '%s' "930" ;;
+        *) printf '%s' "800" ;;
+    esac
+}
+
+resolve_hentaila_episode() {
+    hentaila_slug="$(show_ref_value_for_site "$id" "hentaila")"
+    [ -n "$hentaila_slug" ] || return 1
+    hentaila_page="$(hentaila_request "${hentaila_refr}/ver/${hentaila_slug}-${2}")" || return 1
+    embed_entries="$(printf '%s' "$hentaila_page" | tr '\n' ' ' |
+        grep -oE 'embeds:\{SUB:\[[^]]*\]' |
+        sed 's|^embeds:{SUB:\[||; s|\]$||; s|},{|}\
+{|g')"
+    [ -n "$embed_entries" ] || return 1
+
+    hentaila_links=""
+    old_ifs=$IFS
+    IFS='
+'
+    for embed_entry in $embed_entries; do
+        server_name="$(printf '%s' "$embed_entry" | sed -nE 's|.*server:"([^"]+)".*|\1|p')"
+        remote_url="$(printf '%s' "$embed_entry" | sed -nE 's|.*url:"([^"]+)".*|\1|p' | sed 's|\\/|/|g')"
+        [ -n "$server_name" ] && [ -n "$remote_url" ] || continue
+
+        direct_link=""
+        case "$(printf '%s' "$server_name" | tr '[:upper:]' '[:lower:]')" in
+            vip | mega) continue ;;
+            yourupload) direct_link="$(extract_yourupload_link "$remote_url")" ;;
+            netu) direct_link="$(extract_hqq_link "$remote_url")" ;;
+            *) direct_link="$(extract_with_ytdlp "$remote_url")" ;;
+        esac
+
+        if [ -n "$direct_link" ] && probe_link_with_mpv "$direct_link" "$remote_url"; then
+            hentaila_links="${hentaila_links}$(hentaila_server_priority "$server_name") >${direct_link}
+referrer >${direct_link}>${remote_url}
+source >${direct_link}>${server_name}
+site >${direct_link}>Hentaila
+"
+            fast_first_link_mode && break
+        fi
+    done
+    IFS=$old_ifs
+    [ -n "$hentaila_links" ] && printf '%s' "$hentaila_links"
 }
 
 search_jkanime() {
@@ -2012,7 +2108,9 @@ select_quality() {
     fi
     generic_headers="$(find_link_headers "$links" "$episode")"
     case "$episode" in
-        https://player.zilla-networks.com/*) headers_flag="--http-header-fields=${zilla_header_fields}" ;;
+        https://player.zilla-networks.com/*)
+            [ -n "$generic_headers" ] || generic_headers="$zilla_header_fields"
+            ;;
     esac
     [ -n "$generic_headers" ] && headers_flag="--http-header-fields=$generic_headers"
     selected_quality="$(printf '%s' "$result" | cut -d'>' -f1 | tr -d '[:space:]')"
@@ -2037,6 +2135,19 @@ get_episode_url() {
     authoritative_ep_list=""
     [ -n "$authoritative_site" ] && authoritative_ep_list="$(episodes_list_for_source "$authoritative_site" "$id" "$title")"
     [ -z "$authoritative_ep_list" ] && authoritative_ep_list="$ep_list"
+
+    if [ "${hentaila_mode:-0}" = "1" ]; then
+        links="$(resolve_hentaila_episode "$title" "$ep_no" | sort -g -r -s)"
+        select_quality "$quality"
+        if [ -n "$episode" ]; then
+            printf "Fuente elegida: %s\n" "$selected_origin" 1>&2
+            return 0
+        fi
+        if printf '%s\n' "$ep_list" | grep -qx "$ep_no"; then
+            die "El episodio ya fue publicado, pero no se encontraron fuentes validas"
+        fi
+        die "Episodio no disponible todavia"
+    fi
 
     if [ "$authoritative_site" = "anidb" ] && [ -n "$anidb_curl_exe" ]; then
         links="$(resolve_anidb_episode "$title" "$ep_no" | sort -g -r -s)"
@@ -2148,6 +2259,12 @@ search_anime_for_source() {
 }
 
 search_anime() {
+    if [ "${hentaila_mode:-0}" = "1" ]; then
+        source_results="$(search_hentaila_variants "$1")"
+        [ -n "$source_results" ] && prefix_search_results "hentaila" "$source_results"
+        return 0
+    fi
+
     if [ "$preferred_info_source" != "auto" ]; then
         search_anime_for_source "$preferred_info_source" "$1"
         return 0
@@ -2310,6 +2427,9 @@ episodes_list_animex_source() {
 
 episodes_list_for_source() {
     case "$1" in
+        hentaila)
+            episodes_list_hentaila "$2" "$3"
+            ;;
         animeflv)
             episodes_list_animeflv "$2" "$3"
             ;;
@@ -2380,6 +2500,12 @@ filter_links_by_episode_catalog() {
 }
 
 episodes_list() {
+    if [ "${hentaila_mode:-0}" = "1" ]; then
+        episodes="$(episodes_list_for_source "hentaila" "$1" "$2")"
+        [ -n "$episodes" ] && printf '%s\n' "$episodes"
+        return 0
+    fi
+
     if [ "$preferred_info_source" != "auto" ]; then
         episodes="$(episodes_list_for_source "$preferred_info_source" "$1" "$2")"
         [ -n "$episodes" ] && printf '%s\n' "$episodes"
@@ -2529,6 +2655,7 @@ create_mpv_session_controller() {
         "local state_script_path = [[$mpv_window_state_player_script]]" \
         'local current_episode = ""' \
         'local finished_episode = ""' \
+        'local load_pending = false' \
         'local pending_subtitles = {}' \
         'local owner_gone = false' \
         'local function file_exists(path)' \
@@ -2544,7 +2671,7 @@ create_mpv_session_controller() {
         '    file:close()' \
         'end' \
         'local function mark_finished()' \
-        '    if not owner_gone and current_episode ~= "" and finished_episode ~= current_episode then' \
+        '    if not owner_gone and not load_pending and current_episode ~= "" and finished_episode ~= current_episode then' \
         '        finished_episode = current_episode' \
         '        write_event(current_episode)' \
         '    end' \
@@ -2559,6 +2686,7 @@ create_mpv_session_controller() {
         '    if type(command) ~= "table" or command.action ~= "load" or not command.url then return end' \
         '    current_episode = tostring(command.episode or "")' \
         '    finished_episode = ""' \
+        '    load_pending = true' \
         '    pending_subtitles = command.subtitles or {}' \
         '    mp.set_property("force-media-title", command.title or "")' \
         '    mp.set_property("referrer", command.referrer or "")' \
@@ -2566,6 +2694,7 @@ create_mpv_session_controller() {
         '    mp.commandv("loadfile", command.url, "replace")' \
         'end' \
         'mp.register_event("file-loaded", function()' \
+        '    load_pending = false' \
         '    mp.set_property_native("pause", false)' \
         '    mp.add_timeout(0.1, function() mp.set_property_native("pause", false) end)' \
         '    for _, subtitle in ipairs(pending_subtitles) do mp.commandv("sub-add", subtitle, "auto") end' \
@@ -2575,7 +2704,10 @@ create_mpv_session_controller() {
         '    if value then mark_finished() end' \
         'end)' \
         'mp.register_event("end-file", function(event)' \
-        '    if not owner_gone and event.reason == "error" and current_episode ~= "" then write_event(current_episode) end' \
+        '    if not owner_gone and event.reason == "error" and current_episode ~= "" then' \
+        '        load_pending = false' \
+        '        write_event(current_episode)' \
+        '    end' \
         'end)' \
         'mp.add_periodic_timer(0.1, function()' \
         '    if not owner_gone and not file_exists(owner_path) then' \
@@ -3105,6 +3237,11 @@ jkanime_slug_key=""
 animeav1_refr="https://animeav1.com"
 animeav1_slug=""
 animeav1_slug_key=""
+hentaila_refr="https://hentaila.com"
+hentaila_mode=0
+for hidden_arg in "$@"; do
+    [ "$hidden_arg" = "-ha" ] && hentaila_mode=1
+done
 update_url="${ANI_CLI_UPDATE_URL:-}"
 mode="${ANI_CLI_MODE:-sub}"
 download_dir="${ANI_CLI_DOWNLOAD_DIR:-$(default_download_dir)}"
@@ -3154,7 +3291,11 @@ skip_title="$ANI_CLI_SKIP_TITLE"
 [ -t 0 ] || (command -v rofi && use_external_menu=1)
 hist_dir="${ANI_CLI_HIST_DIR:-$(default_hist_dir)}"
 [ ! -d "$hist_dir" ] && mkdir -p "$hist_dir"
-histfile="$hist_dir/ani-hsts"
+if [ "$hentaila_mode" = "1" ]; then
+    histfile="$hist_dir/ani-hsts-ha"
+else
+    histfile="$hist_dir/ani-hsts"
+fi
 [ ! -f "$histfile" ] && : >"$histfile"
 search="${ANI_CLI_DEFAULT_SOURCE:-scrape}"
 
@@ -3211,6 +3352,7 @@ while [ $# -gt 0 ]; do
             ;;
         -V | --version) version_info ;;
         -h | --help) help_info ;;
+        -ha) : ;;
         -e | --episode | -r | --range)
             [ $# -lt 2 ] && die "falta un argumento"
             ep_no="$2"

@@ -176,12 +176,13 @@ run_persistent_mpv_smoke() {
     tmp_dir="$(mktemp -d)"
     funcs_file="$tmp_dir/persistent-functions.sh"
     sed -n '/^create_mpv_window_state_script()/,/^play_episode()/p' ani-cli-mx-core | sed '$d' >"$funcs_file"
+    sed -n '/^select_quality()/,/^get_episode_url()/p' ani-cli-mx-core | sed '$d' >>"$funcs_file"
 
     (
         # shellcheck disable=SC1090
         . "$funcs_file"
-        player_function='mpv --no-config --untimed'
-        command -v cygpath >/dev/null 2>&1 || player_function='mpv --no-config --untimed --vo=null --audio=no'
+        player_function='mpv --no-config'
+        command -v cygpath >/dev/null 2>&1 || player_function='mpv --no-config --vo=null --audio=no'
         no_detach=0
         skip_intro=0
         continuous_state_file="$tmp_dir/continuous-state"
@@ -208,7 +209,12 @@ run_persistent_mpv_smoke() {
         fi
         player_supports_continuous() { return 0; }
         continuous_enabled() { return 1; }
+        find_link_headers() { return 0; }
+        find_link_subtitle() { return 0; }
         find_link_subtitles() { return 0; }
+        find_link_site() { printf '%s\n' 'AnimeAV1'; }
+        find_link_source() { printf '%s\n' 'HLS'; }
+        describe_link_origin() { printf '%s / %s' "$1" "$2"; }
         close_tracked_player() {
             kill "$player_pid" 2>/dev/null || true
             wait "$player_pid" 2>/dev/null || true
@@ -217,6 +223,29 @@ run_persistent_mpv_smoke() {
         : >"$mpv_session_owner_file"
         create_mpv_window_state_script
         create_mpv_session_controller
+        grep -q 'local load_pending = false' "$mpv_session_controller_script"
+        grep -q 'not load_pending and current_episode' "$mpv_session_controller_script"
+        grep -q 'load_pending = true' "$mpv_session_controller_script"
+        grep -q 'mp.register_event("file-loaded", function()' "$mpv_session_controller_script"
+        grep -q 'load_pending = false' "$mpv_session_controller_script"
+
+        zilla_header_fields='Origin:https://player.zilla-networks.com,Sec-Fetch-Dest:empty,Sec-Fetch-Mode:cors,Sec-Fetch-Site:same-origin'
+        quality=best
+        for regression_title in 'Mushoku Tensei' 'Yani Neko'; do
+            links='970 >https://player.zilla-networks.com/m3u8/regression
+referrer >https://player.zilla-networks.com/m3u8/regression>https://player.zilla-networks.com/play/regression
+source >https://player.zilla-networks.com/m3u8/regression>HLS
+site >https://player.zilla-networks.com/m3u8/regression>AnimeAV1'
+            select_quality "$quality"
+            [ "$generic_headers" = "$zilla_header_fields" ]
+            [ "$headers_flag" = "--http-header-fields=$zilla_header_fields" ]
+            media_title="$regression_title "
+            ep_no=7
+            player_pid=$$
+            queue_persistent_mpv_episode
+            grep -Fq '"headers":"Origin:https://player.zilla-networks.com,Sec-Fetch-Dest:empty,Sec-Fetch-Mode:cors,Sec-Fetch-Site:same-origin"' "$mpv_session_command_file"
+        done
+
         ANI_CLI_MPV_SESSION_LOG="$tmp_dir/mpv.log"
         export ANI_CLI_MPV_SESSION_LOG
         start_persistent_mpv
@@ -264,6 +293,30 @@ run_persistent_mpv_smoke() {
         done
         grep -qx '4' "$mpv_session_event_file"
         kill -0 "$original_pid"
+
+        ep_no=5
+        episode='av://lavfi:testsrc=duration=0.4:size=320x180:rate=10'
+        queue_persistent_mpv_episode
+        event_attempt=0
+        while { [ ! -s "$mpv_session_event_file" ] || ! grep -qx '5' "$mpv_session_event_file"; } && [ "$event_attempt" -lt 100 ]; do
+            sleep 0.1
+            event_attempt=$((event_attempt + 1))
+        done
+        grep -qx '5' "$mpv_session_event_file"
+
+        ep_no=6
+        episode='av://lavfi:testsrc=duration=0.8:size=320x180:rate=10'
+        queue_persistent_mpv_episode
+        sleep 0.2
+        [ ! -s "$mpv_session_event_file" ]
+        kill -0 "$original_pid"
+
+        event_attempt=0
+        while { [ ! -s "$mpv_session_event_file" ] || ! grep -qx '6' "$mpv_session_event_file"; } && [ "$event_attempt" -lt 200 ]; do
+            sleep 0.1
+            event_attempt=$((event_attempt + 1))
+        done
+        grep -qx '6' "$mpv_session_event_file"
 
         kill "$original_pid" 2>/dev/null || true
         wait "$original_pid" 2>/dev/null || true
@@ -341,7 +394,7 @@ run_windows_compat_smoke() {
         ANI_CLI_STATE_NAME=ani-cli-mx LOCALAPPDATA="$local_app_data_env" \
         ANI_CLI_PLAYER=debug ./ani-cli-mx-core -V)"
 
-    [ "$version_output" = "1.5.0" ]
+    [ "$version_output" = "1.5.1" ]
     [ -f "$local_app_data/ani-cli-mx/ani-hsts" ]
     grep -q 'GIT_INSTALL_ROOT' ani-cli-mx.cmd
     grep -q 'ANI_CLI_PACKAGE_MANAGER=scoop' ani-cli-mx.cmd
