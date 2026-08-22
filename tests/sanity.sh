@@ -572,15 +572,17 @@ run_anime_preview_smoke() {
         ANI_CLI_PREVIEW_CACHE_DIR="$tmp_dir/cache" \
         ./ani-cli-mx-core --internal-preview "$preview_file" 1 >"$output_file"
     grep -q '^IMAGE:207141.extra-large.cover$' "$output_file"
+    grep -q 'PORTADA' "$output_file"
+    grep -q 'INFORMACIÓN' "$output_file"
     grep -q 'Yani Neko' "$output_file"
-    grep -q 'Source: JKAnime' "$output_file"
-    grep -q 'English: Chainsmoker Cat' "$output_file"
-    grep -q 'Year: 2026' "$output_file"
-    grep -q 'Status: RELEASING' "$output_file"
+    grep -q 'Fuente: JKAnime' "$output_file"
+    grep -q 'Inglés: Chainsmoker Cat' "$output_file"
+    grep -q 'Año: 2026' "$output_file"
+    grep -q 'Estado: RELEASING' "$output_file"
     grep -q -- '--scale=max' "$tmp_dir/chafa-log"
     grep -q -- '--work=9' "$tmp_dir/chafa-log"
-    grep -q -- '--size=70x29' "$tmp_dir/chafa-log"
-    grep -q -- '--view-size=70x29' "$tmp_dir/chafa-log"
+    grep -q -- '--size=68x26' "$tmp_dir/chafa-log"
+    grep -q -- '--view-size=68x26' "$tmp_dir/chafa-log"
     grep -q -- '--align=top,center' "$tmp_dir/chafa-log"
     [ -s "$tmp_dir/cache/207141.extra-large.cover" ]
 
@@ -591,6 +593,18 @@ run_anime_preview_smoke() {
     [ "$(wc -l <"$curl_log")" -eq 1 ]
     grep -q -- '--format=sixels' "$tmp_dir/chafa-log"
     grep -q -- '--passthrough=none' "$tmp_dir/chafa-log"
+
+    printf '%s\n' \
+        '1	JKAnime	Sin portada					TV	FINISHED	12	2024' \
+        >"$preview_file"
+    env PATH="$tmp_dir/bin:$PATH" FZF_PREVIEW_COLUMNS=72 FZF_PREVIEW_LINES=40 \
+        ANI_CLI_PREVIEW_CACHE_DIR="$tmp_dir/cache" \
+        ./ani-cli-mx-core --internal-preview "$preview_file" 1 >"$output_file"
+    grep -q 'PORTADA' "$output_file"
+    grep -q 'Sin portada disponible.' "$output_file"
+    grep -q 'INFORMACIÓN' "$output_file"
+    grep -q 'Episodios: 12' "$output_file"
+    [ "$(wc -l <"$curl_log")" -eq 1 ]
 
     rm -rf "$tmp_dir"
 }

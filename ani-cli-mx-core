@@ -817,6 +817,27 @@ prepare_anime_preview_file() {
     printf '%s\n' "$preview_file"
 }
 
+preview_section_border() {
+    preview_border_side="$1"
+    preview_border_label="$2"
+    preview_border_width="$3"
+    case "$preview_border_side" in
+        top) preview_border_fill=$((preview_border_width - ${#preview_border_label} - 5)) ;;
+        bottom) preview_border_fill=$((preview_border_width - 2)) ;;
+    esac
+    [ "$preview_border_fill" -lt 1 ] && preview_border_fill=1
+
+    case "$preview_border_side" in
+        top) printf '╭─ %s ' "$preview_border_label" ;;
+        bottom) printf '╰' ;;
+    esac
+    awk -v count="$preview_border_fill" 'BEGIN { for (i = 0; i < count; i++) printf "─" }'
+    case "$preview_border_side" in
+        top) printf '╮\n' ;;
+        bottom) printf '╯\n' ;;
+    esac
+}
+
 render_anime_preview() {
     preview_data_file="$1"
     preview_selected_index="$2"
@@ -826,6 +847,18 @@ render_anime_preview() {
     preview_cover="$(awk -F '\t' -v selected="$preview_selected_index" '$1 == selected { print $7; exit }' "$preview_data_file")"
     preview_anilist_id="$(awk -F '\t' -v selected="$preview_selected_index" '$1 == selected { print $4; exit }' "$preview_data_file")"
     preview_cache_root="${ANI_CLI_PREVIEW_CACHE_DIR:-$(default_cache_dir)/covers}"
+    preview_columns="${FZF_PREVIEW_COLUMNS:-48}"
+    preview_lines="${FZF_PREVIEW_LINES:-30}"
+    case "$preview_columns" in *[!0-9]* | '') preview_columns=48 ;; esac
+    case "$preview_lines" in *[!0-9]* | '') preview_lines=30 ;; esac
+    preview_width=$((preview_columns - 2))
+    preview_height=$((preview_lines - 14))
+    [ "$preview_width" -lt 18 ] && preview_width=18
+    [ "$preview_height" -lt 6 ] && preview_height=6
+    preview_image_width=$((preview_width - 2))
+
+    preview_section_border top PORTADA "$preview_width"
+    preview_image_rendered=0
     if [ -n "$preview_cover" ] && [ -n "$preview_anilist_id" ]; then
         mkdir -p "$preview_cache_root"
         preview_image="$preview_cache_root/${preview_anilist_id}.extra-large.cover"
@@ -838,47 +871,55 @@ render_anime_preview() {
             fi
         fi
         if [ -s "$preview_image" ] && command -v chafa >/dev/null 2>&1; then
-            preview_columns="${FZF_PREVIEW_COLUMNS:-48}"
-            preview_lines="${FZF_PREVIEW_LINES:-30}"
-            case "$preview_columns" in *[!0-9]* | '') preview_columns=48 ;; esac
-            case "$preview_lines" in *[!0-9]* | '') preview_lines=30 ;; esac
-            preview_width=$((preview_columns - 2))
-            preview_height=$((preview_lines - 11))
-            [ "$preview_width" -lt 8 ] && preview_width=8
-            [ "$preview_height" -lt 6 ] && preview_height=6
             chafa_format="${ANI_CLI_CHAFA_FORMAT:-auto}"
             if [ "$chafa_format" = "auto" ] && [ -n "${WT_SESSION:-}" ]; then
                 chafa_format=sixels
             fi
             if [ "$chafa_format" = "auto" ]; then
-                chafa --animate=off --scale=max --work=9 --align=top,center \
-                    --view-size="${preview_width}x${preview_height}" \
-                    --size="${preview_width}x${preview_height}" "$preview_image" 2>/dev/null || true
+                if chafa --animate=off --scale=max --work=9 --align=top,center \
+                    --view-size="${preview_image_width}x${preview_height}" \
+                    --size="${preview_image_width}x${preview_height}" "$preview_image" 2>/dev/null; then
+                    preview_image_rendered=1
+                    printf '\n'
+                fi
             else
-                chafa --animate=off --scale=max --work=9 --align=top,center \
-                    --view-size="${preview_width}x${preview_height}" --passthrough=none \
-                    --format="$chafa_format" --size="${preview_width}x${preview_height}" \
-                    "$preview_image" 2>/dev/null || true
+                if chafa --animate=off --scale=max --work=9 --align=top,center \
+                    --view-size="${preview_image_width}x${preview_height}" --passthrough=none \
+                    --format="$chafa_format" --size="${preview_image_width}x${preview_height}" \
+                    "$preview_image" 2>/dev/null; then
+                    preview_image_rendered=1
+                    printf '\n'
+                fi
             fi
-            printf '\n'
         elif [ -s "$preview_image" ]; then
-            printf 'Cover cached. Install chafa to render images in the terminal.\n\n'
+            printf 'Instala chafa para mostrar la portada.\n'
+            preview_image_rendered=1
         fi
     fi
+    [ "$preview_image_rendered" = "1" ] || printf 'Sin portada disponible.\n'
+    preview_section_border bottom '' "$preview_width"
+    printf '\n'
 
-    awk -F '\t' -v selected="$preview_selected_index" '
+    preview_section_border top INFORMACIÓN "$preview_width"
+    awk -F '\t' -v selected="$preview_selected_index" -v box_width="$preview_width" '
+        function row(text, width) {
+            width = box_width - 4
+            if (length(text) > width) text = substr(text, 1, width - 1) "…"
+            printf "│ %-*s │\n", width, text
+        }
         $1 == selected {
-            printf "\033[1;36m%s\033[0m\n", $3
-            printf "Source: %s\n", $2
-            if ($5 != "" && $5 != $3) printf "AniList: %s\n", $5
-            if ($6 != "" && $6 != $5 && $6 != $3) printf "English: %s\n", $6
-            if ($8 != "") printf "Format: %s\n", $8
-            if ($11 != "") printf "Year: %s\n", $11
-            if ($10 != "") printf "Episodes: %s\n", $10
-            if ($9 != "") printf "Status: %s\n", $9
+            row($3)
+            row("Fuente: " $2)
+            if ($5 != "" && $5 != $3) row("AniList: " $5)
+            if ($6 != "" && $6 != $5 && $6 != $3) row("Inglés: " $6)
+            if ($8 != "") row("Formato: " $8)
+            if ($11 != "") row("Año: " $11)
+            if ($10 != "") row("Episodios: " $10)
+            if ($9 != "") row("Estado: " $9)
             exit
         }
     ' "$preview_data_file"
+    preview_section_border bottom '' "$preview_width"
 }
 
 normalize_info_source() {
