@@ -12,6 +12,48 @@ external_menu() {
     [ "$use_external_menu" = "2" ] && dmenu -l 20 -p "$2"
 }
 
+playback_launcher() {
+    playback_picker_input="$(mktemp)"
+    playback_picker_output="$(mktemp)"
+    cat >"$playback_picker_input"
+
+    while :; do
+        playback_picker_episode="$(current_episode_number)"
+        playback_picker_header="$(playback_menu_prompt)"
+        fzf "$1" --reverse --cycle --height=90% --border=rounded \
+            --info=inline --pointer='>' --marker='*' \
+            --header="$playback_picker_header" --prompt='Accion: ' \
+            <"$playback_picker_input" >"$playback_picker_output" &
+        playback_picker_pid=$!
+        playback_picker_refresh=0
+
+        while kill -0 "$playback_picker_pid" 2>/dev/null; do
+            sleep 0.2
+            playback_picker_current="$(current_episode_number)"
+            if [ -n "$playback_picker_current" ] && \
+                [ "$playback_picker_current" != "$playback_picker_episode" ]; then
+                playback_picker_refresh=1
+                kill "$playback_picker_pid" 2>/dev/null || true
+                wait "$playback_picker_pid" 2>/dev/null || true
+                break
+            fi
+        done
+
+        if [ "$playback_picker_refresh" = "1" ]; then
+            continue
+        fi
+
+        if wait "$playback_picker_pid"; then
+            playback_picker_status=0
+        else
+            playback_picker_status=$?
+        fi
+        [ "$playback_picker_status" -eq 0 ] && cat "$playback_picker_output"
+        rm -f "$playback_picker_input" "$playback_picker_output"
+        return "$playback_picker_status"
+    done
+}
+
 launcher() {
     [ "$use_external_menu" = "0" ] && [ -z "$1" ] && set -- "+m" "$2"
     if [ "$use_external_menu" = "0" ]; then
@@ -21,12 +63,8 @@ launcher() {
                 --info=inline --pointer='>' --marker='*' --header="$app_name" \
                 --preview='"$ANI_CLI_PREVIEW_EXEC" --internal-preview "$ANI_CLI_PREVIEW_FILE" {1}' \
                 --preview-window='right,45%,border-left' --prompt "$2"
-        elif [ "${playback_menu_live:-0}" = "1" ] && fzf --help 2>&1 | grep -q -- '--listen'; then
-            ANI_CLI_PLAYBACK_WATCH_EXEC="$0" ANI_CLI_PLAYBACK_WATCH_FILE="$current_episode_file" \
-                fzf "$1" --reverse --cycle --height=90% --border=rounded \
-                --info=inline --pointer='>' --marker='*' --header="$2" --prompt='Accion: ' \
-                --listen=0 \
-                --bind='start:execute-silent:"$ANI_CLI_PLAYBACK_WATCH_EXEC" --internal-playback-menu-watch "$ANI_CLI_PLAYBACK_WATCH_FILE" "$FZF_PORT"'
+        elif [ "${playback_menu_live:-0}" = "1" ]; then
+            playback_launcher "$1"
         else
             fzf "$1" --reverse --cycle --height=90% --border=rounded \
                 --info=inline --pointer='>' --marker='*' --header="$app_name" --prompt "$2"
@@ -59,27 +97,12 @@ search_query_menu() {
     external_menu "" "Buscar anime: " "$external_menu_args"
 }
 
-watch_playback_menu_episode() {
-    playback_watch_file="$1"
-    playback_watch_port="$2"
-    playback_watch_episode="$(sed -n '1p' "$playback_watch_file" 2>/dev/null || true)"
-    while curl -fsS "http://127.0.0.1:${playback_watch_port}" >/dev/null 2>&1; do
-        playback_watch_current="$(sed -n '1p' "$playback_watch_file" 2>/dev/null || true)"
-        if [ -n "$playback_watch_current" ] && [ "$playback_watch_current" != "$playback_watch_episode" ]; then
-            playback_watch_episode="$playback_watch_current"
-            curl -fsS -X POST "http://127.0.0.1:${playback_watch_port}" \
-                --data-binary "change-header(Episodio ${playback_watch_current} cargado - selecciona una opcion)" \
-                >/dev/null 2>&1 || return 0
-        fi
-        sleep 0.2
-    done
-}
-
 nth() {
     stdin=$(cat -)
     [ -z "$stdin" ] && return 1
     line_count="$(printf "%s\n" "$stdin" | wc -l | tr -d "[:space:]")"
-    [ "$line_count" -eq 1 ] && printf "%s" "$stdin" | cut -f2,3 && return 0
+    [ "$line_count" -eq 1 ] && [ "${force_menu_selection:-0}" != "1" ] && \
+        printf "%s" "$stdin" | cut -f2,3 && return 0
     prompt="$1"
     multi_flag=""
     [ $# -ne 1 ] && shift && multi_flag="$1"
@@ -813,10 +836,12 @@ render_anime_preview() {
                 chafa_format=sixels
             fi
             if [ "$chafa_format" = "auto" ]; then
-                chafa --animate=off --scale=max --work=9 \
+                chafa --animate=off --scale=max --work=9 --align=top,center \
+                    --view-size="${preview_width}x${preview_height}" \
                     --size="${preview_width}x${preview_height}" "$preview_image" 2>/dev/null || true
             else
-                chafa --animate=off --scale=max --work=9 --passthrough=none \
+                chafa --animate=off --scale=max --work=9 --align=top,center \
+                    --view-size="${preview_width}x${preview_height}" --passthrough=none \
                     --format="$chafa_format" --size="${preview_width}x${preview_height}" \
                     "$preview_image" 2>/dev/null || true
             fi
@@ -2767,11 +2792,30 @@ episodes_list() {
 # PLAYING
 
 process_hist_entry() {
+    watched_ep="$ep_no"
     ep_list=$(episodes_list "$id" "$title")
     latest_ep=$(printf "%s\n" "$ep_list" | tail -n1)
     title=$(printf "%s\n" "$title" | sed "s|[0-9]\+ episodios|${latest_ep} episodios|")
-    ep_no=$(printf "%s" "$ep_list" | sed -n "/^${ep_no}$/{n;p;}") 2>/dev/null
-    [ -n "$ep_no" ] && printf "%s\t%s - episodio %s\n" "$id" "$title" "$ep_no"
+    next_ep=$(printf "%s" "$ep_list" | sed -n "/^${watched_ep}$/{n;p;}") 2>/dev/null
+    if [ -n "$next_ep" ]; then
+        printf '%s\t%s\t%s\t%s\tcontinuar\n' "$id" "$title" "$watched_ep" "$next_ep"
+    else
+        printf '%s\t%s\t%s\t%s\trepetir\n' "$id" "$title" "$watched_ep" "$watched_ep"
+    fi
+}
+
+build_history_menu() {
+    history_menu_index=0
+    while IFS='	' read -r history_id history_title history_watched history_resume history_action; do
+        [ -n "$history_id" ] || continue
+        history_menu_index=$((history_menu_index + 1))
+        if [ "$history_action" = "continuar" ]; then
+            history_label="$history_title | Ultimo visto: $history_watched | Continuar: $history_resume"
+        else
+            history_label="$history_title | Ultimo visto: $history_watched | Sin episodio nuevo; repetir: $history_resume"
+        fi
+        printf '%s\t%s\t%s\n' "$history_menu_index" "$history_id" "$history_label"
+    done
 }
 
 last_watched_episode_for_current_anime() {
@@ -3579,12 +3623,6 @@ if [ "${1:-}" = "--internal-preview" ]; then
     exit 0
 fi
 
-if [ "${1:-}" = "--internal-playback-menu-watch" ]; then
-    [ "$#" -eq 3 ] || exit 0
-    watch_playback_menu_episode "$2" "$3"
-    exit 0
-fi
-
 # setup
 agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0"
 anidb_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
@@ -3807,16 +3845,24 @@ fi
 # searching
 case "$search" in
     history)
-        anime_list=$(while read -r ep_no id title; do process_hist_entry & done <"$histfile")
-        wait
+        history_entries_file="$(mktemp)"
+        awk -F '\t' '!seen[$2]++' "$histfile" >"$history_entries_file"
+        anime_list=$(while IFS='	' read -r ep_no id title; do process_hist_entry & done <"$history_entries_file"; wait)
+        rm -f "$history_entries_file"
         [ -z "$anime_list" ] && die "No hay series pendientes en el historial"
-        [ -z "${index##*[!0-9]*}" ] && id=$(printf "%s" "$anime_list" | nl -w 2 | sed 's/^[[:space:]]//' | nth "Selecciona anime: " | cut -f1)
-        [ -z "${index##*[!0-9]*}" ] || id=$(printf "%s" "$anime_list" | sed -n "${index}p" | cut -f1)
+        if [ -z "${index##*[!0-9]*}" ]; then
+            history_menu="$(printf '%s\n' "$anime_list" | build_history_menu)"
+            force_menu_selection=1
+            history_result="$(printf '%s' "$history_menu" | nth "Continuar viendo: ")"
+            force_menu_selection=0
+            id="$(printf '%s' "$history_result" | cut -f1)"
+        else
+            id=$(printf "%s" "$anime_list" | sed -n "${index}p" | cut -f1)
+        fi
         [ -z "$id" ] && exit 1
-        title=$(printf "%s\n" "$anime_list" | awk -F '	' -v target="$id" '$1 == target { print $2; exit }' | sed 's/ - episodio.*//')
+        title=$(printf "%s\n" "$anime_list" | awk -F '\t' -v target="$id" '$1 == target { print $2; exit }')
         ep_list=$(episodes_list "$id" "$title")
-        ep_no=$(printf "%s\n" "$anime_list" | awk -F '	' -v target="$id" '$1 == target { print $2; exit }' |
-            sed -nE 's/.*- episodio (.+)$/\1/p')
+        ep_no=$(printf "%s\n" "$anime_list" | awk -F '\t' -v target="$id" '$1 == target { print $4; exit }')
         media_title="$(printf "%s" "$title" | cut -d'(' -f1 | tr -d '[:punct:]')"
         ;;
     *)

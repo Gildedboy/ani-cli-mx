@@ -389,7 +389,8 @@ run_download_menu_smoke() {
 run_playback_menu_smoke() {
     tmp_dir="$(mktemp -d)"
     funcs_file="$tmp_dir/playback-menu-functions.sh"
-    sed -n '/^set_current_episode()/,/^# MAIN/p' ani-cli-mx-core | sed '$d' >"$funcs_file"
+    sed -n '/^external_menu()/,/^nth()/p' ani-cli-mx-core | sed '$d' >"$funcs_file"
+    sed -n '/^set_current_episode()/,/^# MAIN/p' ani-cli-mx-core | sed '$d' >>"$funcs_file"
 
     (
         # shellcheck disable=SC1090
@@ -411,12 +412,59 @@ run_playback_menu_smoke() {
 
         fallback_options="$(playback_menu_options)"
         printf '%s\n' "$fallback_options" | grep -q 'activar_cerrar_reproductor_anterior'
+
+        title='Yani Neko'
+        app_name=ani-cli-mx
+        use_external_menu=0
+        playback_menu_live=1
+        fzf() {
+            for fzf_arg in "$@"; do
+                case "$fzf_arg" in --listen*) return 9 ;; esac
+            done
+            if [ ! -e "$tmp_dir/fzf-started" ]; then
+                : >"$tmp_dir/fzf-started"
+                sleep 5
+                return 1
+            fi
+            sed -n '1p'
+        }
+        (sleep 0.3; printf '%s\n' 3 >"$current_episode_file") &
+        refreshed_selection="$(printf '1 Siguiente episodio\n2 Episodio anterior\n' | playback_launcher +m)"
+        [ "$refreshed_selection" = '1 Siguiente episodio' ]
+        [ "$(current_episode_number)" = 3 ]
     )
 
     ! grep -q '^playback_controller_command()' ani-cli-mx-core
-    grep -q -- '--internal-playback-menu-watch' ani-cli-mx-core
-    grep -q -- '--listen=0' ani-cli-mx-core
+    ! grep -q -- '--internal-playback-menu-watch' ani-cli-mx-core
+    ! grep -q -- '--listen=0' ani-cli-mx-core
     grep -q 'continuous_worker_loop.*continuous_worker_log_file.*2>&1 &' ani-cli-mx-core
+    rm -rf "$tmp_dir"
+}
+
+run_history_menu_smoke() {
+    tmp_dir="$(mktemp -d)"
+    funcs_file="$tmp_dir/history-functions.sh"
+    sed -n '/^process_hist_entry()/,/^last_watched_episode_for_current_anime()/p' ani-cli-mx-core | sed '$d' >"$funcs_file"
+
+    (
+        # shellcheck disable=SC1090
+        . "$funcs_file"
+        episodes_list() { printf '%s\n' 1 2 3; }
+        id='jkanime:yani-neko'
+        title='Yani Neko (3 episodios)'
+        ep_no=2
+        pending_row="$(process_hist_entry)"
+        printf '%s\n' "$pending_row" | awk -F '\t' '$1 == "jkanime:yani-neko" && $3 == 2 && $4 == 3 && $5 == "continuar" { found=1 } END { exit !found }'
+        pending_menu="$(printf '%s\n' "$pending_row" | build_history_menu)"
+        printf '%s\n' "$pending_menu" | grep -q 'Ultimo visto: 2 | Continuar: 3'
+
+        ep_no=3
+        caught_up_row="$(process_hist_entry)"
+        printf '%s\n' "$caught_up_row" | awk -F '\t' '$3 == 3 && $4 == 3 && $5 == "repetir" { found=1 } END { exit !found }'
+        caught_up_menu="$(printf '%s\n' "$caught_up_row" | build_history_menu)"
+        printf '%s\n' "$caught_up_menu" | grep -q 'Ultimo visto: 3 | Sin episodio nuevo; repetir: 3'
+    )
+
     rm -rf "$tmp_dir"
 }
 
@@ -487,6 +535,8 @@ run_anime_preview_smoke() {
     grep -q -- '--scale=max' "$tmp_dir/chafa-log"
     grep -q -- '--work=9' "$tmp_dir/chafa-log"
     grep -q -- '--size=70x29' "$tmp_dir/chafa-log"
+    grep -q -- '--view-size=70x29' "$tmp_dir/chafa-log"
+    grep -q -- '--align=top,center' "$tmp_dir/chafa-log"
     [ -s "$tmp_dir/cache/207141.extra-large.cover" ]
 
     env PATH="$tmp_dir/bin:$PATH" PREVIEW_CURL_LOG="$curl_log" WT_SESSION=test-session \
@@ -820,6 +870,7 @@ case "${1:-}" in
         run_animex_subtitle_smoke
         run_download_menu_smoke
         run_playback_menu_smoke
+        run_history_menu_smoke
         run_anime_preview_smoke
         run_main_menu_smoke
         run_mpv_action_worker_smoke
@@ -839,6 +890,7 @@ case "${1:-}" in
         run_animex_subtitle_smoke
         run_download_menu_smoke
         run_playback_menu_smoke
+        run_history_menu_smoke
         run_anime_preview_smoke
         run_main_menu_smoke
         run_mpv_action_worker_smoke
