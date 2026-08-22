@@ -496,9 +496,11 @@ Start in continuous playback mode:
 ani-cli-mx --continuous "one piece"
 ```
 
-Detached interactive mpv playback reuses one player process and window for Next, Previous, Repeat, and episode selection. Each selected episode replaces the media in that window, so fullscreen, maximized state, window geometry, and volume remain unchanged naturally. Leaving the ani-cli-mx playback menu closes this managed mpv window. `--no-detach`, `--exit-after-play`, episode ranges, and `--skip` retain the separate-process behavior required by those modes.
+Detached interactive mpv playback reuses one player process and window for Next, Previous, Repeat, and episode selection. Each selected episode replaces the media in that window, so fullscreen, maximized state, window geometry, and volume remain unchanged naturally. Leaving the ani-cli-mx playback controls closes this managed mpv window. `--no-detach`, `--exit-after-play`, episode ranges, and `--skip` retain the separate-process behavior required by those modes.
 
-Continuous mode requires mpv. With `--continuous`, ani-cli-mx starts playback and opens the playback menu with continuous mode already enabled. After a natural end-of-file event, it resolves and loads the next episode in the same mpv window. Manual Next, Previous, Repeat, and episode-selection actions replace the current media without being mistaken for automatic advancement. The menu can toggle continuous mode with `activar_modo_continuo` or `desactivar_modo_continuo`.
+Managed mpv playback uses compact terminal controls instead of keeping fzf open while episodes change. Enter a command key followed by Enter: `n` for Next, `p` for Previous, `r` to Repeat, `e` to select an episode, `d` to download, `c` to toggle continuous mode, `x` to toggle closing the previous player, or `q` to quit. The mpv window also provides direct controls: `Shift+N` loads the next episode, `Shift+P` loads the previous episode, `Shift+R` replays, and `Shift+A` toggles continuous mode. Provider resolution remains in ani-cli-mx and mpv displays immediate OSD feedback. With `--continuous`, a natural end-of-file event resolves and loads the next episode in the same mpv window without writing provider output over the controls. Rofi and dmenu users retain their graphical playback menu.
+
+The terminal selectors use a bordered, compact fzf layout. Set `ANI_CLI_EXTERNAL_MENU=1` or use `--rofi` to keep using rofi instead.
 
 Restart the tracked player instead of reusing its window when opening another episode from the playback menu:
 

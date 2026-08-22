@@ -1,6 +1,6 @@
 #!/bin/sh
 
-version_number="1.5.1"
+version_number="2.0.0"
 app_name="${ANI_CLI_NAME:-${0##*/}}"
 log_tag="${ANI_CLI_LOG_TAG:-$app_name}"
 hist_state_name="${ANI_CLI_STATE_NAME:-$app_name}"
@@ -14,7 +14,9 @@ external_menu() {
 
 launcher() {
     [ "$use_external_menu" = "0" ] && [ -z "$1" ] && set -- "+m" "$2"
-    [ "$use_external_menu" = "0" ] && fzf "$1" --reverse --cycle --prompt "$2"
+    [ "$use_external_menu" = "0" ] && fzf "$1" --reverse --cycle \
+        --height=90% --border=rounded --info=inline --pointer='>' --marker='*' \
+        --header="$app_name" --prompt "$2"
     [ "$use_external_menu" = "1" ] && external_menu "$1" "$2" "$external_menu_args"
     [ "$use_external_menu" = "2" ] && external_menu "$1" "$2"
 }
@@ -69,6 +71,7 @@ help_info() {
         Use the previous source search behavior for every episode
       --continuous, --auto-next
         Automatically load the next episode in the same mpv window
+        mpv controls: Shift+N next, Shift+P previous, Shift+R replay, Shift+A toggle continuous
       --close-previous
         Restart the tracked player before opening another episode
       -q, --quality
@@ -2649,6 +2652,7 @@ create_mpv_session_controller() {
         'local utils = require "mp.utils"' \
         "local command_path = [[$mpv_session_player_command_file]]" \
         "local event_path = [[$mpv_session_player_event_file]]" \
+        "local action_path = [[$mpv_session_player_action_file]]" \
         "local owner_path = [[$mpv_session_player_owner_file]]" \
         "local controller_path = [[$mpv_session_player_controller_script]]" \
         "local state_path = [[$mpv_window_state_player_file]]" \
@@ -2670,6 +2674,13 @@ create_mpv_session_controller() {
         '    file:write(value .. "\n")' \
         '    file:close()' \
         'end' \
+        'local function request_action(action, message)' \
+        '    local file = io.open(action_path, "w")' \
+        '    if not file then mp.osd_message("ani-cli-mx: control unavailable", 2); return end' \
+        '    file:write(action .. "\n")' \
+        '    file:close()' \
+        '    mp.osd_message(message, 2)' \
+        'end' \
         'local function mark_finished()' \
         '    if not owner_gone and not load_pending and current_episode ~= "" and finished_episode ~= current_episode then' \
         '        finished_episode = current_episode' \
@@ -2683,7 +2694,9 @@ create_mpv_session_controller() {
         '    file:close()' \
         '    os.remove(command_path)' \
         '    local command = utils.parse_json(payload)' \
-        '    if type(command) ~= "table" or command.action ~= "load" or not command.url then return end' \
+        '    if type(command) ~= "table" then return end' \
+        '    if command.action == "message" then mp.osd_message(command.message or "", 2); return end' \
+        '    if command.action ~= "load" or not command.url then return end' \
         '    current_episode = tostring(command.episode or "")' \
         '    finished_episode = ""' \
         '    load_pending = true' \
@@ -2703,6 +2716,10 @@ create_mpv_session_controller() {
         'mp.observe_property("eof-reached", "bool", function(_, value)' \
         '    if value then mark_finished() end' \
         'end)' \
+        'mp.add_key_binding("N", "ani-cli-next", function() request_action("next", "ani-cli-mx: next episode") end)' \
+        'mp.add_key_binding("P", "ani-cli-previous", function() request_action("previous", "ani-cli-mx: previous episode") end)' \
+        'mp.add_key_binding("R", "ani-cli-replay", function() request_action("replay", "ani-cli-mx: replay episode") end)' \
+        'mp.add_key_binding("A", "ani-cli-continuous", function() request_action("toggle-continuous", "ani-cli-mx: toggling continuous mode") end)' \
         'mp.register_event("end-file", function(event)' \
         '    if not owner_gone and event.reason == "error" and current_episode ~= "" then' \
         '        load_pending = false' \
@@ -2721,6 +2738,7 @@ create_mpv_session_controller() {
         'mp.register_event("shutdown", function()' \
         '    os.remove(command_path)' \
         '    os.remove(event_path)' \
+        '    os.remove(action_path)' \
         '    os.remove(owner_path)' \
         '    os.remove(controller_path)' \
         '    os.remove(state_path)' \
@@ -2740,15 +2758,18 @@ create_mpv_session_files() {
     if [ "$player_function" = "flatpak_mpv" ]; then
         mpv_session_command_file="$(mktemp "${mpv_flatpak_cache_dir}/session-command.XXXXXX")"
         mpv_session_event_file="$(mktemp "${mpv_flatpak_cache_dir}/session-event.XXXXXX")"
+        mpv_session_action_file="$(mktemp "${mpv_flatpak_cache_dir}/session-action.XXXXXX")"
         mpv_session_owner_file="$(mktemp "${mpv_flatpak_cache_dir}/session-owner.XXXXXX")"
         mpv_session_controller_script="$(mktemp "${mpv_flatpak_cache_dir}/session-controller.XXXXXX.lua")"
         mpv_session_player_command_file="${HOME}/.cache/ani-cli-mx/${mpv_session_command_file##*/}"
         mpv_session_player_event_file="${HOME}/.cache/ani-cli-mx/${mpv_session_event_file##*/}"
+        mpv_session_player_action_file="${HOME}/.cache/ani-cli-mx/${mpv_session_action_file##*/}"
         mpv_session_player_owner_file="${HOME}/.cache/ani-cli-mx/${mpv_session_owner_file##*/}"
         mpv_session_player_controller_script="${HOME}/.cache/ani-cli-mx/${mpv_session_controller_script##*/}"
     else
         mpv_session_command_file="$(mktemp)"
         mpv_session_event_file="$(mktemp)"
+        mpv_session_action_file="$(mktemp)"
         mpv_session_owner_file="$(mktemp)"
         mpv_session_controller_base="$(mktemp)"
         mpv_session_controller_script="${mpv_session_controller_base}.lua"
@@ -2757,12 +2778,14 @@ create_mpv_session_files() {
             mpv.exe | */mpv.exe)
                 mpv_session_player_command_file="$(posix_path_to_windows "$mpv_session_command_file")"
                 mpv_session_player_event_file="$(posix_path_to_windows "$mpv_session_event_file")"
+                mpv_session_player_action_file="$(posix_path_to_windows "$mpv_session_action_file")"
                 mpv_session_player_owner_file="$(posix_path_to_windows "$mpv_session_owner_file")"
                 mpv_session_player_controller_script="$(posix_path_to_windows "$mpv_session_controller_script")"
                 ;;
             *)
                 mpv_session_player_command_file="$mpv_session_command_file"
                 mpv_session_player_event_file="$mpv_session_event_file"
+                mpv_session_player_action_file="$mpv_session_action_file"
                 mpv_session_player_owner_file="$mpv_session_owner_file"
                 mpv_session_player_controller_script="$mpv_session_controller_script"
                 ;;
@@ -2770,6 +2793,7 @@ create_mpv_session_files() {
     fi
     : >"$mpv_session_command_file"
     : >"$mpv_session_event_file"
+    : >"$mpv_session_action_file"
     : >"$mpv_session_owner_file"
     create_mpv_session_controller
 }
@@ -2803,6 +2827,7 @@ create_mpv_window_state_files() {
 ensure_mpv_session_files() {
     [ -f "$mpv_session_controller_script" ] && [ -f "$mpv_window_state_script" ] && return 0
     rm -f "${mpv_session_command_file:-}" "${mpv_session_event_file:-}" \
+        "${mpv_session_action_file:-}" \
         "${mpv_session_owner_file:-}" "${mpv_session_controller_script:-}" \
         "${mpv_window_state_file:-}" "${mpv_window_state_script:-}"
     create_mpv_window_state_files
@@ -2868,10 +2893,18 @@ queue_persistent_mpv_episode() {
     kill -0 "$player_pid" 2>/dev/null
 }
 
+queue_persistent_mpv_message() {
+    persistent_mpv_alive || return 1
+    message_tmp="${mpv_session_command_file}.message.$$"
+    printf '{"action":"message","message":"%s"}\n' \
+        "$(mpv_json_escape "$1")" >"$message_tmp"
+    mv "$message_tmp" "$mpv_session_command_file"
+}
+
 start_persistent_mpv() {
     ensure_mpv_session_files
     : >"$mpv_session_owner_file"
-    rm -f "$mpv_session_command_file" "$mpv_session_event_file"
+    rm -f "$mpv_session_command_file" "$mpv_session_event_file" "$mpv_session_action_file"
     prepare_mpv_window_state_flags
     mpv_session_log="${ANI_CLI_MPV_SESSION_LOG:-/dev/null}"
     case "$player_function" in
@@ -3059,13 +3092,13 @@ set_continuous_mode() {
 
 disable_continuous_mode() {
     set_continuous_mode 0
-    stop_continuous_worker
 }
 
 stop_continuous_worker() {
     [ -n "${continuous_worker_pid:-}" ] && kill "$continuous_worker_pid" 2>/dev/null || true
     [ -n "${continuous_worker_pid:-}" ] && wait "$continuous_worker_pid" 2>/dev/null || true
     continuous_worker_pid=""
+    [ -n "${mpv_session_action_file:-}" ] && rm -f "$mpv_session_action_file"
 }
 
 close_previous_enabled() {
@@ -3086,19 +3119,21 @@ close_tracked_player() {
 
 prepare_for_menu_playback() {
     stop_continuous_worker
+    sync_current_episode
     if close_previous_enabled; then
         close_tracked_player
     fi
 }
 
 start_continuous_worker_for_current_player() {
-    continuous_enabled || return 1
     player_supports_continuous || return 1
     [ -n "${player_pid:-}" ] || return 1
     kill -0 "$player_pid" 2>/dev/null || return 1
+    persistent_mpv_alive || continuous_enabled || return 1
 
     stop_continuous_worker
-    continuous_worker_loop "$player_pid" &
+    : >"$continuous_worker_log_file"
+    continuous_worker_loop "$player_pid" >"$continuous_worker_log_file" 2>&1 &
     continuous_worker_pid=$!
     return 0
 }
@@ -3126,10 +3161,11 @@ wait_for_persistent_episode_end() {
 continuous_worker_loop() {
     watched_pid="$1"
     if persistent_mpv_alive; then
-        wait_for_persistent_episode_end "$watched_pid"
-    else
-        wait_for_pid_to_exit "$watched_pid"
+        persistent_playback_worker_loop "$watched_pid"
+        return
     fi
+
+    wait_for_pid_to_exit "$watched_pid"
     while continuous_enabled; do
         next_ep="$(next_episode_number "$(current_episode_number)")"
         if [ -z "$next_ep" ]; then
@@ -3147,6 +3183,67 @@ continuous_worker_loop() {
         else
             wait_for_pid_to_exit "${player_pid:-}"
         fi
+    done
+}
+
+load_worker_episode() {
+    worker_ep="$1"
+    if [ -z "$worker_ep" ]; then
+        queue_persistent_mpv_message "No hay otro episodio disponible." || true
+        return 1
+    fi
+
+    ep_no="$worker_ep"
+    set_current_episode "$ep_no"
+    unset episode
+    printf "Reproduciendo episodio %s...\n" "$ep_no"
+    play_episode
+}
+
+persistent_playback_worker_loop() {
+    watched_pid="$1"
+    while kill -0 "$watched_pid" 2>/dev/null; do
+        if [ -s "$mpv_session_action_file" ]; then
+            playback_action="$(sed -n '1p' "$mpv_session_action_file")"
+            rm -f "$mpv_session_action_file"
+            current_ep="$(current_episode_number)"
+            case "$playback_action" in
+                next)
+                    load_worker_episode "$(next_episode_number "$current_ep")" || true
+                    ;;
+                previous)
+                    previous_ep="$(printf "%s\n" "$ep_list" | sed -n "/^${current_ep}$/{g;1!p;};h" | head -n1)"
+                    load_worker_episode "$previous_ep" || true
+                    ;;
+                replay)
+                    load_worker_episode "$current_ep" || true
+                    ;;
+                toggle-continuous)
+                    if continuous_enabled; then
+                        set_continuous_mode 0
+                        queue_persistent_mpv_message "Modo continuo desactivado." || true
+                    else
+                        set_continuous_mode 1
+                        queue_persistent_mpv_message "Modo continuo activado." || true
+                    fi
+                    ;;
+            esac
+        fi
+
+        if [ -s "$mpv_session_event_file" ]; then
+            ended_ep="$(sed -n '1p' "$mpv_session_event_file")"
+            rm -f "$mpv_session_event_file"
+            if [ "$ended_ep" = "$(current_episode_number)" ] && continuous_enabled; then
+                next_ep="$(next_episode_number "$ended_ep")"
+                if [ -n "$next_ep" ]; then
+                    load_worker_episode "$next_ep"
+                else
+                    set_continuous_mode 0
+                    queue_persistent_mpv_message "No hay mas episodios disponibles." || true
+                fi
+            fi
+        fi
+        sleep 0.1
     done
 }
 
@@ -3212,6 +3309,51 @@ playback_menu_prompt() {
     printf "Reproduciendo episodio %s de %s... Modo actual: %s - %s - %s" "$menu_ep" "$title" "$playback_mode" "$playback_note" "$close_note"
 }
 
+playback_controller_command() {
+    controller_ep="$(current_episode_number)"
+    if continuous_enabled; then
+        controller_mode="continuo"
+        controller_continuous_label="desactivar continuo"
+        controller_continuous_command="desactivar_modo_continuo"
+    else
+        controller_mode="manual"
+        controller_continuous_label="activar continuo"
+        controller_continuous_command="activar_modo_continuo"
+    fi
+    if close_previous_enabled; then
+        controller_close_state="si"
+        controller_close_command="desactivar_cerrar_reproductor_anterior"
+    else
+        controller_close_state="no"
+        controller_close_command="activar_cerrar_reproductor_anterior"
+    fi
+    printf '\nEpisodio %s de %s · modo %s\n' "$controller_ep" "$title" "$controller_mode" 1>&2
+    printf '[n] siguiente  [p] anterior  [r] repetir  [e] episodios\n' 1>&2
+    printf '[d] descargar  [c] %s  [x] cerrar anterior: %s  [q] salir\n' \
+        "$controller_continuous_label" "$controller_close_state" 1>&2
+    printf 'Comando (tecla + Enter): ' 1>&2
+    IFS= read -r controller_key || return 1
+    case "$controller_key" in
+        n | N | siguiente) printf '%s\n' siguiente ;;
+        p | P | anterior) printf '%s\n' anterior ;;
+        r | R | repetir) printf '%s\n' repetir_episodio_actual ;;
+        e | E | episodios) printf '%s\n' elegir_episodio ;;
+        d | D | descargar) printf '%s\n' descargar_episodio_actual ;;
+        c | C | continuo) printf '%s\n' "$controller_continuous_command" ;;
+        x | X | cerrar) printf '%s\n' "$controller_close_command" ;;
+        q | Q | salir) printf '%s\n' salir ;;
+        *) printf '%s\n' controlador_sin_accion ;;
+    esac
+}
+
+playback_command() {
+    if [ "$use_external_menu" = "0" ] && persistent_mpv_alive; then
+        playback_controller_command
+    else
+        playback_menu_options | nth "$(playback_menu_prompt) "
+    fi
+}
+
 # MAIN
 
 # setup
@@ -3273,14 +3415,16 @@ disabled_spanish_sources=""
 fast_mode_mirror_file="$(mktemp)"
 continuous_state_file="$(mktemp)"
 current_episode_file="$(mktemp)"
+continuous_worker_log_file="$(mktemp)"
 create_mpv_window_state_files
 continuous_worker_pid=""
 cleanup() {
     stop_continuous_worker
     persistent_mpv_alive && close_tracked_player
-    rm -f "$fast_mode_mirror_file" "$continuous_state_file" "$current_episode_file"
+    rm -f "$fast_mode_mirror_file" "$continuous_state_file" "$current_episode_file" \
+        "$continuous_worker_log_file"
     rm -f "$mpv_window_state_file" "$mpv_window_state_script" \
-        "$mpv_session_command_file" "$mpv_session_event_file" \
+        "$mpv_session_command_file" "$mpv_session_event_file" "$mpv_session_action_file" \
         "$mpv_session_owner_file" "$mpv_session_controller_script"
 }
 trap cleanup EXIT
@@ -3467,7 +3611,7 @@ play
 [ "$player_function" = "download" ] || [ "$player_function" = "debug" ] && exit 0
 start_continuous_worker_for_current_player
 
-while cmd=$(playback_menu_options | nth "$(playback_menu_prompt) "); do
+while cmd=$(playback_command); do
     sync_current_episode
     case "$cmd" in
         siguiente)
@@ -3501,6 +3645,9 @@ while cmd=$(playback_menu_options | nth "$(playback_menu_prompt) "); do
             ;;
         activar_cerrar_reproductor_anterior | desactivar_cerrar_reproductor_anterior)
             toggle_close_previous_from_menu
+            continue
+            ;;
+        controlador_sin_accion)
             continue
             ;;
         *) exit 0 ;;

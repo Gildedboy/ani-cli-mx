@@ -64,6 +64,7 @@ run_continuous_toggle_smoke() {
 
         current_episode_file="$tmp_dir/current-episode"
         continuous_state_file="$tmp_dir/continuous-state"
+        continuous_worker_log_file="$tmp_dir/continuous-worker.log"
         continuous_worker_pid=""
         player_function="mpv"
         ep_list="1
@@ -190,6 +191,7 @@ run_persistent_mpv_smoke() {
         mpv_window_state_script="$tmp_dir/window-state.lua"
         mpv_session_command_file="$tmp_dir/session-command"
         mpv_session_event_file="$tmp_dir/session-event"
+        mpv_session_action_file="$tmp_dir/session-action"
         mpv_session_owner_file="$tmp_dir/session-owner"
         mpv_session_controller_script="$tmp_dir/session-controller.lua"
         if command -v cygpath >/dev/null 2>&1; then
@@ -197,6 +199,7 @@ run_persistent_mpv_smoke() {
             mpv_window_state_player_script="$(cygpath -m "$mpv_window_state_script")"
             mpv_session_player_command_file="$(cygpath -m "$mpv_session_command_file")"
             mpv_session_player_event_file="$(cygpath -m "$mpv_session_event_file")"
+            mpv_session_player_action_file="$(cygpath -m "$mpv_session_action_file")"
             mpv_session_player_owner_file="$(cygpath -m "$mpv_session_owner_file")"
             mpv_session_player_controller_script="$(cygpath -m "$mpv_session_controller_script")"
         else
@@ -204,6 +207,7 @@ run_persistent_mpv_smoke() {
             mpv_window_state_player_script="$mpv_window_state_script"
             mpv_session_player_command_file="$mpv_session_command_file"
             mpv_session_player_event_file="$mpv_session_event_file"
+            mpv_session_player_action_file="$mpv_session_action_file"
             mpv_session_player_owner_file="$mpv_session_owner_file"
             mpv_session_player_controller_script="$mpv_session_controller_script"
         fi
@@ -221,6 +225,7 @@ run_persistent_mpv_smoke() {
         }
 
         : >"$mpv_session_owner_file"
+        : >"$mpv_session_action_file"
         create_mpv_window_state_script
         create_mpv_session_controller
         grep -q 'local load_pending = false' "$mpv_session_controller_script"
@@ -228,6 +233,10 @@ run_persistent_mpv_smoke() {
         grep -q 'load_pending = true' "$mpv_session_controller_script"
         grep -q 'mp.register_event("file-loaded", function()' "$mpv_session_controller_script"
         grep -q 'load_pending = false' "$mpv_session_controller_script"
+        grep -q 'mp.add_key_binding("N", "ani-cli-next"' "$mpv_session_controller_script"
+        grep -q 'mp.add_key_binding("P", "ani-cli-previous"' "$mpv_session_controller_script"
+        grep -q 'mp.add_key_binding("R", "ani-cli-replay"' "$mpv_session_controller_script"
+        grep -q 'mp.add_key_binding("A", "ani-cli-continuous"' "$mpv_session_controller_script"
 
         zilla_header_fields='Origin:https://player.zilla-networks.com,Sec-Fetch-Dest:empty,Sec-Fetch-Mode:cors,Sec-Fetch-Site:same-origin'
         quality=best
@@ -256,7 +265,7 @@ site >https://player.zilla-networks.com/m3u8/regression>AnimeAV1'
         generic_headers=""
         media_title='Persistent "mpv" Test '
         ep_no=1
-        episode='av://lavfi:testsrc=duration=1:size=320x180:rate=10'
+        episode='av://lavfi:testsrc=duration=1:size=64x36:rate=2'
         queue_persistent_mpv_episode
 
         event_attempt=0
@@ -268,7 +277,7 @@ site >https://player.zilla-networks.com/m3u8/regression>AnimeAV1'
         kill -0 "$original_pid"
 
         ep_no=2
-        episode='av://lavfi:testsrc=duration=1:size=320x180:rate=10'
+        episode='av://lavfi:testsrc=duration=1:size=64x36:rate=2'
         queue_persistent_mpv_episode
         [ "$player_pid" = "$original_pid" ]
         event_attempt=0
@@ -280,11 +289,11 @@ site >https://player.zilla-networks.com/m3u8/regression>AnimeAV1'
         kill -0 "$original_pid"
 
         ep_no=3
-        episode='av://lavfi:testsrc=duration=3:size=320x180:rate=10'
+        episode='av://lavfi:testsrc=duration=3:size=64x36:rate=2'
         queue_persistent_mpv_episode
         sleep 0.2
         ep_no=4
-        episode='av://lavfi:testsrc=duration=1:size=320x180:rate=10'
+        episode='av://lavfi:testsrc=duration=1:size=64x36:rate=2'
         queue_persistent_mpv_episode
         event_attempt=0
         while { [ ! -s "$mpv_session_event_file" ] || ! grep -qx '4' "$mpv_session_event_file"; } && [ "$event_attempt" -lt 300 ]; do
@@ -295,7 +304,7 @@ site >https://player.zilla-networks.com/m3u8/regression>AnimeAV1'
         kill -0 "$original_pid"
 
         ep_no=5
-        episode='av://lavfi:testsrc=duration=0.4:size=320x180:rate=10'
+        episode='av://lavfi:testsrc=duration=0.4:size=64x36:rate=2'
         queue_persistent_mpv_episode
         event_attempt=0
         while { [ ! -s "$mpv_session_event_file" ] || ! grep -qx '5' "$mpv_session_event_file"; } && [ "$event_attempt" -lt 100 ]; do
@@ -305,7 +314,7 @@ site >https://player.zilla-networks.com/m3u8/regression>AnimeAV1'
         grep -qx '5' "$mpv_session_event_file"
 
         ep_no=6
-        episode='av://lavfi:testsrc=duration=0.8:size=320x180:rate=10'
+        episode='av://lavfi:testsrc=duration=0.8:size=64x36:rate=2'
         queue_persistent_mpv_episode
         sleep 0.2
         [ ! -s "$mpv_session_event_file" ]
@@ -377,6 +386,119 @@ run_download_menu_smoke() {
     grep -q "command -v yt-dlp" ani-cli-mx-core
 }
 
+run_playback_controller_smoke() {
+    tmp_dir="$(mktemp -d)"
+    funcs_file="$tmp_dir/controller-functions.sh"
+    sed -n '/^set_current_episode()/,/^# MAIN/p' ani-cli-mx-core | sed '$d' >"$funcs_file"
+
+    (
+        # shellcheck disable=SC1090
+        . "$funcs_file"
+        continuous_state_file="$tmp_dir/continuous-state"
+        current_episode_file="$tmp_dir/current-episode"
+        title='Yani Neko'
+        ep_no=1
+        use_external_menu=0
+        close_previous_player=0
+        persistent_mpv_alive() { return 0; }
+        printf '%s\n' 1 >"$continuous_state_file"
+        printf '%s\n' 2 >"$current_episode_file"
+
+        [ "$(printf 'n\n' | playback_command 2>/dev/null)" = siguiente ]
+        [ "$(printf 'p\n' | playback_command 2>/dev/null)" = anterior ]
+        [ "$(printf 'r\n' | playback_command 2>/dev/null)" = repetir_episodio_actual ]
+        [ "$(printf 'e\n' | playback_command 2>/dev/null)" = elegir_episodio ]
+        [ "$(printf 'd\n' | playback_command 2>/dev/null)" = descargar_episodio_actual ]
+        [ "$(printf 'c\n' | playback_command 2>/dev/null)" = desactivar_modo_continuo ]
+        [ "$(printf 'x\n' | playback_command 2>/dev/null)" = activar_cerrar_reproductor_anterior ]
+        [ "$(printf 'q\n' | playback_command 2>/dev/null)" = salir ]
+        [ "$(printf 'unknown\n' | playback_command 2>/dev/null)" = controlador_sin_accion ]
+
+        printf '%s\n' 0 >"$continuous_state_file"
+        [ "$(printf 'c\n' | playback_controller_command 2>/dev/null)" = activar_modo_continuo ]
+    )
+
+    grep -q 'continuous_worker_loop.*continuous_worker_log_file.*2>&1 &' ani-cli-mx-core
+    rm -rf "$tmp_dir"
+}
+
+run_mpv_action_worker_smoke() {
+    tmp_dir="$(mktemp -d)"
+    funcs_file="$tmp_dir/action-worker-functions.sh"
+    played_file="$tmp_dir/played"
+    messages_file="$tmp_dir/messages"
+    sed -n '/^set_current_episode()/,/^toggle_close_previous_from_menu()/p' ani-cli-mx-core | sed '$d' >"$funcs_file"
+
+    (
+        # shellcheck disable=SC1090
+        . "$funcs_file"
+        current_episode_file="$tmp_dir/current-episode"
+        continuous_state_file="$tmp_dir/continuous-state"
+        mpv_session_action_file="$tmp_dir/session-action"
+        mpv_session_event_file="$tmp_dir/session-event"
+        ep_list='1
+2
+3'
+        ep_no=2
+        episode=''
+
+        play_episode() {
+            set_current_episode "$ep_no"
+            printf '%s\n' "$ep_no" >>"$played_file"
+        }
+        queue_persistent_mpv_message() {
+            printf '%s\n' "$1" >>"$messages_file"
+        }
+        wait_for_play_count() {
+            expected_count="$1"
+            wait_attempt=0
+            while [ "$(wc -l <"$played_file" 2>/dev/null || printf 0)" -lt "$expected_count" ] && [ "$wait_attempt" -lt 100 ]; do
+                sleep 0.05
+                wait_attempt=$((wait_attempt + 1))
+            done
+            [ "$(wc -l <"$played_file")" -ge "$expected_count" ]
+        }
+
+        : >"$played_file"
+        printf '%s\n' 0 >"$continuous_state_file"
+        set_current_episode 2
+        sleep 10 &
+        watched_pid=$!
+        persistent_playback_worker_loop "$watched_pid" >"$tmp_dir/worker.log" 2>&1 &
+        worker_pid=$!
+
+        printf '%s\n' next >"$mpv_session_action_file"
+        wait_for_play_count 1
+        [ "$(tail -n1 "$played_file")" = 3 ]
+
+        printf '%s\n' previous >"$mpv_session_action_file"
+        wait_for_play_count 2
+        [ "$(tail -n1 "$played_file")" = 2 ]
+
+        printf '%s\n' replay >"$mpv_session_action_file"
+        wait_for_play_count 3
+        [ "$(tail -n1 "$played_file")" = 2 ]
+
+        printf '%s\n' toggle-continuous >"$mpv_session_action_file"
+        toggle_attempt=0
+        while ! grep -qx 1 "$continuous_state_file" && [ "$toggle_attempt" -lt 100 ]; do
+            sleep 0.05
+            toggle_attempt=$((toggle_attempt + 1))
+        done
+        grep -qx 1 "$continuous_state_file"
+
+        printf '%s\n' 2 >"$mpv_session_event_file"
+        wait_for_play_count 4
+        [ "$(tail -n1 "$played_file")" = 3 ]
+
+        kill "$watched_pid" 2>/dev/null || true
+        wait "$watched_pid" 2>/dev/null || true
+        wait "$worker_pid"
+    )
+
+    rm -rf "$tmp_dir"
+}
+
 run_windows_compat_smoke() {
     tmp_dir="$(mktemp -d)"
     powershell_args_file="$tmp_dir/powershell-args"
@@ -394,7 +516,7 @@ run_windows_compat_smoke() {
         ANI_CLI_STATE_NAME=ani-cli-mx LOCALAPPDATA="$local_app_data_env" \
         ANI_CLI_PLAYER=debug ./ani-cli-mx-core -V)"
 
-    [ "$version_output" = "1.5.1" ]
+    [ "$version_output" = "2.0.0" ]
     [ -f "$local_app_data/ani-cli-mx/ani-hsts" ]
     grep -q 'GIT_INSTALL_ROOT' ani-cli-mx.cmd
     grep -q 'ANI_CLI_PACKAGE_MANAGER=scoop' ani-cli-mx.cmd
@@ -596,6 +718,8 @@ case "${1:-}" in
         run_persistent_mpv_smoke
         run_animex_subtitle_smoke
         run_download_menu_smoke
+        run_playback_controller_smoke
+        run_mpv_action_worker_smoke
         run_windows_compat_smoke
         run_search_diagnostic_smoke
         run_search_query_candidates_smoke
@@ -611,6 +735,8 @@ case "${1:-}" in
         run_persistent_mpv_smoke
         run_animex_subtitle_smoke
         run_download_menu_smoke
+        run_playback_controller_smoke
+        run_mpv_action_worker_smoke
         run_windows_compat_smoke
         run_search_diagnostic_smoke
         run_search_query_candidates_smoke
