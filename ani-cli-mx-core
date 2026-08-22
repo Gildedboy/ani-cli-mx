@@ -717,20 +717,35 @@ preview_metadata_match_is_confident() {
 }
 
 fetch_anilist_preview_metadata() {
-    preview_search="$(printf '%s' "$1" | sed 's|+| |g')"
-    preview_search="$(mpv_json_escape "$preview_search")"
-    preview_query='query($search:String){Page(page:1,perPage:15){media(search:$search,type:ANIME){id title{romaji english} coverImage{extraLarge} format status episodes seasonYear}}}'
+    preview_titles="$(printf '%s\n' "$1" | awk -F '\t' 'NF >= 2 && !seen[$2]++ { print $2 }')"
+    [ -n "$preview_titles" ] || return 0
+
+    preview_query='query{'
+    preview_alias=0
+    preview_titles_old_ifs=$IFS
+    IFS='
+'
+    for preview_title_search in $preview_titles; do
+        preview_title_search="$(printf '%s' "$preview_title_search" |
+            sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')"
+        preview_query="${preview_query}m${preview_alias}:Media(search:\"${preview_title_search}\",type:ANIME){id title{romaji english} coverImage{extraLarge} format status episodes seasonYear} "
+        preview_alias=$((preview_alias + 1))
+    done
+    IFS=$preview_titles_old_ifs
+    preview_query="${preview_query}}"
+    preview_query="$(mpv_json_escape "$preview_query")"
+
     curl -sS --max-time "${resolver_timeout:-15}" https://graphql.anilist.co \
         -H 'Content-Type: application/json' \
-        --data "{\"query\":\"${preview_query}\",\"variables\":{\"search\":\"${preview_search}\"}}" 2>/dev/null |
-        sed 's|},{"id"|}\
+        --data "{\"query\":\"${preview_query}\"}" 2>/dev/null |
+        sed 's|{"id"|\
 {"id"|g' |
         sed -nE 's~.*"id":([0-9]+),"title":\{"romaji":"([^"]*)","english":(null|"[^"]*")\},"coverImage":\{"extraLarge":"([^"]*)"\},"format":(null|"[^"]*"),"status":(null|"[^"]*"),"episodes":(null|[0-9]+),"seasonYear":(null|[0-9]+).*~\1\t\2\t\3\t\4\t\5\t\6\t\7\t\8~p'
 }
 
 prepare_anime_preview_file() {
     preview_results="$1"
-    preview_metadata="$(fetch_anilist_preview_metadata "$2" || true)"
+    preview_metadata="$(fetch_anilist_preview_metadata "$preview_results" || true)"
     preview_file="$(mktemp)"
     preview_index=0
     saved_preview_id="${id:-}"
@@ -3856,6 +3871,7 @@ case "$search" in
         fi
         [ -z "$id" ] && exit 1
         title=$(printf "%s\n" "$anime_list" | awk -F '\t' -v target="$id" '$1 == target { print $2; exit }')
+        printf '\33[2K\r\033[1;34mBuscando episodios...\033[0m\n' 1>&2
         ep_list=$(episodes_list "$id" "$title")
         ep_no=$(printf "%s\n" "$anime_list" | awk -F '\t' -v target="$id" '$1 == target { print $4; exit }')
         media_title="$(printf "%s" "$title" | cut -d'(' -f1 | tr -d '[:punct:]')"
@@ -3866,6 +3882,7 @@ case "$search" in
         # for checking new releases by specifying anime name
         [ "$search" = "nextep" ] && time_until_next_ep "$query"
 
+        printf '\33[2K\r\033[1;34mBuscando animes...\033[0m\n' 1>&2
         query=$(printf "%s" "$query" | sed "s| |+|g")
         anime_list=$(search_anime "$query")
         [ -z "$anime_list" ] && diagnose_empty_search "$query"
@@ -3875,7 +3892,7 @@ case "$search" in
             anime_menu_count="$(printf '%s\n' "$anime_menu" | wc -l | tr -d '[:space:]')"
             if [ "$anime_previews_enabled" = "1" ] && [ "$use_external_menu" = "0" ] && \
                 [ "${hentaila_mode:-0}" != "1" ] && [ "$anime_menu_count" -gt 1 ]; then
-                anime_preview_file="$(prepare_anime_preview_file "$anime_list" "$query")"
+                anime_preview_file="$(prepare_anime_preview_file "$anime_list")"
                 export ANI_CLI_PREVIEW_CACHE_DIR="$anime_preview_cache_dir"
             fi
             result="$(printf "%s" "$anime_menu" | nth "Selecciona anime: ")"
@@ -3887,6 +3904,7 @@ case "$search" in
         title=$(printf "%s\n" "$anime_list" | awk -F '\t' -v target="$id" '$1 == target { print $2; exit }')
         [ -z "$title" ] && title="$(printf "%s" "$result" | cut -f2)"
         media_title="$(printf "%s" "$title" | cut -d'(' -f1 | tr -d '[:punct:]')"
+        printf '\33[2K\r\033[1;34mBuscando episodios...\033[0m\n' 1>&2
         ep_list=$(episodes_list "$id" "$title")
         [ -z "$ep_no" ] && ep_no=$(printf "%s" "$ep_list" | select_episode)
         [ -z "$ep_no" ] && exit 1

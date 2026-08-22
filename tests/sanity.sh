@@ -496,6 +496,7 @@ run_anime_preview_smoke() {
     preview_file="$tmp_dir/preview-data"
     output_file="$tmp_dir/output"
     curl_log="$tmp_dir/curl-log"
+    preview_query_log="$tmp_dir/preview-query-log"
     mkdir -p "$tmp_dir/bin" "$tmp_dir/cache"
 
     sed -n '/^normalize_romanized_text()/,/^normalize_info_source()/p' ani-cli-mx-core | sed '$d' >"$funcs_file"
@@ -504,7 +505,9 @@ run_anime_preview_smoke() {
         . "$funcs_file"
         resolver_timeout=5
         id=''
-        mpv_json_escape() { printf '%s' "$1"; }
+        mpv_json_escape() {
+            printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
+        }
         info_source_label() {
             case "$1" in
                 jkanime) printf '%s\n' JKAnime ;;
@@ -513,14 +516,34 @@ run_anime_preview_smoke() {
             esac
         }
         curl() {
-            printf '%s\n' '{"data":{"Page":{"media":[{"id":207141,"title":{"romaji":"Yani Neko","english":"Chainsmoker Cat"},"coverImage":{"extraLarge":"https:\/\/img.example\/yani-xl.jpg"},"format":"TV","status":"RELEASING","episodes":null,"seasonYear":2026}]}}}'
+            printf '%s\n' "$*" >"$PREVIEW_QUERY_LOG"
+            case "$*" in
+                *'One Piece'*)
+                    printf '%s\n' '{"data":{"m0":{"id":21,"title":{"romaji":"ONE PIECE","english":"ONE PIECE"},"coverImage":{"extraLarge":"https:\/\/img.example\/one-piece.jpg"},"format":"TV","status":"RELEASING","episodes":null,"seasonYear":1999}}}'
+                    ;;
+                *)
+                    printf '%s\n' '{"data":{"Page":{"media":[{"id":207141,"title":{"romaji":"Yani Neko","english":"Chainsmoker Cat"},"coverImage":{"extraLarge":"https:\/\/img.example\/yani-xl.jpg"},"format":"TV","status":"RELEASING","episodes":null,"seasonYear":2026}]}}}'
+                    ;;
+            esac
         }
         preview_results="$(printf 'jkanime:yani-neko\tYani Neko\tYani Neko [JKAnime]\nanimex:yani-neko\tYani Neko\tYani Neko [AnimeX]\nanimeav1:super-no-ura-de-yani\tSuper no Ura de Yani Suu Hanashi\tSuper no Ura de Yani Suu Hanashi [AnimeAV1]\n')"
-        generated_preview_file="$(prepare_anime_preview_file "$preview_results" 'yani+neko')"
+        generated_preview_file="$(PREVIEW_QUERY_LOG="$preview_query_log" prepare_anime_preview_file "$preview_results")"
         [ "$(wc -l <"$generated_preview_file")" -eq 3 ]
+        grep -q 'Media(search:\\"Yani Neko\\"' "$preview_query_log"
+        grep -q 'Media(search:\\"Super no Ura de Yani Suu Hanashi\\"' "$preview_query_log"
+        [ "$(grep -o 'Media(search:\\"Yani Neko\\"' "$preview_query_log" | wc -l)" -eq 1 ]
         awk -F '\t' '$1 == 1 && $2 == "JKAnime" && $3 == "Yani Neko" && $4 == 207141 && $7 == "https://img.example/yani-xl.jpg" && $11 == 2026 { found=1 } END { exit !found }' "$generated_preview_file"
         awk -F '\t' '$1 == 2 && $2 == "AnimeX" && $3 == "Yani Neko" && $4 == 207141 && $6 == "Chainsmoker Cat" { found=1 } END { exit !found }' "$generated_preview_file"
         awk -F '\t' '$1 == 3 && $3 == "Super no Ura de Yani Suu Hanashi" && $4 == "" && $7 == "" { found=1 } END { exit !found }' "$generated_preview_file"
+        rm -f "$generated_preview_file"
+
+        one_piece_results="$(printf 'jkanime:one-piece\tOne Piece\tOne Piece [JKAnime]\nanimex:one-piece\tOne Piece\tOne Piece [AnimeX]\n')"
+        generated_preview_file="$(PREVIEW_QUERY_LOG="$preview_query_log" prepare_anime_preview_file "$one_piece_results" 'one+p')"
+        grep -q 'Media(search:\\"One Piece\\"' "$preview_query_log"
+        ! grep -q 'one+p' "$preview_query_log"
+        [ "$(grep -o 'Media(search:\\"One Piece\\"' "$preview_query_log" | wc -l)" -eq 1 ]
+        awk -F '\t' '$1 == 1 && $3 == "One Piece" && $4 == 21 && $7 == "https://img.example/one-piece.jpg" && $11 == 1999 { found=1 } END { exit !found }' "$generated_preview_file"
+        awk -F '\t' '$1 == 2 && $3 == "One Piece" && $4 == 21 && $7 == "https://img.example/one-piece.jpg" { found=1 } END { exit !found }' "$generated_preview_file"
         rm -f "$generated_preview_file"
     )
 
