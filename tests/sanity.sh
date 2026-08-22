@@ -422,6 +422,77 @@ run_playback_controller_smoke() {
     rm -rf "$tmp_dir"
 }
 
+run_anime_preview_smoke() {
+    tmp_dir="$(mktemp -d)"
+    funcs_file="$tmp_dir/preview-functions.sh"
+    preview_file="$tmp_dir/preview-data"
+    output_file="$tmp_dir/output"
+    curl_log="$tmp_dir/curl-log"
+    mkdir -p "$tmp_dir/bin" "$tmp_dir/cache"
+
+    sed -n '/^normalize_romanized_text()/,/^normalize_info_source()/p' ani-cli-mx-core | sed '$d' >"$funcs_file"
+    (
+        # shellcheck disable=SC1090
+        . "$funcs_file"
+        resolver_timeout=5
+        id=''
+        mpv_json_escape() { printf '%s' "$1"; }
+        info_source_label() {
+            case "$1" in
+                jkanime) printf '%s\n' JKAnime ;;
+                animex) printf '%s\n' AnimeX ;;
+                *) printf '%s\n' "$1" ;;
+            esac
+        }
+        curl() {
+            printf '%s\n' '{"data":{"Page":{"media":[{"id":207141,"title":{"romaji":"Yani Neko","english":"Chainsmoker Cat"},"coverImage":{"large":"https:\/\/img.example\/yani.jpg"},"format":"TV","status":"RELEASING","episodes":null,"seasonYear":2026}]}}}'
+        }
+        preview_results="$(printf 'jkanime:yani-neko\tYani Neko\tYani Neko [JKAnime]\nanimex:yani-neko\tYani Neko\tYani Neko [AnimeX]\n')"
+        generated_preview_file="$(prepare_anime_preview_file "$preview_results" 'yani+neko')"
+        [ "$(wc -l <"$generated_preview_file")" -eq 2 ]
+        awk -F '\t' '$1 == 1 && $2 == "JKAnime" && $3 == "Yani Neko" && $4 == 207141 && $7 == "https://img.example/yani.jpg" && $11 == 2026 { found=1 } END { exit !found }' "$generated_preview_file"
+        awk -F '\t' '$1 == 2 && $2 == "AnimeX" && $3 == "Yani Neko" && $4 == 207141 && $6 == "Chainsmoker Cat" { found=1 } END { exit !found }' "$generated_preview_file"
+        rm -f "$generated_preview_file"
+    )
+
+    printf '%s\n' \
+        '1	JKAnime	Yani Neko	207141	Yani Neko	Chainsmoker Cat	https://img.example/yani.jpg	TV	RELEASING		2026' \
+        >"$preview_file"
+    printf '%s\n' \
+        '#!/bin/sh' \
+        'output_file=""' \
+        'while [ "$#" -gt 0 ]; do' \
+        '    if [ "$1" = "-o" ]; then output_file="$2"; shift 2; else shift; fi' \
+        'done' \
+        'printf "downloaded\n" >>"$PREVIEW_CURL_LOG"' \
+        'printf "image-data\n" >"$output_file"' \
+        >"$tmp_dir/bin/curl"
+    printf '%s\n' \
+        '#!/bin/sh' \
+        'for argument in "$@"; do image_path="$argument"; done' \
+        'printf "IMAGE:%s\n" "${image_path##*/}"' \
+        >"$tmp_dir/bin/chafa"
+    chmod +x "$tmp_dir/bin/curl" "$tmp_dir/bin/chafa"
+
+    env PATH="$tmp_dir/bin:$PATH" PREVIEW_CURL_LOG="$curl_log" \
+        ANI_CLI_PREVIEW_CACHE_DIR="$tmp_dir/cache" \
+        ./ani-cli-mx-core --internal-preview "$preview_file" 1 >"$output_file"
+    grep -q '^IMAGE:207141.cover$' "$output_file"
+    grep -q 'Yani Neko' "$output_file"
+    grep -q 'Source: JKAnime' "$output_file"
+    grep -q 'English: Chainsmoker Cat' "$output_file"
+    grep -q 'Year: 2026' "$output_file"
+    grep -q 'Status: RELEASING' "$output_file"
+    [ -s "$tmp_dir/cache/207141.cover" ]
+
+    env PATH="$tmp_dir/bin:$PATH" PREVIEW_CURL_LOG="$curl_log" \
+        ANI_CLI_PREVIEW_CACHE_DIR="$tmp_dir/cache" \
+        ./ani-cli-mx-core --internal-preview "$preview_file" 1 >/dev/null
+    [ "$(wc -l <"$curl_log")" -eq 1 ]
+
+    rm -rf "$tmp_dir"
+}
+
 run_mpv_action_worker_smoke() {
     tmp_dir="$(mktemp -d)"
     funcs_file="$tmp_dir/action-worker-functions.sh"
@@ -719,6 +790,7 @@ case "${1:-}" in
         run_animex_subtitle_smoke
         run_download_menu_smoke
         run_playback_controller_smoke
+        run_anime_preview_smoke
         run_mpv_action_worker_smoke
         run_windows_compat_smoke
         run_search_diagnostic_smoke
@@ -736,6 +808,7 @@ case "${1:-}" in
         run_animex_subtitle_smoke
         run_download_menu_smoke
         run_playback_controller_smoke
+        run_anime_preview_smoke
         run_mpv_action_worker_smoke
         run_windows_compat_smoke
         run_search_diagnostic_smoke

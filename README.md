@@ -411,6 +411,7 @@ Platform notes:
 - `aria2c` for direct-file download support
 - `yt-dlp` for additional extractor coverage and download handling
 - `ffmpeg` as the m3u8 download fallback
+- `chafa` to render AniList cover images in the fzf preview pane
 - `patch` for self-update via `-U`
 - `ani-skip` for intro skipping
 
@@ -500,7 +501,7 @@ Detached interactive mpv playback reuses one player process and window for Next,
 
 Managed mpv playback uses compact terminal controls instead of keeping fzf open while episodes change. Enter a command key followed by Enter: `n` for Next, `p` for Previous, `r` to Repeat, `e` to select an episode, `d` to download, `c` to toggle continuous mode, `x` to toggle closing the previous player, or `q` to quit. The mpv window also provides direct controls: `Shift+N` loads the next episode, `Shift+P` loads the previous episode, `Shift+R` replays, and `Shift+A` toggles continuous mode. Provider resolution remains in ani-cli-mx and mpv displays immediate OSD feedback. With `--continuous`, a natural end-of-file event resolves and loads the next episode in the same mpv window without writing provider output over the controls. Rofi and dmenu users retain their graphical playback menu.
 
-The terminal selectors use a bordered, compact fzf layout. Set `ANI_CLI_EXTERNAL_MENU=1` or use `--rofi` to keep using rofi instead.
+The terminal selectors use a bordered, compact fzf layout. Anime search performs one AniList metadata lookup and opens a preview pane for the highlighted result. Covers are downloaded lazily and cached; when `chafa` is unavailable, the pane still shows title, source, year, format, episode count, and release status as available. Set `ANI_CLI_PREVIEWS=0` to disable previews or `ANI_CLI_PREVIEW_CACHE_DIR` to choose the cover cache. Set `ANI_CLI_EXTERNAL_MENU=1` or use `--rofi` to keep using rofi instead.
 
 Restart the tracked player instead of reusing its window when opening another episode from the playback menu:
 

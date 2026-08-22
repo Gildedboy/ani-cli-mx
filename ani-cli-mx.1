@@ -112,6 +112,12 @@ Sets the player ani-cli-mx uses. Can be debug (print links), download (equivalen
 \fBANI_CLI_EXTERNAL_MENU\fR
 Controls the frontend of ani-cli-mx. Can be 0 (uses fzf) or 1 (uses rofi dmenu). Default is 0.
 .TP
+\fBANI_CLI_PREVIEWS\fR
+Controls AniList metadata and cover previews in the fzf anime search menu. Can be 1 (enabled) or 0 (disabled). Default is 1. Cover images are rendered when chafa is installed; textual metadata remains available without it.
+.TP
+\fBANI_CLI_PREVIEW_CACHE_DIR\fR
+Controls where lazily downloaded AniList cover images are cached. The default is a covers directory under the platform cache directory for ani-cli-mx.
+.TP
 \fBANI_CLI_EXTERNAL_MENU_NORMAL_WINDOW\fR
 Controls the way rofi displays the window. Can be 0 (no additional arguments passed to rofi) or 1 (the menu is displayed as a normal window, -normal-window argument is passed to rofi). Default is 0.
 .TP
