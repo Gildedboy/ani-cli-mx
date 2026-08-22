@@ -725,12 +725,12 @@ run_windows_compat_smoke() {
         ANI_CLI_STATE_NAME=ani-cli-mx LOCALAPPDATA="$local_app_data_env" \
         ANI_CLI_PLAYER=debug ./ani-cli-mx-core -V)"
 
-    [ "$version_output" = "2.0.0" ]
+    [ "$version_output" = "2.0.1" ]
     [ -f "$local_app_data/ani-cli-mx/ani-hsts" ]
     grep -q 'GIT_INSTALL_ROOT' ani-cli-mx.cmd
     grep -q 'ANI_CLI_PACKAGE_MANAGER=scoop' ani-cli-mx.cmd
     grep -q 'ANI_CLI_STATE_NAME=ani-cli-mx' ani-cli-mx.cmd
-    grep -q '"chafa"' bucket/ani-cli-mx.json
+    ! grep -q 'ANI_CLI_PREVIEW_EXEC' ani-cli-mx-core
     ! grep -qi 'System32.*bash.exe' ani-cli-mx.cmd
 
     env PATH="$tmp_dir/bin:$PATH" ANI_CLI_WINDOWS=1 ANI_CLI_PACKAGE_MANAGER=scoop \
@@ -930,7 +930,6 @@ case "${1:-}" in
         run_download_menu_smoke
         run_playback_menu_smoke
         run_history_menu_smoke
-        run_anime_preview_smoke
         run_main_menu_smoke
         run_mpv_action_worker_smoke
         run_windows_compat_smoke
@@ -950,7 +949,6 @@ case "${1:-}" in
         run_download_menu_smoke
         run_playback_menu_smoke
         run_history_menu_smoke
-        run_anime_preview_smoke
         run_main_menu_smoke
         run_mpv_action_worker_smoke
         run_windows_compat_smoke

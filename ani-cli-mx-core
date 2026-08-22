@@ -1,6 +1,6 @@
 #!/bin/sh
 
-version_number="2.0.0"
+version_number="2.0.1"
 app_name="${ANI_CLI_NAME:-${0##*/}}"
 log_tag="${ANI_CLI_LOG_TAG:-$app_name}"
 hist_state_name="${ANI_CLI_STATE_NAME:-$app_name}"
@@ -57,13 +57,7 @@ playback_launcher() {
 launcher() {
     [ "$use_external_menu" = "0" ] && [ -z "$1" ] && set -- "+m" "$2"
     if [ "$use_external_menu" = "0" ]; then
-        if [ -n "${anime_preview_file:-}" ]; then
-            ANI_CLI_PREVIEW_EXEC="$0" ANI_CLI_PREVIEW_FILE="$anime_preview_file" \
-                fzf "$1" --reverse --cycle --height=90% --border=rounded \
-                --info=inline --pointer='>' --marker='*' --header="$app_name" \
-                --preview='"$ANI_CLI_PREVIEW_EXEC" --internal-preview "$ANI_CLI_PREVIEW_FILE" {1}' \
-                --preview-window='right,45%,border-left' --prompt "$2"
-        elif [ "${playback_menu_live:-0}" = "1" ]; then
+        if [ "${playback_menu_live:-0}" = "1" ]; then
             playback_launcher "$1"
         else
             fzf "$1" --reverse --cycle --height=90% --border=rounded \
@@ -685,241 +679,6 @@ build_anime_menu() {
         esac
         printf '%d\t%s\t%s %s\n' "$menu_index" "$menu_id" "$menu_language" "$menu_label"
     done
-}
-
-clean_preview_json_value() {
-    printf '%s' "$1" | sed 's|^"||; s|"$||; s|^null$||; s|\\/|/|g; s|\\"|"|g'
-}
-
-preview_metadata_match_is_confident() {
-    preview_match_score="$1"
-    preview_result_title="$2"
-    preview_romaji_title="$3"
-    preview_english_title="$4"
-    cross_source_match_is_confident "$preview_match_score" || return 1
-
-    preview_result_key="$(normalize_match_key "$preview_result_title")"
-    preview_romaji_key="$(normalize_match_key "$preview_romaji_title")"
-    preview_english_key="$(normalize_match_key "$preview_english_title")"
-    [ -n "$preview_result_key" ] || return 1
-    [ "$preview_result_key" = "$preview_romaji_key" ] && return 0
-    [ -n "$preview_english_key" ] && [ "$preview_result_key" = "$preview_english_key" ] && return 0
-
-    preview_distinctive_count="$(count_distinctive_query_words "$preview_result_title")"
-    [ "$preview_distinctive_count" -gt 1 ] || return 1
-    preview_romaji_overlap="$(count_distinctive_overlap "$preview_result_title" "$preview_romaji_title")"
-    preview_english_overlap="$(count_distinctive_overlap "$preview_result_title" "$preview_english_title")"
-    preview_best_overlap="$preview_romaji_overlap"
-    [ "$preview_english_overlap" -gt "$preview_best_overlap" ] && preview_best_overlap="$preview_english_overlap"
-
-    [ "$preview_best_overlap" -ge 2 ] &&
-        [ $((preview_best_overlap * 2)) -ge "$preview_distinctive_count" ]
-}
-
-fetch_anilist_preview_metadata() {
-    preview_titles="$(printf '%s\n' "$1" | awk -F '\t' 'NF >= 2 && !seen[$2]++ { print $2 }')"
-    [ -n "$preview_titles" ] || return 0
-
-    preview_query='query{'
-    preview_alias=0
-    preview_titles_old_ifs=$IFS
-    IFS='
-'
-    for preview_title_search in $preview_titles; do
-        preview_title_search="$(printf '%s' "$preview_title_search" |
-            sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')"
-        preview_query="${preview_query}m${preview_alias}:Media(search:\"${preview_title_search}\",type:ANIME){id title{romaji english} coverImage{extraLarge} format status episodes seasonYear} "
-        preview_alias=$((preview_alias + 1))
-    done
-    IFS=$preview_titles_old_ifs
-    preview_query="${preview_query}}"
-    preview_query="$(mpv_json_escape "$preview_query")"
-
-    curl -sS --max-time "${resolver_timeout:-15}" https://graphql.anilist.co \
-        -H 'Content-Type: application/json' \
-        --data "{\"query\":\"${preview_query}\"}" 2>/dev/null |
-        sed 's|{"id"|\
-{"id"|g' |
-        sed -nE 's~.*"id":([0-9]+),"title":\{"romaji":"([^"]*)","english":(null|"[^"]*")\},"coverImage":\{"extraLarge":"([^"]*)"\},"format":(null|"[^"]*"),"status":(null|"[^"]*"),"episodes":(null|[0-9]+),"seasonYear":(null|[0-9]+).*~\1\t\2\t\3\t\4\t\5\t\6\t\7\t\8~p'
-}
-
-prepare_anime_preview_file() {
-    preview_results="$1"
-    preview_metadata="$(fetch_anilist_preview_metadata "$preview_results" || true)"
-    preview_file="$(mktemp)"
-    preview_index=0
-    saved_preview_id="${id:-}"
-    old_ifs=$IFS
-    IFS='
-'
-    for preview_entry in $preview_results; do
-        preview_result_id="$(printf '%s' "$preview_entry" | cut -f1)"
-        preview_title="$(printf '%s' "$preview_entry" | cut -f2)"
-        [ -n "$preview_result_id" ] || continue
-        preview_index=$((preview_index + 1))
-        preview_source="$(site_name_from_ref "$preview_result_id" 2>/dev/null || true)"
-        preview_source="$(info_source_label "$preview_source")"
-        preview_best_score=-999999
-        preview_best_record=""
-        id="$preview_result_id"
-
-        metadata_old_ifs=$IFS
-        IFS='
-'
-        for metadata_entry in $preview_metadata; do
-            metadata_id="$(printf '%s' "$metadata_entry" | cut -f1)"
-            metadata_romaji="$(clean_preview_json_value "$(printf '%s' "$metadata_entry" | cut -f2)")"
-            metadata_english="$(clean_preview_json_value "$(printf '%s' "$metadata_entry" | cut -f3)")"
-            matching_ifs=$IFS
-            unset IFS
-            metadata_score="$(title_match_score "$preview_title" "$metadata_id" "$metadata_romaji")"
-            if [ -n "$metadata_english" ]; then
-                english_score="$(title_match_score "$preview_title" "$metadata_id" "$metadata_english")"
-                [ "$english_score" -gt "$metadata_score" ] && metadata_score="$english_score"
-            fi
-            IFS=$matching_ifs
-            if [ "$metadata_score" -gt "$preview_best_score" ]; then
-                preview_best_score="$metadata_score"
-                preview_best_record="$metadata_entry"
-            fi
-        done
-        IFS=$metadata_old_ifs
-
-        preview_best_romaji="$(clean_preview_json_value "$(printf '%s' "$preview_best_record" | cut -f2)")"
-        preview_best_english="$(clean_preview_json_value "$(printf '%s' "$preview_best_record" | cut -f3)")"
-        if [ -n "$preview_best_record" ] && preview_metadata_match_is_confident \
-            "$preview_best_score" "$preview_title" "$preview_best_romaji" "$preview_best_english"; then
-            metadata_id="$(printf '%s' "$preview_best_record" | cut -f1)"
-            metadata_romaji="$(clean_preview_json_value "$(printf '%s' "$preview_best_record" | cut -f2)")"
-            metadata_english="$(clean_preview_json_value "$(printf '%s' "$preview_best_record" | cut -f3)")"
-            metadata_cover="$(clean_preview_json_value "$(printf '%s' "$preview_best_record" | cut -f4)")"
-            metadata_format="$(clean_preview_json_value "$(printf '%s' "$preview_best_record" | cut -f5)")"
-            metadata_status="$(clean_preview_json_value "$(printf '%s' "$preview_best_record" | cut -f6)")"
-            metadata_episodes="$(clean_preview_json_value "$(printf '%s' "$preview_best_record" | cut -f7)")"
-            metadata_year="$(clean_preview_json_value "$(printf '%s' "$preview_best_record" | cut -f8)")"
-        else
-            metadata_id=""
-            metadata_romaji=""
-            metadata_english=""
-            metadata_cover=""
-            metadata_format=""
-            metadata_status=""
-            metadata_episodes=""
-            metadata_year=""
-        fi
-        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-            "$preview_index" "$preview_source" "$preview_title" "$metadata_id" \
-            "$metadata_romaji" "$metadata_english" "$metadata_cover" "$metadata_format" \
-            "$metadata_status" "$metadata_episodes" "$metadata_year" >>"$preview_file"
-    done
-    IFS=$old_ifs
-    id="$saved_preview_id"
-    printf '%s\n' "$preview_file"
-}
-
-preview_section_border() {
-    preview_border_side="$1"
-    preview_border_label="$2"
-    preview_border_width="$3"
-    case "$preview_border_side" in
-        top) preview_border_fill=$((preview_border_width - ${#preview_border_label} - 5)) ;;
-        bottom) preview_border_fill=$((preview_border_width - 2)) ;;
-    esac
-    [ "$preview_border_fill" -lt 1 ] && preview_border_fill=1
-
-    case "$preview_border_side" in
-        top) printf '╭─ %s ' "$preview_border_label" ;;
-        bottom) printf '╰' ;;
-    esac
-    awk -v count="$preview_border_fill" 'BEGIN { for (i = 0; i < count; i++) printf "─" }'
-    case "$preview_border_side" in
-        top) printf '╮\n' ;;
-        bottom) printf '╯\n' ;;
-    esac
-}
-
-render_anime_preview() {
-    preview_data_file="$1"
-    preview_selected_index="$2"
-    [ -f "$preview_data_file" ] || return 0
-    case "$preview_selected_index" in *[!0-9]* | '') return 0 ;; esac
-
-    preview_cover="$(awk -F '\t' -v selected="$preview_selected_index" '$1 == selected { print $7; exit }' "$preview_data_file")"
-    preview_anilist_id="$(awk -F '\t' -v selected="$preview_selected_index" '$1 == selected { print $4; exit }' "$preview_data_file")"
-    preview_cache_root="${ANI_CLI_PREVIEW_CACHE_DIR:-$(default_cache_dir)/covers}"
-    preview_columns="${FZF_PREVIEW_COLUMNS:-48}"
-    preview_lines="${FZF_PREVIEW_LINES:-30}"
-    case "$preview_columns" in *[!0-9]* | '') preview_columns=48 ;; esac
-    case "$preview_lines" in *[!0-9]* | '') preview_lines=30 ;; esac
-    preview_width=$((preview_columns - 2))
-    preview_height=$((preview_lines - 14))
-    [ "$preview_width" -lt 18 ] && preview_width=18
-    [ "$preview_height" -lt 6 ] && preview_height=6
-    preview_image_width=$((preview_width - 2))
-
-    preview_section_border top PORTADA "$preview_width"
-    preview_image_rendered=0
-    if [ -n "$preview_cover" ] && [ -n "$preview_anilist_id" ]; then
-        mkdir -p "$preview_cache_root"
-        preview_image="$preview_cache_root/${preview_anilist_id}.extra-large.cover"
-        if [ ! -s "$preview_image" ]; then
-            preview_image_tmp="${preview_image}.tmp.$$"
-            if curl -fsSL --max-time 12 "$preview_cover" -o "$preview_image_tmp" 2>/dev/null; then
-                mv "$preview_image_tmp" "$preview_image"
-            else
-                rm -f "$preview_image_tmp"
-            fi
-        fi
-        if [ -s "$preview_image" ] && command -v chafa >/dev/null 2>&1; then
-            chafa_format="${ANI_CLI_CHAFA_FORMAT:-auto}"
-            if [ "$chafa_format" = "auto" ] && [ -n "${WT_SESSION:-}" ]; then
-                chafa_format=sixels
-            fi
-            if [ "$chafa_format" = "auto" ]; then
-                if chafa --animate=off --scale=max --work=9 --align=top,center \
-                    --view-size="${preview_image_width}x${preview_height}" \
-                    --size="${preview_image_width}x${preview_height}" "$preview_image" 2>/dev/null; then
-                    preview_image_rendered=1
-                    printf '\n'
-                fi
-            else
-                if chafa --animate=off --scale=max --work=9 --align=top,center \
-                    --view-size="${preview_image_width}x${preview_height}" --passthrough=none \
-                    --format="$chafa_format" --size="${preview_image_width}x${preview_height}" \
-                    "$preview_image" 2>/dev/null; then
-                    preview_image_rendered=1
-                    printf '\n'
-                fi
-            fi
-        elif [ -s "$preview_image" ]; then
-            printf 'Instala chafa para mostrar la portada.\n'
-            preview_image_rendered=1
-        fi
-    fi
-    [ "$preview_image_rendered" = "1" ] || printf 'Sin portada disponible.\n'
-    preview_section_border bottom '' "$preview_width"
-    printf '\n'
-
-    preview_section_border top INFORMACIÓN "$preview_width"
-    awk -F '\t' -v selected="$preview_selected_index" -v box_width="$preview_width" '
-        function row(text, width) {
-            width = box_width - 4
-            if (length(text) > width) text = substr(text, 1, width - 1) "…"
-            printf "│ %-*s │\n", width, text
-        }
-        $1 == selected {
-            row($3)
-            row("Fuente: " $2)
-            if ($5 != "" && $5 != $3) row("AniList: " $5)
-            if ($6 != "" && $6 != $5 && $6 != $3) row("Inglés: " $6)
-            if ($8 != "") row("Formato: " $8)
-            if ($11 != "") row("Año: " $11)
-            if ($10 != "") row("Episodios: " $10)
-            if ($9 != "") row("Estado: " $9)
-            exit
-        }
-    ' "$preview_data_file"
-    preview_section_border bottom '' "$preview_width"
 }
 
 normalize_info_source() {
@@ -3669,12 +3428,6 @@ playback_command() {
 
 # MAIN
 
-if [ "${1:-}" = "--internal-preview" ]; then
-    [ "$#" -eq 3 ] || exit 0
-    render_anime_preview "$2" "$3"
-    exit 0
-fi
-
 # setup
 agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0"
 anidb_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
@@ -3728,9 +3481,6 @@ external_menu_normal_window="${ANI_CLI_EXTERNAL_MENU_NORMAL_WINDOW:-0}"
 skip_intro="${ANI_CLI_SKIP_INTRO:-0}"
 hqq_browser_fallback="${ANI_CLI_HQQ_BROWSER_FALLBACK:-1}"
 fast_mode="${ANI_CLI_FAST_MODE:-1}"
-anime_previews_enabled="${ANI_CLI_PREVIEWS:-1}"
-anime_preview_cache_dir="${ANI_CLI_PREVIEW_CACHE_DIR:-$(default_cache_dir)/covers}"
-anime_preview_file=""
 fast_mode_source=""
 fast_mode_ep_list=""
 disabled_spanish_sources=""
@@ -3744,7 +3494,7 @@ cleanup() {
     stop_continuous_worker
     persistent_mpv_alive && close_tracked_player
     rm -f "$fast_mode_mirror_file" "$continuous_state_file" "$current_episode_file" \
-        "$continuous_worker_log_file" "${anime_preview_file:-}"
+        "$continuous_worker_log_file"
     rm -f "$mpv_window_state_file" "$mpv_window_state_script" \
         "$mpv_session_command_file" "$mpv_session_event_file" "$mpv_session_action_file" \
         "$mpv_session_owner_file" "$mpv_session_controller_script"
@@ -3930,15 +3680,7 @@ case "$search" in
         [ "$index" -eq "$index" ] 2>/dev/null && result=$(printf "%s" "$anime_list" | sed -n "${index}p")
         if [ -z "$index" ]; then
             anime_menu="$(printf "%s\n" "$anime_list" | build_anime_menu)"
-            anime_menu_count="$(printf '%s\n' "$anime_menu" | wc -l | tr -d '[:space:]')"
-            if [ "$anime_previews_enabled" = "1" ] && [ "$use_external_menu" = "0" ] && \
-                [ "${hentaila_mode:-0}" != "1" ] && [ "$anime_menu_count" -gt 1 ]; then
-                anime_preview_file="$(prepare_anime_preview_file "$anime_list")"
-                export ANI_CLI_PREVIEW_CACHE_DIR="$anime_preview_cache_dir"
-            fi
             result="$(printf "%s" "$anime_menu" | nth "Selecciona anime: ")"
-            rm -f "${anime_preview_file:-}"
-            anime_preview_file=""
         fi
         [ -z "$result" ] && exit 1
         id=$(printf "%s" "$result" | cut -f1)

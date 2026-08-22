@@ -289,7 +289,7 @@ If these applications were installed only for ani-cli-mx and are not used by
 anything else, they can also be removed:
 
 ```powershell
-scoop uninstall mpv chafa fzf curl grep sed
+scoop uninstall mpv fzf curl grep sed
 ```
 
 Remove optional download tools or VLC only if you installed them specifically
@@ -396,7 +396,6 @@ Required:
 - `sed`
 - `grep`
 - `fzf`
-- `chafa` for AniList cover images in the fzf preview pane
 - a supported player, usually `mpv`
 
 Platform notes:
@@ -503,7 +502,7 @@ Managed mpv playback keeps a selectable fzf menu open for Next Episode, Previous
 
 Running `ani-cli-mx` without a title opens a home menu with Search, Continue Watching, and Exit. Search accepts the title inside the fzf interface before opening the results selector. Continue Watching shows the last watched episode and the episode that will play for every history entry; caught-up titles are labeled as replaying the last episode. Direct title queries continue to bypass the home menu.
 
-The terminal selectors use a bordered, compact fzf layout. Anime search performs one AniList metadata lookup and opens a preview pane for the highlighted result. Extra-large covers are downloaded lazily and cached, and Chafa scales them to the available preview-pane dimensions. WSL sessions hosted by Windows Terminal use Sixel graphics for a real bitmap preview instead of enlarged character art. Set `ANI_CLI_CHAFA_FORMAT` to `auto`, `sixels`, `kitty`, `iterm`, or `symbols` to override the renderer format. If `chafa` is unavailable in a manual installation, the pane still shows title, source, year, format, episode count, and release status as available. Set `ANI_CLI_PREVIEWS=0` to disable previews or `ANI_CLI_PREVIEW_CACHE_DIR` to choose the cover cache. Set `ANI_CLI_EXTERNAL_MENU=1` or use `--rofi` to keep using rofi instead.
+The terminal selectors use a bordered, compact fzf layout. Set `ANI_CLI_EXTERNAL_MENU=1` or use `--rofi` to keep using rofi instead.
 
 Restart the tracked player instead of reusing its window when opening another episode from the playback menu:
 

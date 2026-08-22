@@ -18,7 +18,7 @@ This fork tries JKAnime first, then AnimeAV1 and AnimeFLV. Searches group Spanis
 \f[B]ani-cli-mx\f[R] without options defaults to iina on macOS, flatpak mpv on Steamdeck, mpv apk on android, vlc on iOS and mpv media player everywhere else.
 .SH DEPENDENCIES
 .PP
-The required command-line tools are curl, sed, grep, fzf, chafa, and a supported media player. Native Windows installations use Git for Windows as the Bash runtime and Scoop declares curl, sed, grep, fzf, chafa, and mpv as package dependencies. Git must be installed before adding the Scoop buckets because buckets are Git repositories.
+The required command-line tools are curl, sed, grep, fzf, and a supported media player. Native Windows installations use Git for Windows as the Bash runtime and Scoop declares curl, sed, grep, fzf, and mpv as package dependencies. Git must be installed before adding the Scoop buckets because buckets are Git repositories.
 .PP
 aria2, ffmpeg, and yt-dlp are optional download tools. VLC is an optional alternate media player.
 curl-impersonate is optional but required for AniDB because AniDB currently rejects regular curl through Cloudflare.
@@ -113,15 +113,6 @@ Sets the player ani-cli-mx uses. Can be debug (print links), download (equivalen
 .TP
 \fBANI_CLI_EXTERNAL_MENU\fR
 Controls the frontend of ani-cli-mx. Can be 0 (uses fzf) or 1 (uses rofi dmenu). Default is 0.
-.TP
-\fBANI_CLI_PREVIEWS\fR
-Controls AniList metadata and cover previews in the fzf anime search menu. Can be 1 (enabled) or 0 (disabled). Default is 1. Cover images are rendered when chafa is installed; textual metadata remains available without it.
-.TP
-\fBANI_CLI_PREVIEW_CACHE_DIR\fR
-Controls where lazily downloaded AniList cover images are cached. The default is a covers directory under the platform cache directory for ani-cli-mx.
-.TP
-\fBANI_CLI_CHAFA_FORMAT\fR
-Overrides Chafa's output format. Supported values are auto, sixels, kitty, iterm, and symbols. WSL sessions hosted by Windows Terminal default to sixels; other terminals default to Chafa auto-detection.
 .TP
 \fBANI_CLI_EXTERNAL_MENU_NORMAL_WINDOW\fR
 Controls the way rofi displays the window. Can be 0 (no additional arguments passed to rofi) or 1 (the menu is displayed as a normal window, -normal-window argument is passed to rofi). Default is 0.
