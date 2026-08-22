@@ -21,6 +21,12 @@ launcher() {
                 --info=inline --pointer='>' --marker='*' --header="$app_name" \
                 --preview='"$ANI_CLI_PREVIEW_EXEC" --internal-preview "$ANI_CLI_PREVIEW_FILE" {1}' \
                 --preview-window='right,45%,border-left' --prompt "$2"
+        elif [ "${playback_menu_live:-0}" = "1" ] && fzf --help 2>&1 | grep -q -- '--listen'; then
+            ANI_CLI_PLAYBACK_WATCH_EXEC="$0" ANI_CLI_PLAYBACK_WATCH_FILE="$current_episode_file" \
+                fzf "$1" --reverse --cycle --height=90% --border=rounded \
+                --info=inline --pointer='>' --marker='*' --header="$2" --prompt='Accion: ' \
+                --listen=0 \
+                --bind='start:execute-silent:"$ANI_CLI_PLAYBACK_WATCH_EXEC" --internal-playback-menu-watch "$ANI_CLI_PLAYBACK_WATCH_FILE" "$FZF_PORT"'
         else
             fzf "$1" --reverse --cycle --height=90% --border=rounded \
                 --info=inline --pointer='>' --marker='*' --header="$app_name" --prompt "$2"
@@ -28,6 +34,45 @@ launcher() {
     fi
     [ "$use_external_menu" = "1" ] && external_menu "$1" "$2" "$external_menu_args"
     [ "$use_external_menu" = "2" ] && external_menu "$1" "$2"
+}
+
+main_menu_options() {
+    printf '1\tsearch\tBuscar anime\n'
+    printf '2\thistory\tContinuar viendo\n'
+    printf '3\texit\tSalir\n'
+}
+
+main_menu() {
+    main_menu_options | nth "Inicio: " | cut -f1
+}
+
+search_query_menu() {
+    if [ "$use_external_menu" = "0" ]; then
+        search_query_output="$(printf 'Escribe el titulo y presiona Enter\n' |
+            fzf --phony --print-query --no-sort --height=90% --border=rounded \
+                --info=hidden --pointer='>' --header="$app_name · Buscar anime" \
+                --prompt='Buscar: ' || true)"
+        printf '%s\n' "$search_query_output" | sed -n '1p'
+        return
+    fi
+
+    external_menu "" "Buscar anime: " "$external_menu_args"
+}
+
+watch_playback_menu_episode() {
+    playback_watch_file="$1"
+    playback_watch_port="$2"
+    playback_watch_episode="$(sed -n '1p' "$playback_watch_file" 2>/dev/null || true)"
+    while curl -fsS "http://127.0.0.1:${playback_watch_port}" >/dev/null 2>&1; do
+        playback_watch_current="$(sed -n '1p' "$playback_watch_file" 2>/dev/null || true)"
+        if [ -n "$playback_watch_current" ] && [ "$playback_watch_current" != "$playback_watch_episode" ]; then
+            playback_watch_episode="$playback_watch_current"
+            curl -fsS -X POST "http://127.0.0.1:${playback_watch_port}" \
+                --data-binary "change-header(Episodio ${playback_watch_current} cargado - selecciona una opcion)" \
+                >/dev/null 2>&1 || return 0
+        fi
+        sleep 0.2
+    done
 }
 
 nth() {
@@ -623,16 +668,41 @@ clean_preview_json_value() {
     printf '%s' "$1" | sed 's|^"||; s|"$||; s|^null$||; s|\\/|/|g; s|\\"|"|g'
 }
 
+preview_metadata_match_is_confident() {
+    preview_match_score="$1"
+    preview_result_title="$2"
+    preview_romaji_title="$3"
+    preview_english_title="$4"
+    cross_source_match_is_confident "$preview_match_score" || return 1
+
+    preview_result_key="$(normalize_match_key "$preview_result_title")"
+    preview_romaji_key="$(normalize_match_key "$preview_romaji_title")"
+    preview_english_key="$(normalize_match_key "$preview_english_title")"
+    [ -n "$preview_result_key" ] || return 1
+    [ "$preview_result_key" = "$preview_romaji_key" ] && return 0
+    [ -n "$preview_english_key" ] && [ "$preview_result_key" = "$preview_english_key" ] && return 0
+
+    preview_distinctive_count="$(count_distinctive_query_words "$preview_result_title")"
+    [ "$preview_distinctive_count" -gt 1 ] || return 1
+    preview_romaji_overlap="$(count_distinctive_overlap "$preview_result_title" "$preview_romaji_title")"
+    preview_english_overlap="$(count_distinctive_overlap "$preview_result_title" "$preview_english_title")"
+    preview_best_overlap="$preview_romaji_overlap"
+    [ "$preview_english_overlap" -gt "$preview_best_overlap" ] && preview_best_overlap="$preview_english_overlap"
+
+    [ "$preview_best_overlap" -ge 2 ] &&
+        [ $((preview_best_overlap * 2)) -ge "$preview_distinctive_count" ]
+}
+
 fetch_anilist_preview_metadata() {
     preview_search="$(printf '%s' "$1" | sed 's|+| |g')"
     preview_search="$(mpv_json_escape "$preview_search")"
-    preview_query='query($search:String){Page(page:1,perPage:15){media(search:$search,type:ANIME){id title{romaji english} coverImage{large} format status episodes seasonYear}}}'
+    preview_query='query($search:String){Page(page:1,perPage:15){media(search:$search,type:ANIME){id title{romaji english} coverImage{extraLarge} format status episodes seasonYear}}}'
     curl -sS --max-time "${resolver_timeout:-15}" https://graphql.anilist.co \
         -H 'Content-Type: application/json' \
         --data "{\"query\":\"${preview_query}\",\"variables\":{\"search\":\"${preview_search}\"}}" 2>/dev/null |
         sed 's|},{"id"|}\
 {"id"|g' |
-        sed -nE 's~.*"id":([0-9]+),"title":\{"romaji":"([^"]*)","english":(null|"[^"]*")\},"coverImage":\{"large":"([^"]*)"\},"format":(null|"[^"]*"),"status":(null|"[^"]*"),"episodes":(null|[0-9]+),"seasonYear":(null|[0-9]+).*~\1\t\2\t\3\t\4\t\5\t\6\t\7\t\8~p'
+        sed -nE 's~.*"id":([0-9]+),"title":\{"romaji":"([^"]*)","english":(null|"[^"]*")\},"coverImage":\{"extraLarge":"([^"]*)"\},"format":(null|"[^"]*"),"status":(null|"[^"]*"),"episodes":(null|[0-9]+),"seasonYear":(null|[0-9]+).*~\1\t\2\t\3\t\4\t\5\t\6\t\7\t\8~p'
 }
 
 prepare_anime_preview_file() {
@@ -677,7 +747,10 @@ prepare_anime_preview_file() {
         done
         IFS=$metadata_old_ifs
 
-        if cross_source_match_is_confident "$preview_best_score" && [ -n "$preview_best_record" ]; then
+        preview_best_romaji="$(clean_preview_json_value "$(printf '%s' "$preview_best_record" | cut -f2)")"
+        preview_best_english="$(clean_preview_json_value "$(printf '%s' "$preview_best_record" | cut -f3)")"
+        if [ -n "$preview_best_record" ] && preview_metadata_match_is_confident \
+            "$preview_best_score" "$preview_title" "$preview_best_romaji" "$preview_best_english"; then
             metadata_id="$(printf '%s' "$preview_best_record" | cut -f1)"
             metadata_romaji="$(clean_preview_json_value "$(printf '%s' "$preview_best_record" | cut -f2)")"
             metadata_english="$(clean_preview_json_value "$(printf '%s' "$preview_best_record" | cut -f3)")"
@@ -717,7 +790,7 @@ render_anime_preview() {
     preview_cache_root="${ANI_CLI_PREVIEW_CACHE_DIR:-$(default_cache_dir)/covers}"
     if [ -n "$preview_cover" ] && [ -n "$preview_anilist_id" ]; then
         mkdir -p "$preview_cache_root"
-        preview_image="$preview_cache_root/${preview_anilist_id}.cover"
+        preview_image="$preview_cache_root/${preview_anilist_id}.extra-large.cover"
         if [ ! -s "$preview_image" ]; then
             preview_image_tmp="${preview_image}.tmp.$$"
             if curl -fsSL --max-time 12 "$preview_cover" -o "$preview_image_tmp" 2>/dev/null; then
@@ -727,7 +800,26 @@ render_anime_preview() {
             fi
         fi
         if [ -s "$preview_image" ] && command -v chafa >/dev/null 2>&1; then
-            chafa --animate=off --size=40x18 "$preview_image" 2>/dev/null || true
+            preview_columns="${FZF_PREVIEW_COLUMNS:-48}"
+            preview_lines="${FZF_PREVIEW_LINES:-30}"
+            case "$preview_columns" in *[!0-9]* | '') preview_columns=48 ;; esac
+            case "$preview_lines" in *[!0-9]* | '') preview_lines=30 ;; esac
+            preview_width=$((preview_columns - 2))
+            preview_height=$((preview_lines - 11))
+            [ "$preview_width" -lt 8 ] && preview_width=8
+            [ "$preview_height" -lt 6 ] && preview_height=6
+            chafa_format="${ANI_CLI_CHAFA_FORMAT:-auto}"
+            if [ "$chafa_format" = "auto" ] && [ -n "${WT_SESSION:-}" ]; then
+                chafa_format=sixels
+            fi
+            if [ "$chafa_format" = "auto" ]; then
+                chafa --animate=off --scale=max --work=9 \
+                    --size="${preview_width}x${preview_height}" "$preview_image" 2>/dev/null || true
+            else
+                chafa --animate=off --scale=max --work=9 --passthrough=none \
+                    --format="$chafa_format" --size="${preview_width}x${preview_height}" \
+                    "$preview_image" 2>/dev/null || true
+            fi
             printf '\n'
         elif [ -s "$preview_image" ]; then
             printf 'Cover cached. Install chafa to render images in the terminal.\n\n'
@@ -3425,18 +3517,32 @@ toggle_close_previous_from_menu() {
 }
 
 playback_menu_options() {
-    printf "siguiente\nanterior\nrepetir_episodio_actual\nelegir_episodio\ndescargar_episodio_actual\n"
+    playback_option_index=1
+    printf '%s\t%s\t%s\n' "$playback_option_index" siguiente 'Siguiente episodio'
+    playback_option_index=$((playback_option_index + 1))
+    printf '%s\t%s\t%s\n' "$playback_option_index" anterior 'Episodio anterior'
+    playback_option_index=$((playback_option_index + 1))
+    printf '%s\t%s\t%s\n' "$playback_option_index" repetir_episodio_actual 'Repetir episodio actual'
+    playback_option_index=$((playback_option_index + 1))
+    printf '%s\t%s\t%s\n' "$playback_option_index" elegir_episodio 'Elegir otro capitulo'
+    playback_option_index=$((playback_option_index + 1))
+    printf '%s\t%s\t%s\n' "$playback_option_index" descargar_episodio_actual 'Descargar episodio actual'
+    playback_option_index=$((playback_option_index + 1))
     if continuous_enabled; then
-        printf "desactivar_modo_continuo\n"
+        printf '%s\t%s\t%s\n' "$playback_option_index" desactivar_modo_continuo 'Desactivar modo continuo'
     else
-        printf "activar_modo_continuo\n"
+        printf '%s\t%s\t%s\n' "$playback_option_index" activar_modo_continuo 'Activar modo continuo'
     fi
-    if close_previous_enabled; then
-        printf "desactivar_cerrar_reproductor_anterior\n"
-    else
-        printf "activar_cerrar_reproductor_anterior\n"
+    playback_option_index=$((playback_option_index + 1))
+    if [ "${1:-}" != "persistent" ]; then
+        if close_previous_enabled; then
+            printf '%s\t%s\t%s\n' "$playback_option_index" desactivar_cerrar_reproductor_anterior 'No cerrar el reproductor anterior'
+        else
+            printf '%s\t%s\t%s\n' "$playback_option_index" activar_cerrar_reproductor_anterior 'Cerrar el reproductor anterior'
+        fi
+        playback_option_index=$((playback_option_index + 1))
     fi
-    printf "salir\n"
+    printf '%s\t%s\t%s\n' "$playback_option_index" salir 'Salir del reproductor'
 }
 
 playback_menu_prompt() {
@@ -3456,46 +3562,10 @@ playback_menu_prompt() {
     printf "Reproduciendo episodio %s de %s... Modo actual: %s - %s - %s" "$menu_ep" "$title" "$playback_mode" "$playback_note" "$close_note"
 }
 
-playback_controller_command() {
-    controller_ep="$(current_episode_number)"
-    if continuous_enabled; then
-        controller_mode="continuo"
-        controller_continuous_label="desactivar continuo"
-        controller_continuous_command="desactivar_modo_continuo"
-    else
-        controller_mode="manual"
-        controller_continuous_label="activar continuo"
-        controller_continuous_command="activar_modo_continuo"
-    fi
-    if close_previous_enabled; then
-        controller_close_state="si"
-        controller_close_command="desactivar_cerrar_reproductor_anterior"
-    else
-        controller_close_state="no"
-        controller_close_command="activar_cerrar_reproductor_anterior"
-    fi
-    printf '\nEpisodio %s de %s · modo %s\n' "$controller_ep" "$title" "$controller_mode" 1>&2
-    printf '[n] siguiente  [p] anterior  [r] repetir  [e] episodios\n' 1>&2
-    printf '[d] descargar  [c] %s  [x] cerrar anterior: %s  [q] salir\n' \
-        "$controller_continuous_label" "$controller_close_state" 1>&2
-    printf 'Comando (tecla + Enter): ' 1>&2
-    IFS= read -r controller_key || return 1
-    case "$controller_key" in
-        n | N | siguiente) printf '%s\n' siguiente ;;
-        p | P | anterior) printf '%s\n' anterior ;;
-        r | R | repetir) printf '%s\n' repetir_episodio_actual ;;
-        e | E | episodios) printf '%s\n' elegir_episodio ;;
-        d | D | descargar) printf '%s\n' descargar_episodio_actual ;;
-        c | C | continuo) printf '%s\n' "$controller_continuous_command" ;;
-        x | X | cerrar) printf '%s\n' "$controller_close_command" ;;
-        q | Q | salir) printf '%s\n' salir ;;
-        *) printf '%s\n' controlador_sin_accion ;;
-    esac
-}
-
 playback_command() {
     if [ "$use_external_menu" = "0" ] && persistent_mpv_alive; then
-        playback_controller_command
+        playback_menu_live=1
+        playback_menu_options persistent | nth "$(playback_menu_prompt) "
     else
         playback_menu_options | nth "$(playback_menu_prompt) "
     fi
@@ -3506,6 +3576,12 @@ playback_command() {
 if [ "${1:-}" = "--internal-preview" ]; then
     [ "$#" -eq 3 ] || exit 0
     render_anime_preview "$2" "$3"
+    exit 0
+fi
+
+if [ "${1:-}" = "--internal-playback-menu-watch" ]; then
+    [ "$#" -eq 3 ] || exit 0
+    watch_playback_menu_episode "$2" "$3"
     exit 0
 fi
 
@@ -3707,6 +3783,27 @@ case "$player_function" in
     *) dep_ch "$player_function" ;;
 esac
 
+if [ "$search" = "scrape" ] && [ -z "$query" ]; then
+    while [ -z "$query" ] && [ "$search" = "scrape" ]; do
+        home_action="$(main_menu)"
+        case "$home_action" in
+            search)
+                query="$(search_query_menu)"
+                ;;
+            history)
+                if [ -s "$histfile" ]; then
+                    search=history
+                else
+                    printf 'No hay series pendientes en el historial.\n' 1>&2
+                fi
+                ;;
+            exit | '')
+                exit 0
+                ;;
+        esac
+    done
+fi
+
 # searching
 case "$search" in
     history)
@@ -3723,14 +3820,8 @@ case "$search" in
         media_title="$(printf "%s" "$title" | cut -d'(' -f1 | tr -d '[:punct:]')"
         ;;
     *)
-        if [ "$use_external_menu" = "0" ]; then
-            while [ -z "$query" ]; do
-                printf "\33[2K\r\033[1;36mBuscar anime: \033[0m" && read -r query
-            done
-        else
-            [ -z "$query" ] && query=$(printf "" | external_menu "" "Buscar anime: " "$external_menu_args")
-            [ -z "$query" ] && exit 1
-        fi
+        [ -z "$query" ] && query="$(search_query_menu)"
+        [ -z "$query" ] && exit 1
         # for checking new releases by specifying anime name
         [ "$search" = "nextep" ] && time_until_next_ep "$query"
 

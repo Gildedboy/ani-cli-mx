@@ -265,7 +265,7 @@ site >https://player.zilla-networks.com/m3u8/regression>AnimeAV1'
         generic_headers=""
         media_title='Persistent "mpv" Test '
         ep_no=1
-        episode='av://lavfi:testsrc=duration=1:size=64x36:rate=2'
+        episode='av://lavfi:testsrc=duration=1:size=64x36:rate=10'
         queue_persistent_mpv_episode
 
         event_attempt=0
@@ -277,7 +277,7 @@ site >https://player.zilla-networks.com/m3u8/regression>AnimeAV1'
         kill -0 "$original_pid"
 
         ep_no=2
-        episode='av://lavfi:testsrc=duration=1:size=64x36:rate=2'
+        episode='av://lavfi:testsrc=duration=1:size=64x36:rate=10'
         queue_persistent_mpv_episode
         [ "$player_pid" = "$original_pid" ]
         event_attempt=0
@@ -289,11 +289,11 @@ site >https://player.zilla-networks.com/m3u8/regression>AnimeAV1'
         kill -0 "$original_pid"
 
         ep_no=3
-        episode='av://lavfi:testsrc=duration=3:size=64x36:rate=2'
+        episode='av://lavfi:testsrc=duration=3:size=64x36:rate=10'
         queue_persistent_mpv_episode
         sleep 0.2
         ep_no=4
-        episode='av://lavfi:testsrc=duration=1:size=64x36:rate=2'
+        episode='av://lavfi:testsrc=duration=1:size=64x36:rate=10'
         queue_persistent_mpv_episode
         event_attempt=0
         while { [ ! -s "$mpv_session_event_file" ] || ! grep -qx '4' "$mpv_session_event_file"; } && [ "$event_attempt" -lt 300 ]; do
@@ -304,7 +304,7 @@ site >https://player.zilla-networks.com/m3u8/regression>AnimeAV1'
         kill -0 "$original_pid"
 
         ep_no=5
-        episode='av://lavfi:testsrc=duration=0.4:size=64x36:rate=2'
+        episode='av://lavfi:testsrc=duration=0.4:size=64x36:rate=10'
         queue_persistent_mpv_episode
         event_attempt=0
         while { [ ! -s "$mpv_session_event_file" ] || ! grep -qx '5' "$mpv_session_event_file"; } && [ "$event_attempt" -lt 100 ]; do
@@ -314,7 +314,7 @@ site >https://player.zilla-networks.com/m3u8/regression>AnimeAV1'
         grep -qx '5' "$mpv_session_event_file"
 
         ep_no=6
-        episode='av://lavfi:testsrc=duration=0.8:size=64x36:rate=2'
+        episode='av://lavfi:testsrc=duration=0.8:size=64x36:rate=10'
         queue_persistent_mpv_episode
         sleep 0.2
         [ ! -s "$mpv_session_event_file" ]
@@ -386,9 +386,9 @@ run_download_menu_smoke() {
     grep -q "command -v yt-dlp" ani-cli-mx-core
 }
 
-run_playback_controller_smoke() {
+run_playback_menu_smoke() {
     tmp_dir="$(mktemp -d)"
-    funcs_file="$tmp_dir/controller-functions.sh"
+    funcs_file="$tmp_dir/playback-menu-functions.sh"
     sed -n '/^set_current_episode()/,/^# MAIN/p' ani-cli-mx-core | sed '$d' >"$funcs_file"
 
     (
@@ -396,28 +396,26 @@ run_playback_controller_smoke() {
         . "$funcs_file"
         continuous_state_file="$tmp_dir/continuous-state"
         current_episode_file="$tmp_dir/current-episode"
-        title='Yani Neko'
-        ep_no=1
-        use_external_menu=0
         close_previous_player=0
-        persistent_mpv_alive() { return 0; }
         printf '%s\n' 1 >"$continuous_state_file"
         printf '%s\n' 2 >"$current_episode_file"
 
-        [ "$(printf 'n\n' | playback_command 2>/dev/null)" = siguiente ]
-        [ "$(printf 'p\n' | playback_command 2>/dev/null)" = anterior ]
-        [ "$(printf 'r\n' | playback_command 2>/dev/null)" = repetir_episodio_actual ]
-        [ "$(printf 'e\n' | playback_command 2>/dev/null)" = elegir_episodio ]
-        [ "$(printf 'd\n' | playback_command 2>/dev/null)" = descargar_episodio_actual ]
-        [ "$(printf 'c\n' | playback_command 2>/dev/null)" = desactivar_modo_continuo ]
-        [ "$(printf 'x\n' | playback_command 2>/dev/null)" = activar_cerrar_reproductor_anterior ]
-        [ "$(printf 'q\n' | playback_command 2>/dev/null)" = salir ]
-        [ "$(printf 'unknown\n' | playback_command 2>/dev/null)" = controlador_sin_accion ]
+        persistent_options="$(playback_menu_options persistent)"
+        printf '%s\n' "$persistent_options" | grep -q 'Siguiente episodio'
+        printf '%s\n' "$persistent_options" | grep -q 'Episodio anterior'
+        printf '%s\n' "$persistent_options" | grep -q 'Repetir episodio actual'
+        printf '%s\n' "$persistent_options" | grep -q 'Elegir otro capitulo'
+        printf '%s\n' "$persistent_options" | grep -q 'Descargar episodio actual'
+        printf '%s\n' "$persistent_options" | grep -q 'desactivar_modo_continuo'
+        ! printf '%s\n' "$persistent_options" | grep -q 'cerrar_reproductor_anterior'
 
-        printf '%s\n' 0 >"$continuous_state_file"
-        [ "$(printf 'c\n' | playback_controller_command 2>/dev/null)" = activar_modo_continuo ]
+        fallback_options="$(playback_menu_options)"
+        printf '%s\n' "$fallback_options" | grep -q 'activar_cerrar_reproductor_anterior'
     )
 
+    ! grep -q '^playback_controller_command()' ani-cli-mx-core
+    grep -q -- '--internal-playback-menu-watch' ani-cli-mx-core
+    grep -q -- '--listen=0' ani-cli-mx-core
     grep -q 'continuous_worker_loop.*continuous_worker_log_file.*2>&1 &' ani-cli-mx-core
     rm -rf "$tmp_dir"
 }
@@ -445,13 +443,14 @@ run_anime_preview_smoke() {
             esac
         }
         curl() {
-            printf '%s\n' '{"data":{"Page":{"media":[{"id":207141,"title":{"romaji":"Yani Neko","english":"Chainsmoker Cat"},"coverImage":{"large":"https:\/\/img.example\/yani.jpg"},"format":"TV","status":"RELEASING","episodes":null,"seasonYear":2026}]}}}'
+            printf '%s\n' '{"data":{"Page":{"media":[{"id":207141,"title":{"romaji":"Yani Neko","english":"Chainsmoker Cat"},"coverImage":{"extraLarge":"https:\/\/img.example\/yani-xl.jpg"},"format":"TV","status":"RELEASING","episodes":null,"seasonYear":2026}]}}}'
         }
-        preview_results="$(printf 'jkanime:yani-neko\tYani Neko\tYani Neko [JKAnime]\nanimex:yani-neko\tYani Neko\tYani Neko [AnimeX]\n')"
+        preview_results="$(printf 'jkanime:yani-neko\tYani Neko\tYani Neko [JKAnime]\nanimex:yani-neko\tYani Neko\tYani Neko [AnimeX]\nanimeav1:super-no-ura-de-yani\tSuper no Ura de Yani Suu Hanashi\tSuper no Ura de Yani Suu Hanashi [AnimeAV1]\n')"
         generated_preview_file="$(prepare_anime_preview_file "$preview_results" 'yani+neko')"
-        [ "$(wc -l <"$generated_preview_file")" -eq 2 ]
-        awk -F '\t' '$1 == 1 && $2 == "JKAnime" && $3 == "Yani Neko" && $4 == 207141 && $7 == "https://img.example/yani.jpg" && $11 == 2026 { found=1 } END { exit !found }' "$generated_preview_file"
+        [ "$(wc -l <"$generated_preview_file")" -eq 3 ]
+        awk -F '\t' '$1 == 1 && $2 == "JKAnime" && $3 == "Yani Neko" && $4 == 207141 && $7 == "https://img.example/yani-xl.jpg" && $11 == 2026 { found=1 } END { exit !found }' "$generated_preview_file"
         awk -F '\t' '$1 == 2 && $2 == "AnimeX" && $3 == "Yani Neko" && $4 == 207141 && $6 == "Chainsmoker Cat" { found=1 } END { exit !found }' "$generated_preview_file"
+        awk -F '\t' '$1 == 3 && $3 == "Super no Ura de Yani Suu Hanashi" && $4 == "" && $7 == "" { found=1 } END { exit !found }' "$generated_preview_file"
         rm -f "$generated_preview_file"
     )
 
@@ -469,26 +468,56 @@ run_anime_preview_smoke() {
         >"$tmp_dir/bin/curl"
     printf '%s\n' \
         '#!/bin/sh' \
+        'printf "%s\n" "$*" >"$PREVIEW_CHAFA_LOG"' \
         'for argument in "$@"; do image_path="$argument"; done' \
         'printf "IMAGE:%s\n" "${image_path##*/}"' \
         >"$tmp_dir/bin/chafa"
     chmod +x "$tmp_dir/bin/curl" "$tmp_dir/bin/chafa"
 
     env PATH="$tmp_dir/bin:$PATH" PREVIEW_CURL_LOG="$curl_log" \
+        PREVIEW_CHAFA_LOG="$tmp_dir/chafa-log" FZF_PREVIEW_COLUMNS=72 FZF_PREVIEW_LINES=40 \
         ANI_CLI_PREVIEW_CACHE_DIR="$tmp_dir/cache" \
         ./ani-cli-mx-core --internal-preview "$preview_file" 1 >"$output_file"
-    grep -q '^IMAGE:207141.cover$' "$output_file"
+    grep -q '^IMAGE:207141.extra-large.cover$' "$output_file"
     grep -q 'Yani Neko' "$output_file"
     grep -q 'Source: JKAnime' "$output_file"
     grep -q 'English: Chainsmoker Cat' "$output_file"
     grep -q 'Year: 2026' "$output_file"
     grep -q 'Status: RELEASING' "$output_file"
-    [ -s "$tmp_dir/cache/207141.cover" ]
+    grep -q -- '--scale=max' "$tmp_dir/chafa-log"
+    grep -q -- '--work=9' "$tmp_dir/chafa-log"
+    grep -q -- '--size=70x29' "$tmp_dir/chafa-log"
+    [ -s "$tmp_dir/cache/207141.extra-large.cover" ]
 
-    env PATH="$tmp_dir/bin:$PATH" PREVIEW_CURL_LOG="$curl_log" \
+    env PATH="$tmp_dir/bin:$PATH" PREVIEW_CURL_LOG="$curl_log" WT_SESSION=test-session \
+        PREVIEW_CHAFA_LOG="$tmp_dir/chafa-log" \
         ANI_CLI_PREVIEW_CACHE_DIR="$tmp_dir/cache" \
         ./ani-cli-mx-core --internal-preview "$preview_file" 1 >/dev/null
     [ "$(wc -l <"$curl_log")" -eq 1 ]
+    grep -q -- '--format=sixels' "$tmp_dir/chafa-log"
+    grep -q -- '--passthrough=none' "$tmp_dir/chafa-log"
+
+    rm -rf "$tmp_dir"
+}
+
+run_main_menu_smoke() {
+    tmp_dir="$(mktemp -d)"
+    funcs_file="$tmp_dir/menu-functions.sh"
+    sed -n '/^main_menu_options()/,/^nth()/p' ani-cli-mx-core | sed '$d' >"$funcs_file"
+
+    (
+        # shellcheck disable=SC1090
+        . "$funcs_file"
+        use_external_menu=0
+        app_name=ani-cli-mx
+        menu_entries="$(main_menu_options)"
+        printf '%s\n' "$menu_entries" | awk -F '\t' '$1 == 1 && $2 == "search" && $3 == "Buscar anime" { found=1 } END { exit !found }'
+        printf '%s\n' "$menu_entries" | awk -F '\t' '$1 == 2 && $2 == "history" && $3 == "Continuar viendo" { found=1 } END { exit !found }'
+        fzf() {
+            printf '%s\n' 'yani neko' 'Escribe el titulo y presiona Enter'
+        }
+        [ "$(search_query_menu)" = 'yani neko' ]
+    )
 
     rm -rf "$tmp_dir"
 }
@@ -592,6 +621,7 @@ run_windows_compat_smoke() {
     grep -q 'GIT_INSTALL_ROOT' ani-cli-mx.cmd
     grep -q 'ANI_CLI_PACKAGE_MANAGER=scoop' ani-cli-mx.cmd
     grep -q 'ANI_CLI_STATE_NAME=ani-cli-mx' ani-cli-mx.cmd
+    grep -q '"chafa"' bucket/ani-cli-mx.json
     ! grep -qi 'System32.*bash.exe' ani-cli-mx.cmd
 
     env PATH="$tmp_dir/bin:$PATH" ANI_CLI_WINDOWS=1 ANI_CLI_PACKAGE_MANAGER=scoop \
@@ -789,8 +819,9 @@ case "${1:-}" in
         run_persistent_mpv_smoke
         run_animex_subtitle_smoke
         run_download_menu_smoke
-        run_playback_controller_smoke
+        run_playback_menu_smoke
         run_anime_preview_smoke
+        run_main_menu_smoke
         run_mpv_action_worker_smoke
         run_windows_compat_smoke
         run_search_diagnostic_smoke
@@ -807,8 +838,9 @@ case "${1:-}" in
         run_persistent_mpv_smoke
         run_animex_subtitle_smoke
         run_download_menu_smoke
-        run_playback_controller_smoke
+        run_playback_menu_smoke
         run_anime_preview_smoke
+        run_main_menu_smoke
         run_mpv_action_worker_smoke
         run_windows_compat_smoke
         run_search_diagnostic_smoke
