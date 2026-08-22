@@ -389,7 +389,7 @@ run_download_menu_smoke() {
 run_playback_menu_smoke() {
     tmp_dir="$(mktemp -d)"
     funcs_file="$tmp_dir/playback-menu-functions.sh"
-    sed -n '/^external_menu()/,/^nth()/p' ani-cli-mx-core | sed '$d' >"$funcs_file"
+    sed -n '/^external_menu()/,/^die()/p' ani-cli-mx-core | sed '$d' >"$funcs_file"
     sed -n '/^set_current_episode()/,/^# MAIN/p' ani-cli-mx-core | sed '$d' >>"$funcs_file"
 
     (
@@ -432,6 +432,28 @@ run_playback_menu_smoke() {
         refreshed_selection="$(printf '1 Siguiente episodio\n2 Episodio anterior\n' | playback_launcher +m)"
         [ "$refreshed_selection" = '1 Siguiente episodio' ]
         [ "$(current_episode_number)" = 3 ]
+
+        persistent_mpv_alive() { return 0; }
+        fzf() { grep -F "$fzf_selected_label" | head -n1; }
+        assert_playback_command() {
+            fzf_selected_label="$1"
+            expected_playback_command="$2"
+            actual_playback_command="$(playback_command)"
+            [ "$actual_playback_command" = "$expected_playback_command" ]
+        }
+
+        printf '%s\n' 0 >"$continuous_state_file"
+        assert_playback_command 'Siguiente episodio' siguiente
+        assert_playback_command 'Episodio anterior' anterior
+        assert_playback_command 'Repetir episodio actual' repetir_episodio_actual
+        assert_playback_command 'Elegir otro capitulo' elegir_episodio
+        assert_playback_command 'Descargar episodio actual' descargar_episodio_actual
+        assert_playback_command 'Activar modo continuo' activar_modo_continuo
+        assert_playback_command 'Salir del reproductor' salir
+
+        printf '%s\n' 1 >"$continuous_state_file"
+        assert_playback_command 'Desactivar modo continuo' desactivar_modo_continuo
+        ! playback_menu_prompt | grep -qi 'cerrar anterior'
     )
 
     ! grep -q '^playback_controller_command()' ani-cli-mx-core

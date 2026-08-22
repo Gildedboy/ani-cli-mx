@@ -3598,20 +3598,16 @@ playback_menu_prompt() {
         playback_mode="manual"
         playback_note="elige manualmente el siguiente capitulo"
     fi
-    if close_previous_enabled; then
-        close_note="cerrar anterior: si"
-    else
-        close_note="cerrar anterior: no"
-    fi
-    printf "Reproduciendo episodio %s de %s... Modo actual: %s - %s - %s" "$menu_ep" "$title" "$playback_mode" "$playback_note" "$close_note"
+    printf "Reproduciendo episodio %s de %s... Modo actual: %s - %s" \
+        "$menu_ep" "$title" "$playback_mode" "$playback_note"
 }
 
 playback_command() {
     if [ "$use_external_menu" = "0" ] && persistent_mpv_alive; then
         playback_menu_live=1
-        playback_menu_options persistent | nth "$(playback_menu_prompt) "
+        playback_menu_options persistent | nth "$(playback_menu_prompt) " | cut -f1
     else
-        playback_menu_options | nth "$(playback_menu_prompt) "
+        playback_menu_options | nth "$(playback_menu_prompt) " | cut -f1
     fi
 }
 
