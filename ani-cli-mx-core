@@ -1,6 +1,6 @@
 #!/bin/sh
 
-version_number="2.0.1"
+version_number="2.1.0"
 app_name="${ANI_CLI_NAME:-${0##*/}}"
 log_tag="${ANI_CLI_LOG_TAG:-$app_name}"
 hist_state_name="${ANI_CLI_STATE_NAME:-$app_name}"
@@ -22,6 +22,7 @@ playback_launcher() {
         playback_picker_header="$(playback_menu_prompt)"
         fzf "$1" --reverse --cycle --height=90% --border=rounded \
             --info=inline --pointer='>' --marker='*' \
+            --expect=esc,ctrl-c \
             --header="$playback_picker_header" --prompt='Accion: ' \
             <"$playback_picker_input" >"$playback_picker_output" &
         playback_picker_pid=$!
@@ -48,7 +49,20 @@ playback_launcher() {
         else
             playback_picker_status=$?
         fi
-        [ "$playback_picker_status" -eq 0 ] && cat "$playback_picker_output"
+        if [ "$playback_picker_status" -eq 0 ]; then
+            playback_picker_key="$(sed -n '1p' "$playback_picker_output")"
+            case "$playback_picker_key" in
+                esc)
+                    rm -f "$playback_picker_input" "$playback_picker_output"
+                    return 10
+                    ;;
+                ctrl-c)
+                    rm -f "$playback_picker_input" "$playback_picker_output"
+                    return 130
+                    ;;
+                *) sed -n '2,$p' "$playback_picker_output" ;;
+            esac
+        fi
         rm -f "$playback_picker_input" "$playback_picker_output"
         return "$playback_picker_status"
     done
@@ -59,13 +73,27 @@ launcher() {
     if [ "$use_external_menu" = "0" ]; then
         if [ "${playback_menu_live:-0}" = "1" ]; then
             playback_launcher "$1"
+            return $?
         else
-            fzf "$1" --reverse --cycle --height=90% --border=rounded \
-                --info=inline --pointer='>' --marker='*' --header="$app_name" --prompt "$2"
+            launcher_output="$(fzf "$1" --reverse --cycle --height=90% --border=rounded \
+                --info=inline --pointer='>' --marker='*' --expect=esc,ctrl-c \
+                --header="$app_name" --prompt "$2")"
+            launcher_status=$?
+            [ "$launcher_status" -eq 0 ] || return 10
+            launcher_key="$(printf '%s\n' "$launcher_output" | sed -n '1p')"
+            case "$launcher_key" in
+                esc) return 10 ;;
+                ctrl-c) return 130 ;;
+                *) printf '%s\n' "$launcher_output" | sed -n '2,$p' ;;
+            esac
+            return 0
         fi
     fi
-    [ "$use_external_menu" = "1" ] && external_menu "$1" "$2" "$external_menu_args"
-    [ "$use_external_menu" = "2" ] && external_menu "$1" "$2"
+    if [ "$use_external_menu" = "1" ]; then
+        external_menu "$1" "$2" "$external_menu_args" || return 10
+        return 0
+    fi
+    external_menu "$1" "$2" || return 10
 }
 
 main_menu_options() {
@@ -75,20 +103,31 @@ main_menu_options() {
 }
 
 main_menu() {
-    main_menu_options | nth "Inicio: " | cut -f1
+    main_menu_result="$(main_menu_options | nth "Inicio: ")"
+    main_menu_status=$?
+    [ "$main_menu_status" -eq 0 ] || return "$main_menu_status"
+    printf '%s\n' "$main_menu_result" | cut -f1
 }
 
 search_query_menu() {
     if [ "$use_external_menu" = "0" ]; then
         search_query_output="$(printf 'Escribe el titulo y presiona Enter\n' |
             fzf --phony --print-query --no-sort --height=90% --border=rounded \
+                --expect=esc,ctrl-c \
                 --info=hidden --pointer='>' --header="$app_name · Buscar anime" \
-                --prompt='Buscar: ' || true)"
+                --prompt='Buscar: ')"
+        search_query_status=$?
+        [ "$search_query_status" -eq 0 ] || return 10
+        search_query_key="$(printf '%s\n' "$search_query_output" | sed -n '2p')"
+        case "$search_query_key" in
+            esc) return 10 ;;
+            ctrl-c) return 130 ;;
+        esac
         printf '%s\n' "$search_query_output" | sed -n '1p'
         return
     fi
 
-    external_menu "" "Buscar anime: " "$external_menu_args"
+    external_menu "" "Buscar anime: " "$external_menu_args" || return 10
 }
 
 nth() {
@@ -100,14 +139,17 @@ nth() {
     prompt="$1"
     multi_flag=""
     [ $# -ne 1 ] && shift && multi_flag="$1"
-    line=$(printf "%s" "$stdin" | cut -f1,3 | tr '\t' ' ' | launcher "$multi_flag" "$prompt" | cut -d " " -f 1)
+    launcher_selection="$(printf "%s" "$stdin" | cut -f1,3 | tr '\t' ' ' | launcher "$multi_flag" "$prompt")"
+    launcher_status=$?
+    [ "$launcher_status" -eq 0 ] || return "$launcher_status"
+    line=$(printf '%s\n' "$launcher_selection" | cut -d " " -f 1)
     line_start=$(printf "%s" "$line" | head -n1)
     line_end=$(printf "%s" "$line" | tail -n1)
-    [ -n "$line" ] || exit 1
+    [ -n "$line" ] || return 10
     if [ "$line_start" = "$line_end" ]; then
-        printf "%s" "$stdin" | grep -E '^'"${line}"'($|[[:space:]])' | cut -f2,3 || exit 1
+        printf "%s" "$stdin" | grep -E '^'"${line}"'($|[[:space:]])' | cut -f2,3 || return 10
     else
-        printf "%s" "$stdin" | sed -n '/^'"${line_start}"'$/,/^'"${line_end}$"'/p' || exit 1
+        printf "%s" "$stdin" | sed -n '/^'"${line_start}"'$/,/^'"${line_end}$"'/p' || return 10
     fi
 }
 
@@ -679,6 +721,23 @@ build_anime_menu() {
         esac
         printf '%d\t%s\t%s %s\n' "$menu_index" "$menu_id" "$menu_language" "$menu_label"
     done
+    menu_index=$((menu_index + 1))
+    printf '%d\t%s\t%s\n' "$menu_index" "__nav_search" "Buscar de nuevo"
+    menu_index=$((menu_index + 1))
+    printf '%d\t%s\t%s\n' "$menu_index" "__nav_home" "Volver al inicio"
+    menu_index=$((menu_index + 1))
+    printf '%d\t%s\t%s\n' "$menu_index" "__nav_exit" "Salir"
+}
+
+title_for_anime_id() {
+    target_anime_id="$1"
+    while IFS='	' read -r candidate_anime_id candidate_anime_title candidate_anime_label; do
+        if [ "$candidate_anime_id" = "$target_anime_id" ]; then
+            printf '%s\n' "$candidate_anime_title"
+            return 0
+        fi
+    done
+    return 1
 }
 
 normalize_info_source() {
@@ -941,7 +1000,11 @@ pick_spanish_source_links() {
         if [ "$site_count" -eq 1 ]; then
             selected_spanish_site="$(printf '%s\n' "$available_sites" | cut -f2)"
         else
-            selected_spanish_site="$(printf '%s\n' "$available_sites" | nth "Selecciona fuente: " | cut -f1)"
+            selected_site_result="$(printf '%s\n' "$available_sites" | nth "Selecciona fuente: ")"
+            selected_site_status=$?
+            [ "$selected_site_status" -eq 130 ] && exit 130
+            [ "$selected_site_status" -eq 0 ] || return 1
+            selected_spanish_site="$(printf '%s\n' "$selected_site_result" | cut -f1)"
         fi
     fi
 
@@ -2607,30 +2670,50 @@ episodes_list() {
 # PLAYING
 
 process_hist_entry() {
-    watched_ep="$ep_no"
-    ep_list=$(episodes_list "$id" "$title")
-    latest_ep=$(printf "%s\n" "$ep_list" | tail -n1)
-    title=$(printf "%s\n" "$title" | sed "s|[0-9]\+ episodios|${latest_ep} episodios|")
-    next_ep=$(printf "%s" "$ep_list" | sed -n "/^${watched_ep}$/{n;p;}") 2>/dev/null
-    if [ -n "$next_ep" ]; then
-        printf '%s\t%s\t%s\t%s\tcontinuar\n' "$id" "$title" "$watched_ep" "$next_ep"
-    else
-        printf '%s\t%s\t%s\t%s\trepetir\n' "$id" "$title" "$watched_ep" "$watched_ep"
-    fi
+    printf '%s\t%s\t%s\n' "$id" "$title" "$ep_no"
+}
+
+history_entries() {
+    seen_history_ids=" "
+    while IFS='	' read -r history_ep history_id history_title; do
+        [ -n "$history_id" ] || continue
+        case "$seen_history_ids" in
+            *" $history_id "*) continue ;;
+        esac
+        seen_history_ids="${seen_history_ids}${history_id} "
+        printf '%s\t%s\t%s\n' "$history_id" "$history_title" "$history_ep"
+    done <"$histfile"
+}
+
+history_provider_label() {
+    case "$1" in
+        animeflv:*) printf '%s\n' "AnimeFLV" ;;
+        jkanime:*) printf '%s\n' "JKAnime" ;;
+        animeav1:*) printf '%s\n' "AnimeAV1" ;;
+        anidb:*) printf '%s\n' "AniDB" ;;
+        animex:*) printf '%s\n' "AnimeX" ;;
+        *) printf '%s\n' "Fuente desconocida" ;;
+    esac
+}
+
+clean_history_title() {
+    printf '%s\n' "$1" | sed -E 's/[[:space:]]*\([0-9.]+ episodios\)[[:space:]]*$//'
 }
 
 build_history_menu() {
     history_menu_index=0
-    while IFS='	' read -r history_id history_title history_watched history_resume history_action; do
+    while IFS='	' read -r history_id history_title history_watched; do
         [ -n "$history_id" ] || continue
         history_menu_index=$((history_menu_index + 1))
-        if [ "$history_action" = "continuar" ]; then
-            history_label="$history_title | Ultimo visto: $history_watched | Continuar: $history_resume"
-        else
-            history_label="$history_title | Ultimo visto: $history_watched | Sin episodio nuevo; repetir: $history_resume"
-        fi
+        history_label="$(clean_history_title "$history_title") [$(history_provider_label "$history_id")]"
         printf '%s\t%s\t%s\n' "$history_menu_index" "$history_id" "$history_label"
     done
+    history_menu_index=$((history_menu_index + 1))
+    printf '%s\t%s\t%s\n' "$history_menu_index" "__nav_search" "Buscar anime"
+    history_menu_index=$((history_menu_index + 1))
+    printf '%s\t%s\t%s\n' "$history_menu_index" "__nav_home" "Volver al inicio"
+    history_menu_index=$((history_menu_index + 1))
+    printf '%s\t%s\t%s\n' "$history_menu_index" "__nav_exit" "Salir"
 }
 
 last_watched_episode_for_current_anime() {
@@ -2641,8 +2724,6 @@ last_watched_episode_for_current_anime() {
 select_episode() {
     stdin=$(cat -)
     [ -z "$stdin" ] && return 1
-    line_count="$(printf "%s\n" "$stdin" | wc -l | tr -d "[:space:]")"
-    [ "$line_count" -eq 1 ] && printf "%s" "$stdin" && return 0
 
     last_watched_ep="$(last_watched_episode_for_current_anime)"
     if [ -n "$last_watched_ep" ] && ! printf "%s\n" "$stdin" | awk -v last_ep="$last_watched_ep" '$0 == last_ep { found = 1 } END { exit !found }'; then
@@ -2650,13 +2731,53 @@ select_episode() {
     fi
     prompt="Selecciona episodio: "
     [ -n "$last_watched_ep" ] && prompt="Selecciona episodio (* ultimo visto): "
-    menu_entries="$(printf "%s\n" "$stdin" | awk -v last_ep="$last_watched_ep" '
-        last_ep != "" && $0 == last_ep { print $0 " *"; next }
-        { print }
-    ')"
-    selection="$(printf "%s" "$menu_entries" | launcher "$multi_selection_flag" "$prompt")"
-    selected_eps="$(printf "%s\n" "$selection" | sed 's/[[:space:]].*$//')"
-    [ -n "$selected_eps" ] || exit 1
+    episode_menu_index=0
+    episode_menu=""
+    while IFS= read -r episode_entry; do
+        [ -n "$episode_entry" ] || continue
+        episode_menu_index=$((episode_menu_index + 1))
+        episode_label="$episode_entry"
+        [ "$episode_entry" = "$last_watched_ep" ] && episode_label="$episode_entry *"
+        episode_menu="${episode_menu}${episode_menu:+
+}${episode_menu_index}	${episode_entry}	${episode_label}"
+    done <<EOF
+$stdin
+EOF
+
+    episode_menu_index=$((episode_menu_index + 1))
+    if [ "${navigation_context:-search}" = "history" ]; then
+        episode_menu="${episode_menu}
+${episode_menu_index}	__nav_back	Volver a Continuar viendo"
+    else
+        episode_menu="${episode_menu}
+${episode_menu_index}	__nav_back	Volver a resultados"
+    fi
+    episode_menu_index=$((episode_menu_index + 1))
+    episode_menu="${episode_menu}
+${episode_menu_index}	__nav_search	Buscar otro anime"
+    episode_menu_index=$((episode_menu_index + 1))
+    episode_menu="${episode_menu}
+${episode_menu_index}	__nav_home	Volver al inicio"
+    episode_menu_index=$((episode_menu_index + 1))
+    episode_menu="${episode_menu}
+${episode_menu_index}	__nav_exit	Salir"
+
+    selection="$(printf '%b\n' "$episode_menu" | cut -f1,3 | tr '\t' ' ' | launcher "$multi_selection_flag" "$prompt")"
+    selection_status=$?
+    [ "$selection_status" -eq 0 ] || return "$selection_status"
+    selected_indexes="$(printf '%s\n' "$selection" | cut -d' ' -f1)"
+    selected_eps=""
+    while IFS= read -r selected_index; do
+        selected_token="$(printf '%b\n' "$episode_menu" | sed -n "${selected_index}p" | cut -f2)"
+        case "$selected_token" in
+            __nav_*) printf '%s\n' "$selected_token"; return 0 ;;
+        esac
+        selected_eps="${selected_eps}${selected_eps:+
+}${selected_token}"
+    done <<EOF
+$selected_indexes
+EOF
+    [ -n "$selected_eps" ] || return 10
 
     line_start=$(printf "%s" "$selected_eps" | head -n1)
     line_end=$(printf "%s" "$selected_eps" | tail -n1)
@@ -2673,18 +2794,8 @@ select_episode() {
 
 update_history() {
     awk -F '	' -v OFS='	' -v target="$id" -v new_ep="$ep_no" -v new_title="$title" '
-        BEGIN { updated = 0 }
-        $2 == target {
-            $1 = new_ep
-            $3 = new_title
-            updated = 1
-        }
-        NF { print }
-        END {
-            if (!updated) {
-                print new_ep, target, new_title
-            }
-        }
+        BEGIN { print new_ep, target, new_title }
+        NF && $2 != target { print }
     ' "$histfile" >"${histfile}.new"
     mv "${histfile}.new" "$histfile"
 }
@@ -3375,6 +3486,13 @@ toggle_close_previous_from_menu() {
     fi
 }
 
+download_available_for_selected_provider() {
+    case "${selected_site:-}" in
+        JKAnime | AnimeX) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
 playback_menu_options() {
     playback_option_index=1
     printf '%s\t%s\t%s\n' "$playback_option_index" siguiente 'Siguiente episodio'
@@ -3385,8 +3503,10 @@ playback_menu_options() {
     playback_option_index=$((playback_option_index + 1))
     printf '%s\t%s\t%s\n' "$playback_option_index" elegir_episodio 'Elegir otro capitulo'
     playback_option_index=$((playback_option_index + 1))
-    printf '%s\t%s\t%s\n' "$playback_option_index" descargar_episodio_actual 'Descargar episodio actual'
-    playback_option_index=$((playback_option_index + 1))
+    if download_available_for_selected_provider; then
+        printf '%s\t%s\t%s\n' "$playback_option_index" descargar_episodio_actual 'Descargar episodio actual'
+        playback_option_index=$((playback_option_index + 1))
+    fi
     if continuous_enabled; then
         printf '%s\t%s\t%s\n' "$playback_option_index" desactivar_modo_continuo 'Desactivar modo continuo'
     else
@@ -3401,7 +3521,17 @@ playback_menu_options() {
         fi
         playback_option_index=$((playback_option_index + 1))
     fi
-    printf '%s\t%s\t%s\n' "$playback_option_index" salir 'Salir del reproductor'
+    if [ "${navigation_context:-search}" = "history" ]; then
+        printf '%s\t%s\t%s\n' "$playback_option_index" volver_historial 'Volver a Continuar viendo'
+    else
+        printf '%s\t%s\t%s\n' "$playback_option_index" volver_resultados 'Volver a resultados'
+    fi
+    playback_option_index=$((playback_option_index + 1))
+    printf '%s\t%s\t%s\n' "$playback_option_index" buscar_otro_anime 'Buscar otro anime'
+    playback_option_index=$((playback_option_index + 1))
+    printf '%s\t%s\t%s\n' "$playback_option_index" volver_inicio 'Volver al inicio'
+    playback_option_index=$((playback_option_index + 1))
+    printf '%s\t%s\t%s\n' "$playback_option_index" salir 'Salir'
 }
 
 playback_menu_prompt() {
@@ -3418,12 +3548,16 @@ playback_menu_prompt() {
 }
 
 playback_command() {
+    playback_menu_live=0
     if [ "$use_external_menu" = "0" ] && persistent_mpv_alive; then
         playback_menu_live=1
-        playback_menu_options persistent | nth "$(playback_menu_prompt) " | cut -f1
+        playback_command_result="$(playback_menu_options persistent | nth "$(playback_menu_prompt) ")"
     else
-        playback_menu_options | nth "$(playback_menu_prompt) " | cut -f1
+        playback_command_result="$(playback_menu_options | nth "$(playback_menu_prompt) ")"
     fi
+    playback_command_status=$?
+    [ "$playback_command_status" -eq 0 ] || return "$playback_command_status"
+    printf '%s\n' "$playback_command_result" | cut -f1
 }
 
 # MAIN
@@ -3622,136 +3756,273 @@ case "$player_function" in
     *) dep_ch "$player_function" ;;
 esac
 
-if [ "$search" = "scrape" ] && [ -z "$query" ]; then
-    while [ -z "$query" ] && [ "$search" = "scrape" ]; do
-        home_action="$(main_menu)"
-        case "$home_action" in
-            search)
-                query="$(search_query_menu)"
-                ;;
-            history)
-                if [ -s "$histfile" ]; then
-                    search=history
-                else
-                    printf 'No hay series pendientes en el historial.\n' 1>&2
+episode_argument="$ep_no"
+episode_argument_pending=1
+[ -z "$episode_argument" ] && episode_argument_pending=0
+navigation_context="search"
+app_state="search_results"
+[ "$search" = "history" ] && app_state="history"
+[ "$search" = "scrape" ] && [ -z "$query" ] && app_state="home"
+
+reset_provider_session_selection() {
+    fast_mode_source=""
+    fast_mode_ep_list=""
+    disabled_spanish_sources=""
+    preferred_spanish_site=""
+    : >"$fast_mode_mirror_file"
+    unset selected_spanish_site selected_site selected_source selected_origin episode
+}
+
+leave_playback_for_navigation() {
+    stop_continuous_worker
+    persistent_mpv_alive && close_tracked_player
+}
+
+while :; do
+    case "$app_state" in
+        home)
+            home_action="$(main_menu)"
+            menu_status=$?
+            [ "$menu_status" -eq 130 ] && exit 130
+            [ "$menu_status" -eq 0 ] || exit 0
+            case "$home_action" in
+                search) query=""; app_state="search_query" ;;
+                history)
+                    if [ -s "$histfile" ]; then
+                        app_state="history"
+                    else
+                        printf 'No hay series pendientes en el historial.\n' 1>&2
+                    fi
+                    ;;
+                exit | '') exit 0 ;;
+            esac
+            ;;
+        search_query)
+            query="$(search_query_menu)"
+            menu_status=$?
+            [ "$menu_status" -eq 130 ] && exit 130
+            if [ "$menu_status" -eq 10 ]; then
+                app_state="home"
+                continue
+            fi
+            [ -n "$query" ] || continue
+            app_state="search_results"
+            ;;
+        search_results)
+            [ -n "$query" ] || { app_state="search_query"; continue; }
+            [ "$search" = "nextep" ] && time_until_next_ep "$query"
+            printf '\33[2K\r\033[1;34mBuscando animes...\033[0m\n' 1>&2
+            encoded_query="$(printf '%s' "$query" | sed 's| |+|g')"
+            anime_list="$(search_anime "$encoded_query")"
+            [ -z "$anime_list" ] && diagnose_empty_search "$encoded_query"
+            app_state="search_result_menu"
+            ;;
+        search_result_menu)
+            if [ "$index" -eq "$index" ] 2>/dev/null; then
+                result="$(printf '%s' "$anime_list" | sed -n "${index}p")"
+                index=""
+            else
+                anime_menu="$(printf '%s\n' "$anime_list" | build_anime_menu)"
+                result="$(printf '%s' "$anime_menu" | nth "Selecciona anime: ")"
+                menu_status=$?
+                [ "$menu_status" -eq 130 ] && exit 130
+                if [ "$menu_status" -eq 10 ]; then
+                    app_state="search_query"
+                    continue
                 fi
-                ;;
-            exit | '')
-                exit 0
-                ;;
-        esac
-    done
-fi
-
-# searching
-case "$search" in
-    history)
-        history_entries_file="$(mktemp)"
-        awk -F '\t' '!seen[$2]++' "$histfile" >"$history_entries_file"
-        anime_list=$(while IFS='	' read -r ep_no id title; do process_hist_entry & done <"$history_entries_file"; wait)
-        rm -f "$history_entries_file"
-        [ -z "$anime_list" ] && die "No hay series pendientes en el historial"
-        if [ -z "${index##*[!0-9]*}" ]; then
-            history_menu="$(printf '%s\n' "$anime_list" | build_history_menu)"
-            force_menu_selection=1
-            history_result="$(printf '%s' "$history_menu" | nth "Continuar viendo: ")"
-            force_menu_selection=0
-            id="$(printf '%s' "$history_result" | cut -f1)"
-        else
-            id=$(printf "%s" "$anime_list" | sed -n "${index}p" | cut -f1)
-        fi
-        [ -z "$id" ] && exit 1
-        title=$(printf "%s\n" "$anime_list" | awk -F '\t' -v target="$id" '$1 == target { print $2; exit }')
-        printf '\33[2K\r\033[1;34mBuscando episodios...\033[0m\n' 1>&2
-        ep_list=$(episodes_list "$id" "$title")
-        ep_no=$(printf "%s\n" "$anime_list" | awk -F '\t' -v target="$id" '$1 == target { print $4; exit }')
-        media_title="$(printf "%s" "$title" | cut -d'(' -f1 | tr -d '[:punct:]')"
-        ;;
-    *)
-        [ -z "$query" ] && query="$(search_query_menu)"
-        [ -z "$query" ] && exit 1
-        # for checking new releases by specifying anime name
-        [ "$search" = "nextep" ] && time_until_next_ep "$query"
-
-        printf '\33[2K\r\033[1;34mBuscando animes...\033[0m\n' 1>&2
-        query=$(printf "%s" "$query" | sed "s| |+|g")
-        anime_list=$(search_anime "$query")
-        [ -z "$anime_list" ] && diagnose_empty_search "$query"
-        [ "$index" -eq "$index" ] 2>/dev/null && result=$(printf "%s" "$anime_list" | sed -n "${index}p")
-        if [ -z "$index" ]; then
-            anime_menu="$(printf "%s\n" "$anime_list" | build_anime_menu)"
-            result="$(printf "%s" "$anime_menu" | nth "Selecciona anime: ")"
-        fi
-        [ -z "$result" ] && exit 1
-        id=$(printf "%s" "$result" | cut -f1)
-        title=$(printf "%s\n" "$anime_list" | awk -F '\t' -v target="$id" '$1 == target { print $2; exit }')
-        [ -z "$title" ] && title="$(printf "%s" "$result" | cut -f2)"
-        media_title="$(printf "%s" "$title" | cut -d'(' -f1 | tr -d '[:punct:]')"
-        printf '\33[2K\r\033[1;34mBuscando episodios...\033[0m\n' 1>&2
-        ep_list=$(episodes_list "$id" "$title")
-        [ -z "$ep_no" ] && ep_no=$(printf "%s" "$ep_list" | select_episode)
-        [ -z "$ep_no" ] && exit 1
-        ;;
-esac
-[ "$skip_intro" = 1 ] && mal_id="$(ani-skip -q "${skip_title:-${title}}")"
-
-# moves the cursor up one line and clears that line
-tput cuu1 && tput el
-# stores the position of cursor
-tput sc
-
-# playback & loop
-if [ "$continuous_mode" = "1" ]; then
-    set_continuous_mode 1
-fi
-play
-[ "$player_function" = "download" ] || [ "$player_function" = "debug" ] && exit 0
-start_continuous_worker_for_current_player
-
-while cmd=$(playback_command); do
-    sync_current_episode
-    case "$cmd" in
-        siguiente)
-            prepare_for_menu_playback
-            ep_no=$(printf "%s" "$ep_list" | sed -n "/^${ep_no}$/{n;p;}") 2>/dev/null
+            fi
+            result_id="$(printf '%s' "$result" | cut -f1)"
+            case "$result_id" in
+                __nav_search) query=""; app_state="search_query"; continue ;;
+                __nav_home) app_state="home"; continue ;;
+                __nav_exit | '') exit 0 ;;
+            esac
+            id="$result_id"
+            title="$(printf '%s\n' "$anime_list" | title_for_anime_id "$id")"
+            [ -z "$title" ] && title="$(printf '%s' "$result" | cut -f2)"
+            navigation_context="search"
+            reset_provider_session_selection
+            if [ "$episode_argument_pending" = "1" ]; then
+                ep_no="$episode_argument"
+                episode_argument_pending=0
+            else
+                ep_no=""
+            fi
+            app_state="episode_load"
             ;;
-        repetir | repetir_episodio_actual)
-            prepare_for_menu_playback
-            unset episode
+        history)
+            [ -s "$histfile" ] || { printf 'No hay series pendientes en el historial.\n' 1>&2; app_state="home"; continue; }
+            anime_list="$(history_entries)"
+            [ -n "$anime_list" ] || { app_state="home"; continue; }
+            app_state="history_menu"
             ;;
-        anterior)
-            prepare_for_menu_playback
-            ep_no=$(printf "%s" "$ep_list" | sed -n "/^${ep_no}$/{g;1!p;};h") 2>/dev/null
+        history_menu)
+            if [ "$index" -eq "$index" ] 2>/dev/null; then
+                history_result="$(printf '%s' "$anime_list" | sed -n "${index}p")"
+                index=""
+            else
+                history_menu="$(printf '%s\n' "$anime_list" | build_history_menu)"
+                force_menu_selection=1
+                history_result="$(printf '%s' "$history_menu" | nth "Continuar viendo: ")"
+                menu_status=$?
+                force_menu_selection=0
+                [ "$menu_status" -eq 130 ] && exit 130
+                if [ "$menu_status" -eq 10 ]; then
+                    app_state="home"
+                    continue
+                fi
+            fi
+            result_id="$(printf '%s' "$history_result" | cut -f1)"
+            case "$result_id" in
+                __nav_search) query=""; app_state="search_query"; continue ;;
+                __nav_home) app_state="home"; continue ;;
+                __nav_exit | '') exit 0 ;;
+            esac
+            id="$result_id"
+            title="$(printf '%s\n' "$anime_list" | title_for_anime_id "$id")"
+            navigation_context="history"
+            reset_provider_session_selection
+            if [ "$episode_argument_pending" = "1" ]; then
+                ep_no="$episode_argument"
+                episode_argument_pending=0
+            else
+                ep_no=""
+            fi
+            app_state="episode_load"
             ;;
-        elegir | elegir_episodio)
-            prepare_for_menu_playback
-            ep_no=$(printf "%s" "$ep_list" | select_episode)
+        episode_load)
+            media_title="$(printf '%s' "$title" | cut -d'(' -f1 | tr -d '[:punct:]')"
+            printf '\33[2K\r\033[1;34mBuscando episodios...\033[0m\n' 1>&2
+            ep_list="$(episodes_list "$id" "$title")"
+            [ -n "$ep_list" ] || die "No se encontraron episodios"
+            app_state="episode_menu"
             ;;
-        descargar | descargar_episodio_actual)
+        episode_menu)
+            if [ -z "$ep_no" ]; then
+                episode_choice="$(printf '%s' "$ep_list" | select_episode)"
+                menu_status=$?
+                [ "$menu_status" -eq 130 ] && exit 130
+                if [ "$menu_status" -eq 10 ]; then
+                    [ "$navigation_context" = "history" ] && app_state="history_menu" || app_state="search_result_menu"
+                    continue
+                fi
+                case "$episode_choice" in
+                    __nav_back) [ "$navigation_context" = "history" ] && app_state="history_menu" || app_state="search_result_menu"; continue ;;
+                    __nav_search) query=""; app_state="search_query"; continue ;;
+                    __nav_home) app_state="home"; continue ;;
+                    __nav_exit | '') exit 0 ;;
+                esac
+                ep_no="$episode_choice"
+            fi
+            app_state="playback_start"
+            ;;
+        playback_start)
+            [ "$skip_intro" = 1 ] && mal_id="$(ani-skip -q "${skip_title:-${title}}")"
+            tput cuu1 && tput el
+            tput sc
+            [ "$continuous_mode" = "1" ] && set_continuous_mode 1
+            play
+            { [ "$player_function" = "download" ] || [ "$player_function" = "debug" ]; } && exit 0
+            start_continuous_worker_for_current_player
+            app_state="playback_menu"
+            ;;
+        playback_menu)
+            cmd="$(playback_command)"
+            menu_status=$?
+            [ "$menu_status" -eq 130 ] && exit 130
+            if [ "$menu_status" -eq 10 ]; then
+                leave_playback_for_navigation
+                ep_no=""
+                app_state="episode_menu"
+                continue
+            fi
             sync_current_episode
-            unset episode
-            get_episode_url
-            download "$episode" "${media_title}Episode ${ep_no}" "$subtitle"
-            unset episode
-            printf 'Descarga terminada: %s\n' "$download_dir" 1>&2
-            continue
+            case "$cmd" in
+                siguiente)
+                    prepare_for_menu_playback
+                    ep_no="$(printf '%s' "$ep_list" | sed -n "/^${ep_no}$/{n;p;}")" 2>/dev/null
+                    ;;
+                repetir | repetir_episodio_actual)
+                    prepare_for_menu_playback
+                    unset episode
+                    ;;
+                anterior)
+                    prepare_for_menu_playback
+                    ep_no="$(printf '%s' "$ep_list" | sed -n "/^${ep_no}$/{g;1!p;};h")" 2>/dev/null
+                    ;;
+                elegir | elegir_episodio)
+                    prepare_for_menu_playback
+                    episode_choice="$(printf '%s' "$ep_list" | select_episode)"
+                    menu_status=$?
+                    [ "$menu_status" -eq 130 ] && exit 130
+                    [ "$menu_status" -eq 10 ] && { app_state="playback_menu"; continue; }
+                    case "$episode_choice" in
+                        __nav_back) leave_playback_for_navigation; [ "$navigation_context" = "history" ] && app_state="history" || app_state="search_result_menu"; continue ;;
+                        __nav_search) leave_playback_for_navigation; query=""; app_state="search_query"; continue ;;
+                        __nav_home) leave_playback_for_navigation; app_state="home"; continue ;;
+                        __nav_exit | '') exit 0 ;;
+                    esac
+                    ep_no="$episode_choice"
+                    ;;
+                descargar | descargar_episodio_actual)
+                    if ! download_available_for_selected_provider; then
+                        printf 'La descarga no esta disponible para esta fuente.\n' 1>&2
+                        continue
+                    fi
+                    sync_current_episode
+                    unset episode
+                    get_episode_url
+                    if ! download_available_for_selected_provider; then
+                        printf 'La fuente de descarga cambio y ya no es compatible.\n' 1>&2
+                        unset episode
+                        continue
+                    fi
+                    download "$episode" "${media_title}Episode ${ep_no}" "$subtitle"
+                    unset episode
+                    printf 'Descarga terminada: %s\n' "$download_dir" 1>&2
+                    continue
+                    ;;
+                modo_continuo_on | modo_continuo_off | modo_continuo_desactivado_activar | modo_continuo_activado_desactivar | activar_modo_continuo | desactivar_modo_continuo)
+                    toggle_continuous_mode_from_menu
+                    continue
+                    ;;
+                activar_cerrar_reproductor_anterior | desactivar_cerrar_reproductor_anterior)
+                    toggle_close_previous_from_menu
+                    continue
+                    ;;
+                controlador_sin_accion) continue ;;
+                volver_resultados)
+                    leave_playback_for_navigation
+                    ep_no=""
+                    app_state="search_result_menu"
+                    continue
+                    ;;
+                volver_historial)
+                    leave_playback_for_navigation
+                    ep_no=""
+                    app_state="history"
+                    continue
+                    ;;
+                buscar_otro_anime)
+                    leave_playback_for_navigation
+                    query=""
+                    ep_no=""
+                    app_state="search_query"
+                    continue
+                    ;;
+                volver_inicio)
+                    leave_playback_for_navigation
+                    ep_no=""
+                    app_state="home"
+                    continue
+                    ;;
+                salir | '') exit 0 ;;
+            esac
+            [ -z "$ep_no" ] && { printf 'Fuera de rango\n' 1>&2; app_state="playback_menu"; continue; }
+            play
+            start_continuous_worker_for_current_player
             ;;
-        modo_continuo_on | modo_continuo_off | modo_continuo_desactivado_activar | modo_continuo_activado_desactivar | activar_modo_continuo | desactivar_modo_continuo)
-            toggle_continuous_mode_from_menu
-            continue
-            ;;
-        activar_cerrar_reproductor_anterior | desactivar_cerrar_reproductor_anterior)
-            toggle_close_previous_from_menu
-            continue
-            ;;
-        controlador_sin_accion)
-            continue
-            ;;
-        *) exit 0 ;;
     esac
-    [ -z "$ep_no" ] && die "Fuera de rango"
-    play
-    start_continuous_worker_for_current_player
 done
 
 # ani-cli-mx fork

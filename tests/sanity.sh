@@ -398,26 +398,40 @@ run_playback_menu_smoke() {
         continuous_state_file="$tmp_dir/continuous-state"
         current_episode_file="$tmp_dir/current-episode"
         close_previous_player=0
+        navigation_context=search
         printf '%s\n' 1 >"$continuous_state_file"
         printf '%s\n' 2 >"$current_episode_file"
 
+        selected_site=JKAnime
         persistent_options="$(playback_menu_options persistent)"
         printf '%s\n' "$persistent_options" | grep -q 'Siguiente episodio'
         printf '%s\n' "$persistent_options" | grep -q 'Episodio anterior'
         printf '%s\n' "$persistent_options" | grep -q 'Repetir episodio actual'
         printf '%s\n' "$persistent_options" | grep -q 'Elegir otro capitulo'
         printf '%s\n' "$persistent_options" | grep -q 'Descargar episodio actual'
+        printf '%s\n' "$persistent_options" | grep -q 'Volver a resultados'
+        printf '%s\n' "$persistent_options" | grep -q 'Buscar otro anime'
+        printf '%s\n' "$persistent_options" | grep -q 'Volver al inicio'
         printf '%s\n' "$persistent_options" | grep -q 'desactivar_modo_continuo'
         ! printf '%s\n' "$persistent_options" | grep -q 'cerrar_reproductor_anterior'
 
         fallback_options="$(playback_menu_options)"
         printf '%s\n' "$fallback_options" | grep -q 'activar_cerrar_reproductor_anterior'
 
+        selected_site=AnimeAV1
+        animeav1_options="$(playback_menu_options)"
+        case "$animeav1_options" in *'Descargar episodio actual'*) exit 1 ;; esac
+        selected_site=AnimeX
+        animex_options="$(playback_menu_options)"
+        case "$animex_options" in *'Descargar episodio actual'*) : ;; *) exit 1 ;; esac
+        selected_site=JKAnime
+
         title='Yani Neko'
         app_name=ani-cli-mx
         use_external_menu=0
         playback_menu_live=1
         fzf() {
+            fzf_input="$(cat)"
             for fzf_arg in "$@"; do
                 case "$fzf_arg" in --listen*) return 9 ;; esac
             done
@@ -426,7 +440,8 @@ run_playback_menu_smoke() {
                 sleep 5
                 return 1
             fi
-            sed -n '1p'
+            printf '\n'
+            printf '%s\n' "$fzf_input" | sed -n '1p'
         }
         (sleep 0.3; printf '%s\n' 3 >"$current_episode_file") &
         refreshed_selection="$(printf '1 Siguiente episodio\n2 Episodio anterior\n' | playback_launcher +m)"
@@ -434,7 +449,11 @@ run_playback_menu_smoke() {
         [ "$(current_episode_number)" = 3 ]
 
         persistent_mpv_alive() { return 0; }
-        fzf() { grep -F "$fzf_selected_label" | head -n1; }
+        fzf() {
+            fzf_input="$(cat)"
+            printf '\n'
+            printf '%s\n' "$fzf_input" | grep -F "$fzf_selected_label" | sed -n '1p'
+        }
         assert_playback_command() {
             fzf_selected_label="$1"
             expected_playback_command="$2"
@@ -449,7 +468,10 @@ run_playback_menu_smoke() {
         assert_playback_command 'Elegir otro capitulo' elegir_episodio
         assert_playback_command 'Descargar episodio actual' descargar_episodio_actual
         assert_playback_command 'Activar modo continuo' activar_modo_continuo
-        assert_playback_command 'Salir del reproductor' salir
+        assert_playback_command 'Volver a resultados' volver_resultados
+        assert_playback_command 'Buscar otro anime' buscar_otro_anime
+        assert_playback_command 'Volver al inicio' volver_inicio
+        assert_playback_command 'Salir' salir
 
         printf '%s\n' 1 >"$continuous_state_file"
         assert_playback_command 'Desactivar modo continuo' desactivar_modo_continuo
@@ -471,20 +493,21 @@ run_history_menu_smoke() {
     (
         # shellcheck disable=SC1090
         . "$funcs_file"
-        episodes_list() { printf '%s\n' 1 2 3; }
         id='jkanime:yani-neko'
         title='Yani Neko (3 episodios)'
         ep_no=2
         pending_row="$(process_hist_entry)"
-        printf '%s\n' "$pending_row" | awk -F '\t' '$1 == "jkanime:yani-neko" && $3 == 2 && $4 == 3 && $5 == "continuar" { found=1 } END { exit !found }'
+        printf '%s\n' "$pending_row" | awk -F '\t' '$1 == "jkanime:yani-neko" && $2 == "Yani Neko (3 episodios)" && $3 == 2 { found=1 } END { exit !found }'
         pending_menu="$(printf '%s\n' "$pending_row" | build_history_menu)"
-        printf '%s\n' "$pending_menu" | grep -q 'Ultimo visto: 2 | Continuar: 3'
+        printf '%s\n' "$pending_menu" | grep -q 'Yani Neko \[JKAnime\]'
+        ! printf '%s\n' "$pending_menu" | grep -q 'Ultimo visto'
+        printf '%s\n' "$pending_menu" | grep -q 'Buscar anime'
+        printf '%s\n' "$pending_menu" | grep -q 'Volver al inicio'
 
-        ep_no=3
-        caught_up_row="$(process_hist_entry)"
-        printf '%s\n' "$caught_up_row" | awk -F '\t' '$3 == 3 && $4 == 3 && $5 == "repetir" { found=1 } END { exit !found }'
-        caught_up_menu="$(printf '%s\n' "$caught_up_row" | build_history_menu)"
-        printf '%s\n' "$caught_up_menu" | grep -q 'Ultimo visto: 3 | Sin episodio nuevo; repetir: 3'
+        id='animeav1:yani-neko'
+        animeav1_row="$(process_hist_entry)"
+        combined_menu="$(printf '%s\n%s\n' "$pending_row" "$animeav1_row" | build_history_menu)"
+        printf '%s\n' "$combined_menu" | grep -q 'Yani Neko \[AnimeAV1\]'
     )
 
     rm -rf "$tmp_dir"
@@ -623,9 +646,64 @@ run_main_menu_smoke() {
         printf '%s\n' "$menu_entries" | awk -F '\t' '$1 == 1 && $2 == "search" && $3 == "Buscar anime" { found=1 } END { exit !found }'
         printf '%s\n' "$menu_entries" | awk -F '\t' '$1 == 2 && $2 == "history" && $3 == "Continuar viendo" { found=1 } END { exit !found }'
         fzf() {
-            printf '%s\n' 'yani neko' 'Escribe el titulo y presiona Enter'
+            printf '%s\n' 'yani neko' '' 'Escribe el titulo y presiona Enter'
         }
         [ "$(search_query_menu)" = 'yani neko' ]
+    )
+
+    rm -rf "$tmp_dir"
+}
+
+run_navigation_history_smoke() {
+    tmp_dir="$(mktemp -d)"
+    funcs_file="$tmp_dir/navigation-functions.sh"
+    sed -n '/^external_menu()/,/^die()/p' ani-cli-mx-core | sed '$d' >"$funcs_file"
+    sed -n '/^build_anime_menu()/,/^normalize_info_source()/p' ani-cli-mx-core | sed '$d' >>"$funcs_file"
+    sed -n '/^last_watched_episode_for_current_anime()/,/^download()/p' ani-cli-mx-core | sed '$d' >>"$funcs_file"
+
+    (
+        # shellcheck disable=SC1090
+        . "$funcs_file"
+        use_external_menu=0
+        app_name=ani-cli-mx
+        multi_selection_flag=-m
+
+        fzf() { cat >/dev/null; printf '%s\n' esc; }
+        if printf '1 Choice\n' | launcher '' 'Test: '; then
+            exit 1
+        else
+            [ "$?" -eq 10 ]
+        fi
+
+        fzf() { cat >/dev/null; printf '%s\n' ctrl-c; }
+        if printf '1 Choice\n' | launcher '' 'Test: '; then
+            exit 1
+        else
+            [ "$?" -eq 130 ]
+        fi
+
+        anime_menu="$(printf '%s\n' 'jkanime:yani-neko	Yani Neko	Yani Neko [JKAnime]' | build_anime_menu)"
+        printf '%s\n' "$anime_menu" | grep -q '__nav_search.*Buscar de nuevo'
+        printf '%s\n' "$anime_menu" | grep -q '__nav_home.*Volver al inicio'
+        printf '%s\n' "$anime_menu" | grep -q '__nav_exit.*Salir'
+
+        histfile="$tmp_dir/history"
+        : >"$histfile"
+        id='jkanime:yani-neko'
+        navigation_context=search
+        launcher() { cat >/dev/null; printf '%s\n' '3 Volver a resultados'; }
+        [ "$(printf '%s\n' 1 2 | select_episode)" = '__nav_back' ]
+
+        printf '%s\n' \
+            '1	animeav1:yani-neko	Yani Neko (4 episodios)' \
+            '2	jkanime:yani-neko	Yani Neko (4 episodios)' >"$histfile"
+        id='jkanime:yani-neko'
+        title='Yani Neko (4 episodios)'
+        ep_no=3
+        update_history
+        [ "$(sed -n '1p' "$histfile")" = '3	jkanime:yani-neko	Yani Neko (4 episodios)' ]
+        [ "$(awk -F '\t' '$2 == "jkanime:yani-neko" { count++ } END { print count + 0 }' "$histfile")" -eq 1 ]
+        [ "$(sed -n '2p' "$histfile" | cut -f2)" = 'animeav1:yani-neko' ]
     )
 
     rm -rf "$tmp_dir"
@@ -725,11 +803,14 @@ run_windows_compat_smoke() {
         ANI_CLI_STATE_NAME=ani-cli-mx LOCALAPPDATA="$local_app_data_env" \
         ANI_CLI_PLAYER=debug ./ani-cli-mx-core -V)"
 
-    [ "$version_output" = "2.0.1" ]
+    [ "$version_output" = "2.1.0" ]
     [ -f "$local_app_data/ani-cli-mx/ani-hsts" ]
     grep -q 'GIT_INSTALL_ROOT' ani-cli-mx.cmd
     grep -q 'ANI_CLI_PACKAGE_MANAGER=scoop' ani-cli-mx.cmd
     grep -q 'ANI_CLI_STATE_NAME=ani-cli-mx' ani-cli-mx.cmd
+    grep -q 'GIT_INSTALL_ROOT' ani-cli-mx.ps1
+    grep -q 'ANI_CLI_STATE_NAME' ani-cli-mx.ps1
+    grep -q '\$bashExe \$corePath @args' ani-cli-mx.ps1
     ! grep -q 'ANI_CLI_PREVIEW_EXEC' ani-cli-mx-core
     ! grep -qi 'System32.*bash.exe' ani-cli-mx.cmd
 
@@ -931,6 +1012,7 @@ case "${1:-}" in
         run_playback_menu_smoke
         run_history_menu_smoke
         run_main_menu_smoke
+        run_navigation_history_smoke
         run_mpv_action_worker_smoke
         run_windows_compat_smoke
         run_search_diagnostic_smoke
@@ -950,6 +1032,7 @@ case "${1:-}" in
         run_playback_menu_smoke
         run_history_menu_smoke
         run_main_menu_smoke
+        run_navigation_history_smoke
         run_mpv_action_worker_smoke
         run_windows_compat_smoke
         run_search_diagnostic_smoke

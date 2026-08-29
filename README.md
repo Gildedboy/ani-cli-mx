@@ -121,8 +121,10 @@ scoop install aria2 ffmpeg yt-dlp
 scoop install vlc
 ```
 
-The Windows launcher resolves Git for Windows explicitly and does not invoke
-the legacy WSL `bash.exe`.
+The Windows PowerShell launcher resolves Git for Windows explicitly and does
+not invoke the legacy WSL `bash.exe`. It also owns the console session so
+`Ctrl-C` exits ani-cli-mx directly instead of showing cmd.exe's
+`Desea terminar el trabajo por lotes (S/N)?` confirmation.
 
 The standalone Git Bash window uses Mintty and may not interact correctly with
 fzf. Prefer a Git Bash profile hosted by Windows Terminal when you want a Bash
@@ -498,9 +500,11 @@ ani-cli-mx --continuous "one piece"
 
 Detached interactive mpv playback reuses one player process and window for Next, Previous, Repeat, and episode selection. Each selected episode replaces the media in that window, so fullscreen, maximized state, window geometry, and volume remain unchanged naturally. Leaving the ani-cli-mx playback controls closes this managed mpv window. `--no-detach`, `--exit-after-play`, episode ranges, and `--skip` retain the separate-process behavior required by those modes.
 
-Managed mpv playback keeps a selectable fzf menu open for Next Episode, Previous Episode, Repeat Current Episode, Choose Another Episode, Download Current Episode, continuous-mode control, and Exit. When continuous mode loads another episode, the menu header updates to the new episode without provider output being written over the selector. The redundant close-previous action is hidden while one persistent mpv window is active; fallback separate-player flows retain it. The mpv window also provides direct controls: `Shift+N` loads the next episode, `Shift+P` loads the previous episode, `Shift+R` replays, and `Shift+A` toggles continuous mode.
+Managed mpv playback keeps a selectable fzf menu open for Next Episode, Previous Episode, Repeat Current Episode, Choose Another Episode, continuous-mode control, Back to Results/Continue Watching, Search Another Anime, Main Menu, and Exit. Download Current Episode appears only when the resolved playback provider is JKAnime or AnimeX, the providers verified to support the current downloader. When continuous mode loads another episode, the menu header updates to the new episode without provider output being written over the selector. The redundant close-previous action is hidden while one persistent mpv window is active; fallback separate-player flows retain it. The mpv window also provides direct controls: `Shift+N` loads the next episode, `Shift+P` loads the previous episode, `Shift+R` replays, and `Shift+A` toggles continuous mode.
 
-Running `ani-cli-mx` without a title opens a home menu with Search, Continue Watching, and Exit. Search accepts the title inside the fzf interface before opening the results selector. Continue Watching shows the last watched episode and the episode that will play for every history entry; caught-up titles are labeled as replaying the last episode. Direct title queries continue to bypass the home menu.
+Running `ani-cli-mx` without a title opens a home menu with Search, Continue Watching, and Exit. Search accepts the title inside the fzf interface before opening provider-separated results such as `Yani Neko [AnimeAV1]` and `Yani Neko [JKAnime]`; titles are never grouped heuristically across providers. Search results and episode menus include Search Again, Back, Main Menu, and Exit actions.
+
+Continue Watching is also provider-specific and ordered by most recently watched. It displays literal entries such as `Yani Neko [AnimeAV1]` and `Yani Neko [JKAnime]`. Selecting one opens that provider's episode list and marks the last watched episode with `*` instead of automatically starting the next episode. In fzf, `Esc` returns one menu level and `Ctrl-C` exits the complete application. Direct title queries continue to bypass the home menu.
 
 The terminal selectors use a bordered, compact fzf layout. Set `ANI_CLI_EXTERNAL_MENU=1` or use `--rofi` to keep using rofi instead.
 
@@ -518,9 +522,10 @@ Download episodes:
 ani-cli-mx -d -e 1-3 "cyberpunk edgerunners"
 ```
 
-The playback menu also includes `descargar_episodio_actual`. Missing download
-tools are installed with the available system package manager. Downloads go to
-the user's Downloads/Descargas folder by default.
+The playback menu includes `descargar_episodio_actual` only for playback
+resolved through JKAnime or AnimeX. Missing download tools are installed with
+the available system package manager. Downloads go to the user's
+Downloads/Descargas folder by default.
 
 More options are available in:
 

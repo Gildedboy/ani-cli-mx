@@ -8,6 +8,7 @@ on:
       - "ani-cli-mx"
       - "ani-cli-mx-core"
       - "ani-cli-mx.cmd"
+      - "ani-cli-mx.ps1"
 
 jobs:
   sh-checker:
@@ -26,7 +27,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: test exec bits
-      run: test -x "./ani-cli-mx" && test -x "./ani-cli-mx-core" && test -f "./ani-cli-mx.cmd"
+      run: test -x "./ani-cli-mx" && test -x "./ani-cli-mx-core" && test -f "./ani-cli-mx.cmd" && test -f "./ani-cli-mx.ps1"
 
   check-no-awk:
     name: No New Awk

@@ -1,4 +1,4 @@
-.TH "ANI-CLI-MX" "1" "July 2026" "ani-cli-mx" "User Commands"
+.TH "ANI-CLI-MX" "1" "August 2026" "ani-cli-mx" "User Commands"
 .SH NAME
 ani-cli-mx \- watch anime from the command line with Spanish-first sources
 .SH SYNOPSIS
@@ -7,7 +7,7 @@ ani-cli-mx \- watch anime from the command line with Spanish-first sources
 .SH DESCRIPTION
 A shell script to browse and search anime from the command-line.
 .PP
-When started without a title, ani-cli-mx opens a home menu for searching, continuing from history, or exiting. Search text is entered inside the fzf interface. Continue Watching displays both the last watched episode and the episode that will be played; caught-up titles offer to replay the last episode.
+When started without a title, ani-cli-mx opens a home menu for searching, continuing from history, or exiting. Search text is entered inside the fzf interface. Results remain separated by provider and nested menus offer back, search, home, and exit actions. Continue Watching lists literal provider-specific entries in most-recently-watched order, then opens the selected provider's episode list. The last watched episode is marked instead of being started automatically. In fzf, Escape returns one level and Ctrl-C exits the application.
 .PD 0
 .P
 .PD
@@ -18,7 +18,7 @@ This fork tries JKAnime first, then AnimeAV1 and AnimeFLV. Searches group Spanis
 \f[B]ani-cli-mx\f[R] without options defaults to iina on macOS, flatpak mpv on Steamdeck, mpv apk on android, vlc on iOS and mpv media player everywhere else.
 .SH DEPENDENCIES
 .PP
-The required command-line tools are curl, sed, grep, fzf, and a supported media player. Native Windows installations use Git for Windows as the Bash runtime and Scoop declares curl, sed, grep, fzf, and mpv as package dependencies. Git must be installed before adding the Scoop buckets because buckets are Git repositories.
+The required command-line tools are curl, sed, grep, fzf, and a supported media player. Native Windows installations use a PowerShell launcher with Git for Windows as the Bash runtime, avoiding cmd.exe's batch-termination confirmation on Ctrl-C. Scoop declares curl, sed, grep, fzf, and mpv as package dependencies. Git must be installed before adding the Scoop buckets because buckets are Git repositories.
 .PP
 aria2, ffmpeg, and yt-dlp are optional download tools. VLC is an optional alternate media player.
 curl-impersonate is optional but required for AniDB because AniDB currently rejects regular curl through Cloudflare.
@@ -167,6 +167,10 @@ Identifies the package manager responsible for updates. The Scoop launcher sets 
 Multiple episodes can be chosen using fzf (or alternative frontend's) multi-selection mode. For this refer to their instructions.
 .PP
 When the selected anime already exists in history, the episode selector marks the last watched episode with \fB*\fR and shows \fB(* ultimo visto)\fR in the prompt.
+.PP
+Search results and Continue Watching retain provider-prefixed identities. Similar titles from different providers are not automatically grouped. Continue Watching is ordered by the most recently played provider entry.
+.PP
+The playback download action is shown only when the resolved provider is JKAnime or AnimeX.
 .SH BUGS
 .PP
 Use the GitHub issue tracker:
