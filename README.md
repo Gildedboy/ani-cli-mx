@@ -52,7 +52,7 @@ provider's JavaScript and carries the final embed referrer into mpv.
 Choose the distro path that already works for you.
 
 <details>
-<summary>Arch-Based Distros With AUR</summary>
+<summary>Arch-Based Distros</summary>
 
 Stable package: `ani-cli-mx`
 
@@ -77,7 +77,7 @@ paru -S ani-cli-mx-git
 </details>
 
 <details>
-<summary>Ubuntu-Based Distros With PPA</summary>
+<summary>Ubuntu-Based Distros</summary>
 
 Command after install: `ani-cli-mx`
 
@@ -99,11 +99,10 @@ Optional packages:
 </details>
 
 <details>
-<summary>Windows With Scoop (No WSL)</summary>
+<summary>Windows</summary>
 
-This is native Windows support through Git Bash. Git for Windows provides the
-shell runtime, while mpv, fzf, and ani-cli-mx run as Windows applications. WSL
-is not used.
+Git for Windows provides the shell runtime, while mpv, fzf, and ani-cli-mx run
+as Windows applications.
 
 Install Scoop if it is not already available:
 
@@ -143,32 +142,13 @@ scoop install aria2 ffmpeg yt-dlp
 scoop install vlc
 ```
 
-The Windows PowerShell launcher resolves Git for Windows explicitly and does
-not invoke the legacy WSL `bash.exe`. It also owns the console session so
-`Ctrl-C` exits ani-cli-mx directly instead of showing cmd.exe's
+The Windows PowerShell launcher resolves Git for Windows explicitly and owns
+the console session so `Ctrl-C` exits ani-cli-mx directly instead of showing cmd.exe's
 `Desea terminar el trabajo por lotes (S/N)?` confirmation.
 
 The standalone Git Bash window uses Mintty and may not interact correctly with
 fzf. Prefer a Git Bash profile hosted by Windows Terminal when you want a Bash
 prompt.
-
-</details>
-
-<details>
-<summary>WSL</summary>
-
-Use the install path for your WSL distro of choice.
-
-- for Arch-based WSL distros, use the AUR instructions above
-- for Ubuntu-based WSL distros, use the PPA instructions above
-- run `ani-cli-mx` from inside WSL, not from Windows PowerShell
-- `mpv` works best with WSLg. Install it on Windows with Scoop:
-
-  ```powershell
-  Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-  Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression
-  scoop install mpv
-  ```
 
 </details>
 
@@ -215,7 +195,7 @@ install -Dm644 ani-cli-mx.1 "$HOME/.local/share/man/man1/ani-cli-mx.1"
 ## Update
 
 <details>
-<summary>Windows With Scoop</summary>
+<summary>Windows</summary>
 
 ```powershell
 scoop update
@@ -227,7 +207,7 @@ scoop update ani-cli-mx
 </details>
 
 <details>
-<summary>Arch-Based Distros With AUR</summary>
+<summary>Arch-Based Distros</summary>
 
 ```sh
 yay -Syu ani-cli-mx
@@ -244,7 +224,7 @@ paru -Syu ani-cli-mx-git
 </details>
 
 <details>
-<summary>Ubuntu-Based Distros With PPA</summary>
+<summary>Ubuntu-Based Distros</summary>
 
 ```sh
 sudo apt update
@@ -297,7 +277,7 @@ ANI_CLI_UPDATE_URL=https://raw.githubusercontent.com/Gildedboy/ani-cli-mx/main/a
 ## Uninstall
 
 <details>
-<summary>Windows With Scoop</summary>
+<summary>Windows</summary>
 
 ```powershell
 scoop uninstall ani-cli-mx
@@ -348,7 +328,7 @@ Remove-Item -Recurse -Force "$env:LOCALAPPDATA\ani-cli-mx"
 </details>
 
 <details>
-<summary>Arch-Based Distros With AUR</summary>
+<summary>Arch-Based Distros</summary>
 
 Stable package:
 
@@ -367,7 +347,7 @@ paru -Rns ani-cli-mx-git
 </details>
 
 <details>
-<summary>Ubuntu-Based Distros With PPA</summary>
+<summary>Ubuntu-Based Distros</summary>
 
 ```sh
 sudo apt remove ani-cli-mx
@@ -424,8 +404,7 @@ Required:
 
 Platform notes:
 
-- on Windows, Git for Windows supplies Bash and the required POSIX utilities;
-  the official launcher avoids WSL
+- on Windows, Git for Windows supplies Bash and the required POSIX utilities
 - on Windows, the default history directory is `%LOCALAPPDATA%\ani-cli-mx`
 - `iina` is supported as a macOS player path
 - `vlc` is supported with `--vlc`
@@ -563,11 +542,7 @@ Are Ubuntu-based distros supported right now?
 
 - Yes. Add the PPA above, then install with `sudo apt install ani-cli-mx`.
 
-Is WSL supported right now?
-
-- Yes. Use your WSL distro of choice and follow the matching install path above.
-
-Is Windows supported without WSL?
+Is Windows supported right now?
 
 - Yes. Install the official Scoop package. Git for Windows supplies Bash, but
   playback and every dependency run directly on Windows.
