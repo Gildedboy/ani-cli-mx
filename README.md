@@ -216,21 +216,6 @@ install -Dm644 ani-cli-mx.1 "$HOME/.local/share/man/man1/ani-cli-mx.1"
 ## Update
 
 <details>
-<summary>Windows</summary>
-
-```powershell
-scoop update
-```
-
-```powershell
-scoop update ani-cli-mx
-```
-
-`ani-cli-mx -U` delegates to Scoop for a Scoop-managed Windows installation.
-
-</details>
-
-<details>
 <summary>Arch-Based Distros</summary>
 
 ```sh
@@ -254,6 +239,21 @@ paru -Syu ani-cli-mx-git
 sudo apt update
 sudo apt upgrade ani-cli-mx
 ```
+
+</details>
+
+<details>
+<summary>Windows</summary>
+
+```powershell
+scoop update
+```
+
+```powershell
+scoop update ani-cli-mx
+```
+
+`ani-cli-mx -U` delegates to Scoop for a Scoop-managed Windows installation.
 
 </details>
 
@@ -299,6 +299,36 @@ ANI_CLI_UPDATE_URL=https://raw.githubusercontent.com/Gildedboy/ani-cli-mx/main/a
 </details>
 
 ## Uninstall
+
+<details>
+<summary>Arch-Based Distros</summary>
+
+Stable package:
+
+```sh
+yay -Rns ani-cli-mx
+paru -Rns ani-cli-mx
+```
+
+Development package:
+
+```sh
+yay -Rns ani-cli-mx-git
+paru -Rns ani-cli-mx-git
+```
+
+</details>
+
+<details>
+<summary>Ubuntu-Based Distros</summary>
+
+```sh
+sudo apt remove ani-cli-mx
+sudo add-apt-repository --remove ppa:gilded30/ani-cli-mx
+sudo apt update
+```
+
+</details>
 
 <details>
 <summary>Windows</summary>
@@ -347,36 +377,6 @@ needed:
 
 ```powershell
 Remove-Item -Recurse -Force "$env:LOCALAPPDATA\ani-cli-mx"
-```
-
-</details>
-
-<details>
-<summary>Arch-Based Distros</summary>
-
-Stable package:
-
-```sh
-yay -Rns ani-cli-mx
-paru -Rns ani-cli-mx
-```
-
-Development package:
-
-```sh
-yay -Rns ani-cli-mx-git
-paru -Rns ani-cli-mx-git
-```
-
-</details>
-
-<details>
-<summary>Ubuntu-Based Distros</summary>
-
-```sh
-sudo apt remove ani-cli-mx
-sudo add-apt-repository --remove ppa:gilded30/ani-cli-mx
-sudo apt update
 ```
 
 </details>
