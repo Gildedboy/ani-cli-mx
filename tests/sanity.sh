@@ -325,24 +325,52 @@ run_animex_subtitle_smoke() {
     funcs_file="$tmp_dir/animex-functions.sh"
     sed -n '/^find_link_referrer()/,/^count_quality_links()/p' ani-cli-mx-core | sed '$d' >"$funcs_file"
     sed -n '/^emit_annotated_link_entry()/,/^quality_menu_entries()/p' ani-cli-mx-core | sed '$d' >>"$funcs_file"
-    sed -n '/^resolve_animex_provider()/,/^animex_proxy_url()/p' ani-cli-mx-core | sed '$d' >>"$funcs_file"
+    sed -n '/^animex_request()/,/^animex_proxy_url()/p' ani-cli-mx-core | sed '$d' >>"$funcs_file"
     sed -n '/^select_quality()/,/^get_episode_url()/p' ani-cli-mx-core | sed '$d' >>"$funcs_file"
 
     (
         # shellcheck disable=SC1090
         . "$funcs_file"
         curl() {
-            printf '%s\n' '{"sources":[{"url":"https://video.animex.test/master.m3u8","quality":"auto","type":"video/mpegurl"}],"tracks":[{"id":"captions-1","url":"https://subs.animex.test/kaijuu-8-en.vtt","lang":"en","label":"English","kind":"captions","default":true},{"id":"captions-2","url":"https://subs.animex.test/kaijuu-8-es.vtt","lang":"es","label":"Spanish","kind":"captions","default":false}],"headers":{"Referer":"https://video.animex.test/"}}'
+            animex_test_referrer=0
+            animex_test_origin=0
+            animex_test_url=""
+            animex_test_previous=""
+            for animex_test_arg; do
+                [ "$animex_test_previous" = "-e" ] && [ "$animex_test_arg" = "https://animex.test/" ] && animex_test_referrer=1
+                [ "$animex_test_previous" = "-H" ] && [ "$animex_test_arg" = "Origin: https://animex.test" ] && animex_test_origin=1
+                case "$animex_test_arg" in https://pp.animex.test/*) animex_test_url="$animex_test_arg" ;; esac
+                animex_test_previous="$animex_test_arg"
+            done
+            [ "$animex_test_referrer" = "1" ] && [ "$animex_test_origin" = "1" ] || return 1
+            case "$animex_test_url" in
+                *'/rest/api/episodes?id=grappler-baki-the-ultimate-fighter-f5dyi')
+                    printf '%s\n' '[{"number":1,"titles":{"en":"OVA"},"hasDub":true,"hasSub":true}]'
+                    ;;
+                *'/rest/api/sources?id=kaiju-no-8-bqnnd&epNum=1&type=sub&providerId=beep')
+                    printf '%s\n' '{"sources":[{"url":"https://video.animex.test/master.m3u8","quality":"auto","type":"video/mpegurl"}],"tracks":[{"id":"captions-1","url":"https://subs.animex.test/kaijuu-8-en.vtt","lang":"en","label":"English","kind":"captions","default":true},{"id":"captions-2","url":"https://subs.animex.test/kaijuu-8-es.vtt","lang":"es","label":"Spanish","kind":"captions","default":false}],"headers":{"Referer":"https://video.animex.test/"}}'
+                    ;;
+                *) return 1 ;;
+            esac
+        }
+        show_ref_value_for_site() {
+            case "$1" in
+                "$2":*) printf '%s\n' "${1#"$2:"}" ;;
+                *) return 1 ;;
+            esac
         }
         animex_proxy_url() { printf '%s\n' "$1"; }
         mode=sub
         ep_no=1
         agent=test
-        animex_api=https://animex.test
+        resolver_timeout=1
+        animex_api=https://pp.animex.test
+        animex_refr=https://animex.test
         player_function=mpv
         quality=best
         zilla_header_fields=''
 
+        [ "$(episodes_list_animex 'animex:grappler-baki-the-ultimate-fighter-f5dyi' 'grappler baki')" = "1" ]
         links="$(resolve_animex_provider 'kaiju-no-8-bqnnd' beep)"
         printf '%s\n' "$links" | grep -q '^1080 >https://video.animex.test/master.m3u8>cc>$'
         printf '%s\n' "$links" | grep -q '^subtitle >https://video.animex.test/master.m3u8>https://subs.animex.test/kaijuu-8-en.vtt$'
@@ -800,7 +828,7 @@ run_windows_compat_smoke() {
         ANI_CLI_STATE_NAME=ani-cli-mx LOCALAPPDATA="$local_app_data_env" \
         ANI_CLI_PLAYER=debug ./ani-cli-mx-core -V)"
 
-    [ "$version_output" = "3.0.0" ]
+    [ "$version_output" = "3.0.1" ]
     [ -f "$local_app_data/ani-cli-mx/ani-hsts" ]
     grep -q 'GIT_INSTALL_ROOT' ani-cli-mx.cmd
     grep -q 'ANI_CLI_PACKAGE_MANAGER=scoop' ani-cli-mx.cmd
