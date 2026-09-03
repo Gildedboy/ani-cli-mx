@@ -6,7 +6,7 @@
 
 <br>
 
-The core aim of this project is to relate automation and efficiency to content discovery, playback, and download requests for content already provided to users on the internet. Any content available through this project is hosted by external, non-affiliated sources.
+The core aim of this project is to relate automation and efficiency to discovery, playback, and download requests for anime, películas, series, doramas, and other media already provided to users on the internet. Any content available through this project is hosted by external, non-affiliated sources.
 
 <br>
 

@@ -39,7 +39,7 @@ run_debug_smoke() {
         provider_label="${provider_case#*:}"
         timeout 120 env ANI_CLI_PLAYER=debug ANI_CLI_NO_DETACH=1 ANI_CLI_FAST_MODE=0 \
             ANI_CLI_PROBE_TIMEOUT=20 ANI_CLI_ANIDB_CURL="$anidb_curl" ./ani-cli-mx \
-            --source "$provider" -S 1 -e 1 "one piece" >"$output_file" 2>&1 || {
+            --type anime --source "$provider" -S 1 -e 1 "one piece" >"$output_file" 2>&1 || {
             strip_ansi <"$output_file" >&2
             return 1
         }
@@ -218,10 +218,20 @@ run_persistent_mpv_smoke() {
         find_link_subtitles() { return 0; }
         find_link_site() { printf '%s\n' 'AnimeAV1'; }
         find_link_source() { printf '%s\n' 'HLS'; }
+        find_link_language() { return 0; }
         describe_link_origin() { printf '%s / %s' "$1" "$2"; }
         close_tracked_player() {
             kill "$player_pid" 2>/dev/null || true
             wait "$player_pid" 2>/dev/null || true
+        }
+        wait_for_session_event() {
+            expected_event="$1"
+            event_attempt=0
+            while [ "$(sed -n '1p' "$mpv_session_event_file" 2>/dev/null)" != "$expected_event" ] && [ "$event_attempt" -lt 300 ]; do
+                sleep 0.1
+                event_attempt=$((event_attempt + 1))
+            done
+            [ "$(sed -n '1p' "$mpv_session_event_file" 2>/dev/null)" = "$expected_event" ]
         }
 
         : >"$mpv_session_owner_file"
@@ -268,24 +278,14 @@ site >https://player.zilla-networks.com/m3u8/regression>AnimeAV1'
         episode='av://lavfi:testsrc=duration=1:size=64x36:rate=10'
         queue_persistent_mpv_episode
 
-        event_attempt=0
-        while [ ! -s "$mpv_session_event_file" ] && [ "$event_attempt" -lt 300 ]; do
-            sleep 0.1
-            event_attempt=$((event_attempt + 1))
-        done
-        grep -qx '1' "$mpv_session_event_file"
+        wait_for_session_event 1
         kill -0 "$original_pid"
 
         ep_no=2
         episode='av://lavfi:testsrc=duration=1:size=64x36:rate=10'
         queue_persistent_mpv_episode
         [ "$player_pid" = "$original_pid" ]
-        event_attempt=0
-        while { [ ! -s "$mpv_session_event_file" ] || ! grep -qx '2' "$mpv_session_event_file"; } && [ "$event_attempt" -lt 300 ]; do
-            sleep 0.1
-            event_attempt=$((event_attempt + 1))
-        done
-        grep -qx '2' "$mpv_session_event_file"
+        wait_for_session_event 2
         kill -0 "$original_pid"
 
         ep_no=3
@@ -295,37 +295,20 @@ site >https://player.zilla-networks.com/m3u8/regression>AnimeAV1'
         ep_no=4
         episode='av://lavfi:testsrc=duration=1:size=64x36:rate=10'
         queue_persistent_mpv_episode
-        event_attempt=0
-        while { [ ! -s "$mpv_session_event_file" ] || ! grep -qx '4' "$mpv_session_event_file"; } && [ "$event_attempt" -lt 300 ]; do
-            sleep 0.1
-            event_attempt=$((event_attempt + 1))
-        done
-        grep -qx '4' "$mpv_session_event_file"
+        wait_for_session_event 4
         kill -0 "$original_pid"
 
         ep_no=5
-        episode='av://lavfi:testsrc=duration=0.4:size=64x36:rate=10'
+        episode='av://lavfi:testsrc=duration=1:size=64x36:rate=10'
         queue_persistent_mpv_episode
-        event_attempt=0
-        while { [ ! -s "$mpv_session_event_file" ] || ! grep -qx '5' "$mpv_session_event_file"; } && [ "$event_attempt" -lt 100 ]; do
-            sleep 0.1
-            event_attempt=$((event_attempt + 1))
-        done
-        grep -qx '5' "$mpv_session_event_file"
+        wait_for_session_event 5
 
         ep_no=6
-        episode='av://lavfi:testsrc=duration=0.8:size=64x36:rate=10'
+        episode='av://lavfi:testsrc=duration=2:size=64x36:rate=10'
         queue_persistent_mpv_episode
         sleep 0.2
         [ ! -s "$mpv_session_event_file" ]
         kill -0 "$original_pid"
-
-        event_attempt=0
-        while { [ ! -s "$mpv_session_event_file" ] || ! grep -qx '6' "$mpv_session_event_file"; } && [ "$event_attempt" -lt 200 ]; do
-            sleep 0.1
-            event_attempt=$((event_attempt + 1))
-        done
-        grep -qx '6' "$mpv_session_event_file"
 
         kill "$original_pid" 2>/dev/null || true
         wait "$original_pid" 2>/dev/null || true
@@ -390,6 +373,7 @@ run_playback_menu_smoke() {
     tmp_dir="$(mktemp -d)"
     funcs_file="$tmp_dir/playback-menu-functions.sh"
     sed -n '/^external_menu()/,/^die()/p' ani-cli-mx-core | sed '$d' >"$funcs_file"
+    sed -n '/^episode_display_label()/,/^show_ref_value_for_site()/p' ani-cli-mx-core | sed '$d' >>"$funcs_file"
     sed -n '/^set_current_episode()/,/^# MAIN/p' ani-cli-mx-core | sed '$d' >>"$funcs_file"
 
     (
@@ -407,10 +391,10 @@ run_playback_menu_smoke() {
         printf '%s\n' "$persistent_options" | grep -q 'Siguiente episodio'
         printf '%s\n' "$persistent_options" | grep -q 'Episodio anterior'
         printf '%s\n' "$persistent_options" | grep -q 'Repetir episodio actual'
-        printf '%s\n' "$persistent_options" | grep -q 'Elegir otro capitulo'
+        printf '%s\n' "$persistent_options" | grep -q 'Elegir otro capítulo'
         printf '%s\n' "$persistent_options" | grep -q 'Descargar episodio actual'
         printf '%s\n' "$persistent_options" | grep -q 'Volver a resultados'
-        printf '%s\n' "$persistent_options" | grep -q 'Buscar otro anime'
+        printf '%s\n' "$persistent_options" | grep -q 'Buscar otro contenido'
         printf '%s\n' "$persistent_options" | grep -q 'Volver al inicio'
         printf '%s\n' "$persistent_options" | grep -q 'desactivar_modo_continuo'
         ! printf '%s\n' "$persistent_options" | grep -q 'cerrar_reproductor_anterior'
@@ -425,6 +409,13 @@ run_playback_menu_smoke() {
         animex_options="$(playback_menu_options)"
         case "$animex_options" in *'Descargar episodio actual'*) : ;; *) exit 1 ;; esac
         selected_site=JKAnime
+        media_kind=movie
+        movie_options="$(playback_menu_options)"
+        printf '%s\n' "$movie_options" | grep -q 'Repetir película'
+        ! printf '%s\n' "$movie_options" | grep -q 'Siguiente episodio'
+        ! printf '%s\n' "$movie_options" | grep -q 'Episodio anterior'
+        ! printf '%s\n' "$movie_options" | grep -q 'modo_continuo'
+        media_kind=anime
 
         title='Yani Neko'
         app_name=ani-cli-mx
@@ -465,11 +456,11 @@ run_playback_menu_smoke() {
         assert_playback_command 'Siguiente episodio' siguiente
         assert_playback_command 'Episodio anterior' anterior
         assert_playback_command 'Repetir episodio actual' repetir_episodio_actual
-        assert_playback_command 'Elegir otro capitulo' elegir_episodio
+        assert_playback_command 'Elegir otro capítulo' elegir_episodio
         assert_playback_command 'Descargar episodio actual' descargar_episodio_actual
         assert_playback_command 'Activar modo continuo' activar_modo_continuo
         assert_playback_command 'Volver a resultados' volver_resultados
-        assert_playback_command 'Buscar otro anime' buscar_otro_anime
+        assert_playback_command 'Buscar otro contenido' buscar_otro_anime
         assert_playback_command 'Volver al inicio' volver_inicio
         assert_playback_command 'Salir' salir
 
@@ -501,7 +492,7 @@ run_history_menu_smoke() {
         pending_menu="$(printf '%s\n' "$pending_row" | build_history_menu)"
         printf '%s\n' "$pending_menu" | grep -q 'Yani Neko \[JKAnime\]'
         ! printf '%s\n' "$pending_menu" | grep -q 'Ultimo visto'
-        printf '%s\n' "$pending_menu" | grep -q 'Buscar anime'
+        printf '%s\n' "$pending_menu" | grep -q 'Buscar contenido'
         printf '%s\n' "$pending_menu" | grep -q 'Volver al inicio'
 
         id='animeav1:yani-neko'
@@ -643,7 +634,12 @@ run_main_menu_smoke() {
         use_external_menu=0
         app_name=ani-cli-mx
         menu_entries="$(main_menu_options)"
-        printf '%s\n' "$menu_entries" | awk -F '\t' '$1 == 1 && $2 == "search" && $3 == "Buscar anime" { found=1 } END { exit !found }'
+        printf '%s\n' "$menu_entries" | awk -F '\t' '$1 == 1 && $2 == "search" && $3 == "Buscar" { found=1 } END { exit !found }'
+        media_type_entries="$(media_type_menu_options)"
+        printf '%s\n' "$media_type_entries" | awk -F '\t' '$2 == "anime" && $3 == "Anime" { found=1 } END { exit !found }'
+        printf '%s\n' "$media_type_entries" | awk -F '\t' '$2 == "movie" && $3 == "Películas" { found=1 } END { exit !found }'
+        printf '%s\n' "$media_type_entries" | awk -F '\t' '$2 == "series" && $3 == "Series" { found=1 } END { exit !found }'
+        printf '%s\n' "$media_type_entries" | awk -F '\t' '$2 == "dorama" && $3 == "Doramas" { found=1 } END { exit !found }'
         printf '%s\n' "$menu_entries" | awk -F '\t' '$1 == 2 && $2 == "history" && $3 == "Continuar viendo" { found=1 } END { exit !found }'
         fzf() {
             printf '%s\n' 'yani neko' '' 'Escribe el titulo y presiona Enter'
@@ -658,7 +654,8 @@ run_navigation_history_smoke() {
     tmp_dir="$(mktemp -d)"
     funcs_file="$tmp_dir/navigation-functions.sh"
     sed -n '/^external_menu()/,/^die()/p' ani-cli-mx-core | sed '$d' >"$funcs_file"
-    sed -n '/^build_anime_menu()/,/^normalize_info_source()/p' ani-cli-mx-core | sed '$d' >>"$funcs_file"
+    sed -n '/^episode_display_label()/,/^show_ref_value_for_site()/p' ani-cli-mx-core | sed '$d' >>"$funcs_file"
+    sed -n '/^build_media_menu()/,/^normalize_info_source()/p' ani-cli-mx-core | sed '$d' >>"$funcs_file"
     sed -n '/^last_watched_episode_for_current_anime()/,/^download()/p' ani-cli-mx-core | sed '$d' >>"$funcs_file"
 
     (
@@ -803,7 +800,7 @@ run_windows_compat_smoke() {
         ANI_CLI_STATE_NAME=ani-cli-mx LOCALAPPDATA="$local_app_data_env" \
         ANI_CLI_PLAYER=debug ./ani-cli-mx-core -V)"
 
-    [ "$version_output" = "2.1.0" ]
+    [ "$version_output" = "3.0.0" ]
     [ -f "$local_app_data/ani-cli-mx/ani-hsts" ]
     grep -q 'GIT_INSTALL_ROOT' ani-cli-mx.cmd
     grep -q 'ANI_CLI_PACKAGE_MANAGER=scoop' ani-cli-mx.cmd
@@ -1001,6 +998,59 @@ site >https://video.example/first.m3u8>AnimeAV1'
     rm -rf "$tmp_dir"
 }
 
+run_pelisplus_provider_smoke() {
+    printf 'Checking PelisPlusHD media model and P.A.C.K.E.R. handling...\n' >&2
+    tmp_dir="$(mktemp -d)"
+    funcs_file="$tmp_dir/pelisplus-functions.sh"
+    sed -n '/^media_type_menu_options()/,/^search_query_menu()/p' ani-cli-mx-core | sed '$d' >"$funcs_file"
+    sed -n '/^media_kind_from_id()/,/^show_ref_value_for_site()/p' ani-cli-mx-core | sed '$d' >>"$funcs_file"
+    sed -n '/^search_pelisplus()/,/^episode_number_delta()/p' ani-cli-mx-core | sed '$d' >>"$funcs_file"
+    sed -n '/^unpack_pelisplus_packer()/,/^pelisplus_packed_host_links()/p' ani-cli-mx-core | sed '$d' >>"$funcs_file"
+
+    (
+        # shellcheck disable=SC1090
+        . "$funcs_file"
+        pelisplus_refr=https://pelisplushd.test
+
+        [ "$(normalize_media_kind películas)" = movie ]
+        [ "$(normalize_media_kind serie)" = series ]
+        [ "$(media_kind_from_id pelisplus:dorama:belleza-verdadera)" = dorama ]
+        [ "$(pelisplus_episode_page_url pelisplus:movie:interstellar movie)" = 'https://pelisplushd.test/pelicula/interstellar' ]
+        [ "$(pelisplus_episode_page_url pelisplus:series:mythic-quest s4e2)" = 'https://pelisplushd.test/serie/mythic-quest/temporada/4/capitulo/2' ]
+        [ "$(episode_display_label s3e10)" = 'Temporada 3 · Episodio 10' ]
+
+        pelisplus_search_request() {
+            printf '%s\n' '<a href="https://pelisplushd.test/pelicula/interstellar" class="Posters-link movies" data-title="VER Interstellar (2014) Online Gratis HD"></a><a href="https://pelisplushd.test/serie/belleza-verdadera" class="Posters-link series" data-title="VER Belleza verdadera (2020) Online Gratis HD"></a><a href="https://pelisplushd.test/anime/one-piece" data-title="VER One Piece Online Gratis HD"></a>'
+        }
+        pelisplus_detail_is_dorama() {
+            case "$1" in *belleza-verdadera) return 0 ;; *) return 1 ;; esac
+        }
+        movie_results="$(search_pelisplus interstellar movie)"
+        printf '%s\n' "$movie_results" | grep -q '^pelisplus:movie:interstellar'
+        ! printf '%s\n' "$movie_results" | grep -q 'one-piece'
+        dorama_results="$(search_pelisplus 'belleza+verdadera' dorama)"
+        printf '%s\n' "$dorama_results" | grep -q '^pelisplus:dorama:belleza-verdadera'
+
+        packed_fixture="eval(function(p,a,c,k,e,d){}('b a',36,12,'||||||||||if|var'.split('|')))"
+        [ "$(printf '%s\n' "$packed_fixture" | unpack_pelisplus_packer)" = 'var if' ]
+    )
+
+    if env ANI_CLI_HIST_DIR="$tmp_dir/history" ANI_CLI_PLAYER=debug ./ani-cli-mx-core interstellar >"$tmp_dir/direct.out" 2>&1; then
+        printf 'Direct search without --type unexpectedly succeeded.\n' >&2
+        return 1
+    fi
+    grep -q 'búsqueda directa requiere -t/--type' "$tmp_dir/direct.out"
+    if env ANI_CLI_HIST_DIR="$tmp_dir/history" ANI_CLI_PLAYER=debug ./ani-cli-mx-core \
+        --type movie --source animeflv interstellar >"$tmp_dir/incompatible.out" 2>&1; then
+        printf 'Non-anime --source combination unexpectedly succeeded.\n' >&2
+        return 1
+    fi
+    grep -q -- '--source solo se puede usar' "$tmp_dir/incompatible.out"
+
+    rm -rf "$tmp_dir"
+    printf 'PelisPlusHD media model and P.A.C.K.E.R. handling passed.\n' >&2
+}
+
 case "${1:-}" in
     --network)
         run_syntax_checks
@@ -1020,6 +1070,7 @@ case "${1:-}" in
         run_language_sections_smoke
         run_anidb_provider_smoke
         run_fast_link_selection_smoke
+        run_pelisplus_provider_smoke
         run_debug_smoke
         ;;
     "" | --syntax)
@@ -1040,6 +1091,7 @@ case "${1:-}" in
         run_language_sections_smoke
         run_anidb_provider_smoke
         run_fast_link_selection_smoke
+        run_pelisplus_provider_smoke
         ;;
     *)
         printf 'Usage: %s [--syntax|--network]\n' "$0" >&2

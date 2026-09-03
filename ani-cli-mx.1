@@ -1,34 +1,37 @@
-.TH "ANI-CLI-MX" "1" "August 2026" "ani-cli-mx" "User Commands"
+.TH "ANI-CLI-MX" "1" "September 2026" "ani-cli-mx 3.0.0" "User Commands"
 .SH NAME
-ani-cli-mx \- watch anime from the command line with Spanish-first sources
+ani-cli-mx \- watch anime, movies, series, and doramas from the command line
 .SH SYNOPSIS
 .B ani-cli-mx
 [\fI\,OPTIONS\/\fR]
 .SH DESCRIPTION
-A shell script to browse and search anime from the command-line.
+A shell script to browse and search anime, movies, series, and doramas from the command-line.
 .PP
-When started without a title, ani-cli-mx opens a home menu for searching, continuing from history, or exiting. Search text is entered inside the fzf interface. Results remain separated by provider and nested menus offer back, search, home, and exit actions. Continue Watching lists literal provider-specific entries in most-recently-watched order, then opens the selected provider's episode list. The last watched episode is marked instead of being started automatically. In fzf, Escape returns one level and Ctrl-C exits the application.
+When started without a title, ani-cli-mx opens a home menu for searching, continuing from history, or exiting. Buscar opens a submenu for Anime, Películas, Series, and Doramas before showing the matching search input. Continue Watching preserves the provider and media type. In fzf, Escape returns one level and Ctrl-C exits the application.
 .PD 0
 .P
 .PD
-This fork tries JKAnime first, then AnimeAV1 and AnimeFLV. Searches group Spanish results before English results from AniDB and AnimeX. When Spanish playback sources fail, it tries AniDB and then AnimeX. Windows is supported without WSL by using Git for Windows as the shell runtime and native Windows media players.
+Anime keeps the existing JKAnime, AnimeAV1, AnimeFLV, AniDB, and AnimeX provider chain. Movies, series, and doramas use PelisPlusHD; PelisPlusHD is not used for anime. Its resolver follows Embed69, optional proof-of-work/AES decryption, Vidhide-compatible embeds, local P.A.C.K.E.R. decoding, and HLS selection while preserving the embed referrer. Windows is supported without WSL by using Git for Windows as the shell runtime and native Windows media players.
 .PD 0
 .P
 .PD
 \f[B]ani-cli-mx\f[R] without options defaults to iina on macOS, flatpak mpv on Steamdeck, mpv apk on android, vlc on iOS and mpv media player everywhere else.
 .SH DEPENDENCIES
 .PP
-The required command-line tools are curl, sed, grep, fzf, and a supported media player. Native Windows installations use a PowerShell launcher with Git for Windows as the Bash runtime, avoiding cmd.exe's batch-termination confirmation on Ctrl-C. Scoop declares curl, sed, grep, fzf, and mpv as package dependencies. Git must be installed before adding the Scoop buckets because buckets are Git repositories.
+The required command-line tools are curl, sed, grep, awk, fzf, and a supported media player. PelisPlusHD playback also requires openssl, od, and dd. Native Windows installations use a PowerShell launcher with Git for Windows as the Bash runtime. Scoop declares the required dependencies. Git must be installed before adding the Scoop buckets because buckets are Git repositories.
 .PP
 aria2, ffmpeg, and yt-dlp are optional download tools. VLC is an optional alternate media player.
 curl-impersonate is optional but required for AniDB because AniDB currently rejects regular curl through Cloudflare.
 .SH OPTIONS
 .TP
+\fB\-t | --type\fR \fI\,<anime|movie|series|dorama>\/\fR
+Select the content type. This option is required when a search title is supplied directly on the command line.
+.TP
 \fB\-e | --episode | -r | --range\fR \fI\,<episode>\/\fR
-Specify the episode numbers to watch. If range is specified it should be quoted or separated by a non-numeric character (eg. -).
+Specify the episode numbers to watch. PelisPlusHD series and doramas use tokens such as s1e1. Movies do not accept episodic controls.
 .TP
 \fB\-c | --continue\fR
-Continue watching anime from history.
+Continue watching content from history.
 .TP
 \fB\-d | --download\fR
 Download episode.
@@ -71,7 +74,7 @@ Start in continuous playback mode. Detached interactive mpv playback reuses one 
 Restart the tracked player instead of reusing its window when opening another episode from the playback menu. This can also be toggled from the playback menu with activar_cerrar_reproductor_anterior or desactivar_cerrar_reproductor_anterior.
 .TP
 \fB\--source | --info-source\fR \fI\,<auto|animeflv|jkanime|animeav1|anidb|animex>\/\fR
-Choose which source provides search results and episode information. Default is auto.
+Choose which anime source provides search results and episode information. Default is auto. It cannot be combined with non-anime content types.
 .TP
 \fB\-N | --nextep-countdown\fR
 Prints a countdown to the next episode as the last episode in the list. If in history is after the current episode.
@@ -98,6 +101,15 @@ Specify the title to use for ani-skip
 ENVIRONMENT VARIABLES
 .PP
 ani-cli-mx uses environment variables to control unstable/untested and niche features in addition to everything that has an option. Command-line options take precedence over env vars. Note that these are all subject to change.
+.TP
+\fBANI_CLI_MEDIA_TYPE\fR
+Default content type for direct or prompted searches: anime, movie, series, or dorama.
+.TP
+\fBANI_CLI_PELISPLUS_LANGUAGE\fR
+Preferred PelisPlusHD language code. Supported priorities are LAT, ESP, and SUB; the default is LAT with fallback to another available entry.
+.TP
+\fBANI_CLI_PELISPLUS_URL\fR
+Overrides the PelisPlusHD base URL when the provider changes domains.
 .TP
 \fBANI_CLI_MODE\fR
 Controls the scraped media's mode, valid options are sub or dub. Default is sub.
@@ -166,11 +178,11 @@ Identifies the package manager responsible for updates. The Scoop launcher sets 
 .PP
 Multiple episodes can be chosen using fzf (or alternative frontend's) multi-selection mode. For this refer to their instructions.
 .PP
-When the selected anime already exists in history, the episode selector marks the last watched episode with \fB*\fR and shows \fB(* ultimo visto)\fR in the prompt.
+When selected episodic content already exists in history, the episode selector marks the last watched episode with \fB*\fR and shows \fB(* ultimo visto)\fR in the prompt.
 .PP
 Search results and Continue Watching retain provider-prefixed identities. Similar titles from different providers are not automatically grouped. Continue Watching is ordered by the most recently played provider entry.
 .PP
-The playback download action is shown only when the resolved provider is JKAnime or AnimeX.
+The playback download action is shown only when the resolved provider is JKAnime or AnimeX. PelisPlusHD playback does not expose the downloader action.
 .SH BUGS
 .PP
 Use the GitHub issue tracker:

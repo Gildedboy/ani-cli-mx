@@ -1,6 +1,6 @@
 #!/bin/sh
 
-version_number="2.1.0"
+version_number="3.0.0"
 app_name="${ANI_CLI_NAME:-${0##*/}}"
 log_tag="${ANI_CLI_LOG_TAG:-$app_name}"
 hist_state_name="${ANI_CLI_STATE_NAME:-$app_name}"
@@ -97,7 +97,7 @@ launcher() {
 }
 
 main_menu_options() {
-    printf '1\tsearch\tBuscar anime\n'
+    printf '1\tsearch\tBuscar\n'
     printf '2\thistory\tContinuar viendo\n'
     printf '3\texit\tSalir\n'
 }
@@ -109,12 +109,58 @@ main_menu() {
     printf '%s\n' "$main_menu_result" | cut -f1
 }
 
+media_type_menu_options() {
+    printf '1\tanime\tAnime\n'
+    printf '2\tmovie\tPelículas\n'
+    printf '3\tseries\tSeries\n'
+    printf '4\tdorama\tDoramas\n'
+    printf '5\t__nav_home\tVolver al inicio\n'
+}
+
+media_type_menu() {
+    media_type_result="$(media_type_menu_options | nth "Tipo de contenido: ")"
+    media_type_status=$?
+    [ "$media_type_status" -eq 0 ] || return "$media_type_status"
+    printf '%s\n' "$media_type_result" | cut -f1
+}
+
+normalize_media_kind() {
+    case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
+        anime) printf '%s\n' anime ;;
+        movie | movies | pelicula | peliculas | película | películas) printf '%s\n' movie ;;
+        series | serie) printf '%s\n' series ;;
+        dorama | doramas) printf '%s\n' dorama ;;
+        *) return 1 ;;
+    esac
+}
+
+media_kind_label() {
+    case "$1" in
+        anime) printf '%s\n' anime ;;
+        movie) printf '%s\n' película ;;
+        series) printf '%s\n' serie ;;
+        dorama) printf '%s\n' dorama ;;
+        *) printf '%s\n' contenido ;;
+    esac
+}
+
+media_kind_plural_label() {
+    case "$1" in
+        anime) printf '%s\n' animes ;;
+        movie) printf '%s\n' películas ;;
+        series) printf '%s\n' series ;;
+        dorama) printf '%s\n' doramas ;;
+        *) printf '%s\n' contenidos ;;
+    esac
+}
+
 search_query_menu() {
+    search_kind_label="$(media_kind_label "${media_kind:-anime}")"
     if [ "$use_external_menu" = "0" ]; then
         search_query_output="$(printf 'Escribe el titulo y presiona Enter\n' |
             fzf --phony --print-query --no-sort --height=90% --border=rounded \
                 --expect=esc,ctrl-c \
-                --info=hidden --pointer='>' --header="$app_name · Buscar anime" \
+                --info=hidden --pointer='>' --header="$app_name · Buscar $search_kind_label" \
                 --prompt='Buscar: ')"
         search_query_status=$?
         [ "$search_query_status" -eq 0 ] || return 10
@@ -127,7 +173,7 @@ search_query_menu() {
         return
     fi
 
-    external_menu "" "Buscar anime: " "$external_menu_args" || return 10
+    external_menu "" "Buscar $search_kind_label: " "$external_menu_args" || return 10
 }
 
 nth() {
@@ -197,8 +243,10 @@ help_info() {
         Show this help message and exit
       -e, --episode, -r, --range
         Specify the number of episodes to watch
+      -t, --type
+        Content type for direct searches: anime, movie, series, dorama
       --source <source>
-        Source to use for search and episode info: auto, animeflv, jkanime, animeav1, anidb, animex
+        Anime source for search and episode info: auto, animeflv, jkanime, animeav1, anidb, animex
       --dub
         Play dubbed version
       --rofi
@@ -224,7 +272,10 @@ help_info() {
       %s --vlc cyberpunk edgerunners -q 1080p -e 4
       %s blue lock -e 5-6
       %s -e \"5 6\" blue lock
-    \n" "$app_name" "$app_name" "$app_name" "$app_name" "$app_name" "$app_name" "$app_name" "$app_name" "$app_name"
+      %s --type movie interstellar
+      %s --type series -e S1E1 \"mythic quest\"
+      %s --type dorama \"belleza verdadera\"
+    \n" "$app_name" "$app_name" "$app_name" "$app_name" "$app_name" "$app_name" "$app_name" "$app_name" "$app_name" "$app_name" "$app_name" "$app_name"
     exit 0
 }
 
@@ -413,6 +464,25 @@ jkanime_request() {
 
 animeav1_request() {
     curl -L --connect-timeout 10 --max-time "$resolver_timeout" -s "$1" -A "$agent"
+}
+
+pelisplus_request() {
+    curl -L --connect-timeout 10 --max-time "$resolver_timeout" --retry 2 --retry-delay 1 \
+        -e "$pelisplus_refr/" -sS "$1" -A "$agent"
+}
+
+pelisplus_search_request() {
+    search_attempt=1
+    while [ "$search_attempt" -le 3 ]; do
+        search_response="$(curl -L --connect-timeout 10 --max-time "$resolver_timeout" --retry 1 --retry-delay 1 \
+            -e "$pelisplus_refr/" -sS -G --data-urlencode "s=$1" "$pelisplus_refr/search" -A "$agent" 2>/dev/null || true)"
+        if printf '%s' "$search_response" | grep -qE 'href="[^"]*/(pelicula|serie)/'; then
+            printf '%s' "$search_response"
+            return 0
+        fi
+        search_attempt=$((search_attempt + 1))
+    done
+    printf '%s' "$search_response"
 }
 
 probe_search_endpoint() {
@@ -670,6 +740,7 @@ cross_source_match_is_confident() {
 
 site_name_from_ref() {
     case "$1" in
+        pelisplus:*) printf '%s\n' "pelisplus" ;;
         hentaila:*) printf '%s\n' "hentaila" ;;
         animeflv:*) printf '%s\n' "animeflv" ;;
         jkanime:*) printf '%s\n' "jkanime" ;;
@@ -679,6 +750,45 @@ site_name_from_ref() {
         *:*) return 1 ;;
         "") return 1 ;;
         *) return 1 ;;
+    esac
+}
+
+media_kind_from_id() {
+    case "$1" in
+        pelisplus:movie:*) printf '%s\n' movie ;;
+        pelisplus:series:*) printf '%s\n' series ;;
+        pelisplus:dorama:*) printf '%s\n' dorama ;;
+        *) printf '%s\n' anime ;;
+    esac
+}
+
+pelisplus_ref_slug() {
+    printf '%s\n' "$1" | sed 's/^pelisplus:[^:]*://'
+}
+
+pelisplus_episode_page_url() {
+    pelisplus_page_slug="$(pelisplus_ref_slug "$1")"
+    case "$(media_kind_from_id "$1")" in
+        movie) printf '%s/pelicula/%s\n' "$pelisplus_refr" "$pelisplus_page_slug" ;;
+        *)
+            pelisplus_season="$(printf '%s' "$2" | sed -nE 's/^s([0-9]+)e([0-9]+)$/\1/p')"
+            pelisplus_episode_number="$(printf '%s' "$2" | sed -nE 's/^s([0-9]+)e([0-9]+)$/\2/p')"
+            [ -n "$pelisplus_season" ] && [ -n "$pelisplus_episode_number" ] || return 1
+            printf '%s/serie/%s/temporada/%s/capitulo/%s\n' \
+                "$pelisplus_refr" "$pelisplus_page_slug" "$pelisplus_season" "$pelisplus_episode_number"
+            ;;
+    esac
+}
+
+episode_display_label() {
+    case "$1" in
+        s[0-9]*e[0-9]*)
+            printf 'Temporada %s · Episodio %s\n' \
+                "$(printf '%s' "$1" | sed -nE 's/^s([0-9]+)e([0-9]+)$/\1/p')" \
+                "$(printf '%s' "$1" | sed -nE 's/^s([0-9]+)e([0-9]+)$/\2/p')"
+            ;;
+        movie) printf '%s\n' Película ;;
+        *) printf '%s\n' "$1" ;;
     esac
 }
 
@@ -709,13 +819,14 @@ prefix_search_results() {
     IFS=$old_ifs
 }
 
-build_anime_menu() {
+build_media_menu() {
     menu_index=0
     while IFS='	' read -r menu_id menu_title menu_label; do
         [ -n "$menu_id" ] || continue
         menu_index=$((menu_index + 1))
         [ -n "$menu_label" ] || menu_label="$menu_title"
         case "$menu_id" in
+            pelisplus:*) menu_language="[ESPAÑOL/LATINO]" ;;
             anidb:* | animex:*) menu_language="[ENGLISH]" ;;
             *) menu_language="[ESPAÑOL]" ;;
         esac
@@ -727,6 +838,10 @@ build_anime_menu() {
     printf '%d\t%s\t%s\n' "$menu_index" "__nav_home" "Volver al inicio"
     menu_index=$((menu_index + 1))
     printf '%d\t%s\t%s\n' "$menu_index" "__nav_exit" "Salir"
+}
+
+build_anime_menu() {
+    build_media_menu
 }
 
 title_for_anime_id() {
@@ -883,6 +998,10 @@ find_link_source() {
 
 find_link_site() {
     printf '%s\n' "$1" | awk -F'>' -v ep="$2" '$1=="site " && $2==ep { print $3; exit }'
+}
+
+find_link_language() {
+    printf '%s\n' "$1" | awk -F'>' -v ep="$2" '$1=="language " && $2==ep { print $3; exit }'
 }
 
 find_link_headers() {
@@ -2230,6 +2349,247 @@ store_spanish_links_for_source() {
     [ -n "$site_links" ]
 }
 
+pelisplus_pow_nonce() {
+    pow_challenge="$1"
+    pow_difficulty="$2"
+    pow_prefix="$(printf '%*s' "$pow_difficulty" '' | tr ' ' 0)"
+    if command -v perl >/dev/null 2>&1 && perl -MDigest::SHA=sha256_hex -e 'exit 0' >/dev/null 2>&1; then
+        perl -MDigest::SHA=sha256_hex -e '
+            my ($challenge, $difficulty, $limit) = @ARGV;
+            my $prefix = "0" x $difficulty;
+            for (my $nonce = 0; $nonce <= $limit; $nonce++) {
+                if (index(sha256_hex($challenge . $nonce), $prefix) == 0) {
+                    print "$nonce\n";
+                    exit 0;
+                }
+            }
+            exit 1;
+        ' "$pow_challenge" "$pow_difficulty" "${ANI_CLI_PELISPLUS_POW_LIMIT:-200000}"
+        return $?
+    fi
+    pow_nonce=0
+    while [ "$pow_nonce" -le "${ANI_CLI_PELISPLUS_POW_LIMIT:-200000}" ]; do
+        pow_digest="$(printf '%s%s' "$pow_challenge" "$pow_nonce" | openssl dgst -sha256 2>/dev/null | awk '{ print $NF }')"
+        case "$pow_digest" in
+            "$pow_prefix"*) printf '%s\n' "$pow_nonce"; return 0 ;;
+        esac
+        pow_nonce=$((pow_nonce + 1))
+    done
+    return 1
+}
+
+pelisplus_decrypt_link() {
+    encrypted_link="$(printf '%s' "$1" | sed 's|\\/|/|g')"
+    aes_key_hex="$(printf '%s%s%s' "$2" "$3" "$4" | openssl dgst -sha256 2>/dev/null | awk '{ print $NF }')"
+    encrypted_raw="$(mktemp)"
+    encrypted_body="$(mktemp)"
+    decrypted_body="$(mktemp)"
+    if ! printf '%s' "$encrypted_link" | openssl base64 -d -A >"$encrypted_raw" 2>/dev/null; then
+        rm -f "$encrypted_raw" "$encrypted_body" "$decrypted_body"
+        return 1
+    fi
+    aes_iv_hex="$(od -An -tx1 -N16 "$encrypted_raw" | tr -d ' \n')"
+    dd if="$encrypted_raw" of="$encrypted_body" bs=1 skip=16 2>/dev/null
+    if openssl enc -d -aes-256-cbc -K "$aes_key_hex" -iv "$aes_iv_hex" \
+        -in "$encrypted_body" -out "$decrypted_body" 2>/dev/null; then
+        tr -d '\r\n' <"$decrypted_body"
+        decrypt_status=0
+    else
+        decrypt_status=1
+    fi
+    rm -f "$encrypted_raw" "$encrypted_body" "$decrypted_body"
+    return "$decrypt_status"
+}
+
+pelisplus_encrypted_mirror_link() {
+    embed_html="$1"
+    requested_server="${2:-vidhide}"
+    available_languages="$(printf '%s' "$embed_html" | grep -Eo '"video_language":"[A-Z]+"' | cut -d'"' -f4 | awk '!seen[$0]++')"
+    requested_language="$(printf '%s' "${ANI_CLI_PELISPLUS_LANGUAGE:-}" | tr '[:lower:]' '[:upper:]')"
+    [ -n "$requested_language" ] && ! printf '%s\n' "$available_languages" | grep -qx "$requested_language" && requested_language=""
+    if [ -z "$requested_language" ] && [ "$(printf '%s\n' "$available_languages" | sed '/^$/d' | wc -l | tr -d ' ')" -gt 1 ] && [ -t 0 ]; then
+        language_index=0
+        language_options=""
+        while IFS= read -r language_code; do
+            [ -n "$language_code" ] || continue
+            language_index=$((language_index + 1))
+            case "$language_code" in
+                LAT) language_label=Latino ;;
+                ESP) language_label=Castellano ;;
+                SUB) language_label=Subtitulado ;;
+                *) language_label="$language_code" ;;
+            esac
+            language_options="${language_options}${language_options:+
+}${language_index}\t${language_code}\t${language_label}"
+        done <<EOF
+$available_languages
+EOF
+        language_result="$(printf '%b\n' "$language_options" | nth 'Idioma: ')" || return 1
+        requested_language="$(printf '%s' "$language_result" | cut -f1)"
+    fi
+    [ -n "$requested_language" ] || {
+        for fallback_language in LAT ESP SUB; do
+            printf '%s\n' "$available_languages" | grep -qx "$fallback_language" && requested_language="$fallback_language" && break
+        done
+    }
+    language_block="$(printf '%s' "$embed_html" | tr -d '\n' | sed 's|{"file_id":|\
+{"file_id":|g' | grep -m1 "\"video_language\":\"$requested_language\"")"
+    if [ -z "$language_block" ]; then
+        for fallback_language in LAT ESP SUB; do
+            language_block="$(printf '%s' "$embed_html" | tr -d '\n' | sed 's|{"file_id":|\
+{"file_id":|g' | grep -m1 "\"video_language\":\"$fallback_language\"")"
+            [ -n "$language_block" ] && requested_language="$fallback_language" && break
+        done
+    fi
+    [ -n "$language_block" ] || return 1
+    encrypted_result="$(printf '%s' "$language_block" |
+        sed -nE 's|.*"sortedEmbeds":\[([^]]*)\].*|\1|p' |
+        sed 's|},{|}\
+{|g' |
+        grep -F "\"servername\":\"$requested_server\"" |
+        sed -nE 's|.*"link":"([^"]+)".*|\1|p' |
+        head -n1)"
+    [ -n "$encrypted_result" ] || return 1
+    printf '%s\t%s\n' "$requested_language" "$encrypted_result"
+}
+
+unpack_pelisplus_packer() {
+    awk '
+        function digit_value(ch) {
+            p = index("0123456789abcdefghijklmnopqrstuvwxyz", tolower(ch))
+            return p ? p - 1 : -1
+        }
+        function base_value(token, radix,    i, value, digit) {
+            value = 0
+            for (i = 1; i <= length(token); i++) {
+                digit = digit_value(substr(token, i, 1))
+                if (digit < 0 || digit >= radix) return -1
+                value = value * radix + digit
+            }
+            return value
+        }
+        {
+            packed = packed $0
+        }
+        END {
+            marker = index(packed, "}(\047")
+            if (!marker) exit 1
+            rest = substr(packed, marker + 3)
+            if (!match(rest, /\047,[0-9]+,[0-9]+,\047/)) exit 1
+            payload = substr(rest, 1, RSTART - 1)
+            metadata = substr(rest, RSTART, RLENGTH)
+            gsub(/[^0-9,]/, "", metadata)
+            sub(/^,/, "", metadata)
+            sub(/,$/, "", metadata)
+            split(metadata, numbers, ",")
+            radix = numbers[1] + 0
+            count = numbers[2] + 0
+            dictionary_text = substr(rest, RSTART + RLENGTH)
+            dictionary_end = index(dictionary_text, "\047.split(\047|\047)")
+            if (!dictionary_end) exit 1
+            dictionary_text = substr(dictionary_text, 1, dictionary_end - 1)
+            split(dictionary_text, dictionary, "|")
+            output = ""
+            token = ""
+            for (i = 1; i <= length(payload) + 1; i++) {
+                ch = substr(payload, i, 1)
+                if (ch ~ /[[:alnum:]]/) {
+                    token = token ch
+                    continue
+                }
+                if (token != "") {
+                    dictionary_index = base_value(token, radix)
+                    if (dictionary_index >= 0 && dictionary_index < count && dictionary[dictionary_index + 1] != "")
+                        output = output dictionary[dictionary_index + 1]
+                    else
+                        output = output token
+                    token = ""
+                }
+                output = output ch
+            }
+            gsub(/\\\047/, "\047", output)
+            gsub(/\\\\/, "\\", output)
+            print output
+        }
+    '
+}
+
+pelisplus_packed_host_links() {
+    packed_host_url="$1"
+    packed_host_body="$(mktemp)"
+    packed_host_effective_url="$(curl -L --connect-timeout 10 --max-time "$resolver_timeout" --retry 2 \
+        -e "$2" -sS -o "$packed_host_body" -w '%{url_effective}' "$packed_host_url" -A "$agent")"
+    packed_output="$(unpack_pelisplus_packer <"$packed_host_body" 2>/dev/null)"
+    rm -f "$packed_host_body"
+    master_url="$(printf '%s' "$packed_output" | grep -Eo 'https?://[^"'"'"'[:space:]\\]+\.m3u8[^"'"'"'[:space:]\\]*' | head -n1)"
+    [ -n "$master_url" ] || return 1
+
+    master_body="$(pelisplus_request "$master_url" 2>/dev/null || true)"
+    variant_links="$(printf '%s\n' "$master_body" | awk -v base="${master_url%/*}/" '
+        /#EXT-X-STREAM-INF:/ {
+            height = $0
+            sub(/^.*RESOLUTION=[0-9]+x/, "", height)
+            sub(/[^0-9].*$/, "", height)
+            if (getline uri) {
+                sub(/\r$/, "", uri)
+                if (uri !~ /^https?:\/\//) uri = base uri
+                if (height != "") printf "%s >%s\n", height, uri
+            }
+        }
+    ' | sort -nr)"
+    [ -n "$variant_links" ] || variant_links="720 >$master_url"
+    printf '%s\n' "$variant_links"
+    printf '%s\n' "$variant_links" | cut -d'>' -f2 | while IFS= read -r variant_url; do
+        printf 'referrer >%s>%s\n' "$variant_url" "$packed_host_effective_url"
+        printf 'site >%s>PelisPlusHD\n' "$variant_url"
+        printf 'source >%s>%s\n' "$variant_url" "${4:-Vidhide}"
+        printf 'language >%s>%s\n' "$variant_url" "${3:-LAT}"
+    done
+}
+
+resolve_pelisplus_media() {
+    pelisplus_page_url="$(pelisplus_episode_page_url "$id" "$ep_no")" || return 1
+    pelisplus_page="$(pelisplus_request "$pelisplus_page_url")" || return 1
+    embed_url="$(printf '%s' "$pelisplus_page" | sed -nE "s|.*video\[[0-9]+\][[:space:]]*=[[:space:]]*'([^']*embed69[^']*)'.*|\1|p" | head -n1)"
+    [ -n "$embed_url" ] || return 1
+    embed_html="$(curl -L --connect-timeout 10 --max-time "$resolver_timeout" -e "$pelisplus_page_url" -sS "$embed_url" -A "$agent")" || return 1
+
+    vidhide_url="$(printf '%s' "$embed_html" | sed -nE "s|.*playServerVast\('(https?://[^']*vidhide[^']*)'\).*|\1|p" | head -n1)"
+    if [ -z "$vidhide_url" ]; then
+        pow_challenge="$(printf '%s' "$embed_html" | sed -nE "s|.*POW_CHALLENGE[[:space:]]*=[[:space:]]*'([^']+)'.*|\1|p" | head -n1)"
+        pow_difficulty="$(printf '%s' "$embed_html" | sed -nE 's|.*POW_DIFFICULTY[[:space:]]*=[[:space:]]*([0-9]+).*|\1|p' | head -n1)"
+        pow_salt="$(printf '%s' "$embed_html" | sed -nE "s|.*POW_SALT[[:space:]]*=[[:space:]]*'([^']+)'.*|\1|p" | head -n1)"
+        [ -n "$pow_challenge" ] && [ -n "$pow_difficulty" ] && [ -n "$pow_salt" ] || return 1
+        pow_nonce="$(pelisplus_pow_nonce "$pow_challenge" "$pow_difficulty")" || return 1
+        requested_language="$(printf '%s' "${ANI_CLI_PELISPLUS_LANGUAGE:-LAT}" | tr '[:lower:]' '[:upper:]')"
+        [ "$requested_language" = SUB ] && mirror_order='streamwish vidhide' || mirror_order='vidhide streamwish'
+        for mirror_name in $mirror_order; do
+            encrypted_record="$(pelisplus_encrypted_mirror_link "$embed_html" "$mirror_name")"
+            pelisplus_language="$(printf '%s' "$encrypted_record" | cut -f1)"
+            encrypted_link="$(printf '%s' "$encrypted_record" | cut -f2)"
+            [ -n "$encrypted_link" ] || continue
+            packed_host_url="$(pelisplus_decrypt_link "$encrypted_link" "$pow_challenge" "$pow_nonce" "$pow_salt")" || continue
+            case "$packed_host_url" in https://* | http://*) : ;; *) continue ;; esac
+            case "$mirror_name" in
+                streamwish) mirror_label=Streamwish ;;
+                *) mirror_label=Vidhide ;;
+            esac
+            candidate_links="$(pelisplus_packed_host_links "$packed_host_url" "$embed_url" "$pelisplus_language" "$mirror_label")"
+            candidate_url="$(printf '%s\n' "$candidate_links" | grep -E '^[0-9]{3,4} >' | head -n1 | cut -d'>' -f2)"
+            candidate_referrer="$(find_link_referrer "$candidate_links" "$candidate_url")"
+            if [ -n "$candidate_url" ] && probe_link_with_mpv "$candidate_url" "$candidate_referrer" ""; then
+                printf '%s\n' "$candidate_links"
+                return 0
+            fi
+        done
+        return 1
+    else
+        pelisplus_language="$(printf '%s' "${ANI_CLI_PELISPLUS_LANGUAGE:-LAT}" | tr '[:lower:]' '[:upper:]')"
+    fi
+    case "$vidhide_url" in https://* | http://*) : ;; *) return 1 ;; esac
+    pelisplus_packed_host_links "$vidhide_url" "$embed_url" "$pelisplus_language" Vidhide
+}
+
 select_quality() {
     unset headers_flag subs_flag iina_subs_flag subtitle
     # removing urls which have soft subs to avoid playing on android, iSH and vlc (m3u8 streams don't get correct referrer)
@@ -2262,6 +2622,7 @@ select_quality() {
     generic_refr="$(printf '%s\n' "$links" | awk -F'>' -v ep="$episode" '$1=="referrer " && $2==ep { print $3; exit }')"
     selected_site="$(find_link_site "$links" "$episode")"
     selected_source="$(find_link_source "$links" "$episode")"
+    selected_language="$(find_link_language "$links" "$episode")"
     selected_origin="$(describe_link_origin "$selected_site" "$selected_source")"
     [ -n "$generic_refr" ] && refr_flag="--referrer=$generic_refr"
 
@@ -2277,6 +2638,18 @@ get_episode_url() {
     animeav1_links=""
     unset selected_spanish_site selected_site selected_source selected_origin
     authoritative_site="$(site_name_from_ref "$id" 2>/dev/null || true)"
+    if [ "$authoritative_site" = "pelisplus" ]; then
+        dep_ch "openssl" "awk" "od" "dd"
+        links="$(resolve_pelisplus_media | sort -g -r -s)"
+        [ -n "$links" ] || die "PelisPlusHD no produjo un enlace reproducible"
+        select_quality "$quality"
+        [ -n "$episode" ] || die "PelisPlusHD no ofrece la calidad solicitada"
+        if ! probe_link_with_mpv "$episode" "${generic_refr:-}" "${generic_headers:-}"; then
+            die "Vidhide entregó un enlace, pero mpv no pudo decodificar un frame"
+        fi
+        printf "Fuente elegida: %s\n" "${selected_origin:-PelisPlusHD / Vidhide}" 1>&2
+        return 0
+    fi
     authoritative_ep_list=""
     [ -n "$authoritative_site" ] && authoritative_ep_list="$(episodes_list_for_source "$authoritative_site" "$id" "$title")"
     [ -z "$authoritative_ep_list" ] && authoritative_ep_list="$ep_list"
@@ -2288,7 +2661,7 @@ get_episode_url() {
             printf "Fuente elegida: %s\n" "$selected_origin" 1>&2
             return 0
         fi
-        if printf '%s\n' "$ep_list" | grep -qx "$ep_no"; then
+        if printf '%s\n' "$ep_list" | grep -Fqx "$ep_no"; then
             die "El episodio ya fue publicado, pero no se encontraron fuentes validas"
         fi
         die "Episodio no disponible todavia"
@@ -2369,7 +2742,7 @@ get_episode_url() {
         fi
     fi
     select_quality "$quality"
-    if printf "%s" "$ep_list" | grep -q "^$ep_no$"; then
+    if printf "%s" "$ep_list" | grep -Fqx "$ep_no"; then
         [ -z "$episode" ] && die "El episodio ya fue publicado, pero no se encontraron fuentes validas"
     else
         [ -z "$episode" ] && die "Episodio no disponible todavia"
@@ -2437,6 +2810,51 @@ search_anime() {
     [ -n "$animex_results" ] && search_results="${search_results}$(prefix_search_results "animex" "$animex_results")
 "
     printf '%s' "$search_results" | sed '/^$/d'
+}
+
+pelisplus_detail_is_dorama() {
+    detail_attempt=1
+    while [ "$detail_attempt" -le 3 ]; do
+        detail_response="$(pelisplus_request "$1" 2>/dev/null || true)"
+        if printf '%s' "$detail_response" | grep -qi 'title="Películas del Genero: Dorama"'; then
+            return 0
+        fi
+        printf '%s' "$detail_response" | grep -q '<title>' && return 1
+        detail_attempt=$((detail_attempt + 1))
+    done
+    return 1
+}
+
+search_pelisplus() {
+    pelisplus_query="$(printf '%s' "$1" | tr '+' ' ')"
+    pelisplus_kind="$2"
+    pelisplus_search_request "$pelisplus_query" |
+        tr '\n' ' ' |
+        sed 's|<a[[:space:]][[:space:]]*href=|\
+&|g' |
+        grep -E 'href="[^"]*/(pelicula|serie)/' |
+        while IFS= read -r pelisplus_record; do
+            pelisplus_path_kind="$(printf '%s' "$pelisplus_record" | sed -nE 's#.*href="[^"]*/(pelicula|serie)/[^"]+".*#\1#p')"
+            pelisplus_slug="$(printf '%s' "$pelisplus_record" | sed -nE 's#.*href="[^"]*/(pelicula|serie)/([^"]+)".*#\2#p')"
+            pelisplus_title="$(printf '%s' "$pelisplus_record" | sed -nE 's#.*data-title="VER ([^"]+) Online Gratis HD".*#\1#p')"
+            [ -n "$pelisplus_title" ] || pelisplus_title="$(printf '%s' "$pelisplus_slug" | tr '-' ' ')"
+            case "$pelisplus_path_kind:$pelisplus_kind" in
+                pelicula:movie) candidate_kind=movie ;;
+                serie:series | serie:dorama)
+                    candidate_url="$pelisplus_refr/serie/$pelisplus_slug"
+                    if pelisplus_detail_is_dorama "$candidate_url"; then
+                        candidate_kind=dorama
+                    else
+                        candidate_kind=series
+                    fi
+                    [ "$candidate_kind" = "$pelisplus_kind" ] || continue
+                    ;;
+                *) continue ;;
+            esac
+            printf 'pelisplus:%s:%s\t%s\t%s [PelisPlusHD · %s]\n' \
+                "$candidate_kind" "$pelisplus_slug" "$pelisplus_title" "$pelisplus_title" \
+                "$(media_kind_label "$candidate_kind")"
+        done
 }
 
 time_until_next_ep() {
@@ -2615,12 +3033,12 @@ episode_catalog_matches_authoritative() {
 
     case "$authoritative_latest:$candidate_latest" in
         *[!0-9.:]*)
-            [ -n "$ep_no" ] && printf '%s\n' "$candidate_list" | grep -qx "$ep_no"
+            [ -n "$ep_no" ] && printf '%s\n' "$candidate_list" | grep -Fqx "$ep_no"
             return $?
             ;;
     esac
 
-    [ -n "$ep_no" ] && ! printf '%s\n' "$candidate_list" | grep -qx "$ep_no" && return 1
+    [ -n "$ep_no" ] && ! printf '%s\n' "$candidate_list" | grep -Fqx "$ep_no" && return 1
     delta="$(episode_number_delta "$authoritative_latest" "$candidate_latest")"
     [ "$delta" -le 2 ]
 }
@@ -2644,7 +3062,25 @@ filter_links_by_episode_catalog() {
     fi
 }
 
+episodes_list_pelisplus() {
+    case "$(media_kind_from_id "$1")" in
+        movie) printf '%s\n' movie ;;
+        series | dorama)
+            pelisplus_series_slug="$(pelisplus_ref_slug "$1")"
+            pelisplus_request "$pelisplus_refr/serie/$pelisplus_series_slug" |
+                tr '\n' ' ' |
+                grep -Eo "/serie/$pelisplus_series_slug/temporada/[0-9]+/capitulo/[0-9]+" |
+                sed -nE 's|.*/temporada/([0-9]+)/capitulo/([0-9]+)|\1 \2|p' |
+                sort -n -u -k1,1 -k2,2 |
+                awk '{ printf "s%se%s\n", $1, $2 }'
+            ;;
+    esac
+}
+
 episodes_list() {
+    case "$1" in
+        pelisplus:*) episodes_list_pelisplus "$1"; return ;;
+    esac
     if [ "${hentaila_mode:-0}" = "1" ]; then
         episodes="$(episodes_list_for_source "hentaila" "$1" "$2")"
         [ -n "$episodes" ] && printf '%s\n' "$episodes"
@@ -2687,6 +3123,9 @@ history_entries() {
 
 history_provider_label() {
     case "$1" in
+        pelisplus:movie:*) printf '%s\n' "PelisPlusHD · Película" ;;
+        pelisplus:series:*) printf '%s\n' "PelisPlusHD · Serie" ;;
+        pelisplus:dorama:*) printf '%s\n' "PelisPlusHD · Dorama" ;;
         animeflv:*) printf '%s\n' "AnimeFLV" ;;
         jkanime:*) printf '%s\n' "JKAnime" ;;
         animeav1:*) printf '%s\n' "AnimeAV1" ;;
@@ -2709,7 +3148,7 @@ build_history_menu() {
         printf '%s\t%s\t%s\n' "$history_menu_index" "$history_id" "$history_label"
     done
     history_menu_index=$((history_menu_index + 1))
-    printf '%s\t%s\t%s\n' "$history_menu_index" "__nav_search" "Buscar anime"
+    printf '%s\t%s\t%s\n' "$history_menu_index" "__nav_search" "Buscar contenido"
     history_menu_index=$((history_menu_index + 1))
     printf '%s\t%s\t%s\n' "$history_menu_index" "__nav_home" "Volver al inicio"
     history_menu_index=$((history_menu_index + 1))
@@ -2736,7 +3175,7 @@ select_episode() {
     while IFS= read -r episode_entry; do
         [ -n "$episode_entry" ] || continue
         episode_menu_index=$((episode_menu_index + 1))
-        episode_label="$episode_entry"
+        episode_label="$(episode_display_label "$episode_entry")"
         [ "$episode_entry" = "$last_watched_ep" ] && episode_label="$episode_entry *"
         episode_menu="${episode_menu}${episode_menu:+
 }${episode_menu_index}	${episode_entry}	${episode_label}"
@@ -2754,7 +3193,7 @@ ${episode_menu_index}	__nav_back	Volver a resultados"
     fi
     episode_menu_index=$((episode_menu_index + 1))
     episode_menu="${episode_menu}
-${episode_menu_index}	__nav_search	Buscar otro anime"
+${episode_menu_index}	__nav_search	Buscar otro contenido"
     episode_menu_index=$((episode_menu_index + 1))
     episode_menu="${episode_menu}
 ${episode_menu_index}	__nav_home	Volver al inicio"
@@ -3093,7 +3532,7 @@ queue_persistent_mpv_episode() {
     printf '{"action":"load","episode":"%s","url":"%s","title":"%s","referrer":"%s","headers":"%s","subtitles":[%s]}\n' \
         "$(mpv_json_escape "$ep_no")" \
         "$(mpv_json_escape "$episode")" \
-        "$(mpv_json_escape "${media_title}Episode ${ep_no}")" \
+        "$(mpv_json_escape "$(playback_media_title)")" \
         "$(mpv_json_escape "${generic_refr:-}")" \
         "$(mpv_json_escape "${generic_headers:-}")" \
         "$subtitles_json" >"$command_tmp"
@@ -3129,16 +3568,33 @@ start_persistent_mpv() {
             ;;
     esac
     player_pid=$!
+    kill -0 "$player_pid" 2>/dev/null || return 1
+    # Give mpv enough time to load the controller before the first command file
+    # is queued; otherwise a fast caller can race process initialization.
+    sleep 1
     kill -0 "$player_pid" 2>/dev/null
+}
+
+playback_media_title() {
+    case "${media_kind:-anime}" in
+        movie) printf '%s\n' "$title" ;;
+        series | dorama)
+            title_season="$(printf '%s' "$ep_no" | sed -nE 's/^s([0-9]+)e([0-9]+)$/\1/p')"
+            title_episode="$(printf '%s' "$ep_no" | sed -nE 's/^s([0-9]+)e([0-9]+)$/\2/p')"
+            printf '%s · T%s E%s\n' "$title" "$title_season" "$title_episode"
+            ;;
+        *) printf '%sEpisode %s\n' "$media_title" "$ep_no" ;;
+    esac
 }
 
 play_episode() {
     manual_handoff=0
     persistent_episode_loaded=0
     persistent_mpv_alive || player_pid=""
+    display_title="$(playback_media_title)"
     set_current_episode "$ep_no"
-    [ "$log_episode" = 1 ] && [ "$player_function" != "debug" ] && [ "$player_function" != "download" ] && command -v logger >/dev/null && logger -t "$log_tag" "${media_title}${ep_no}"
-    [ "$skip_intro" = 1 ] && skip_flag="$(ani-skip -q "$mal_id" -e "$ep_no")"
+    [ "$log_episode" = 1 ] && [ "$player_function" != "debug" ] && [ "$player_function" != "download" ] && command -v logger >/dev/null && logger -t "$log_tag" "$display_title"
+    [ "${media_kind:-anime}" = anime ] && [ "$skip_intro" = 1 ] && skip_flag="$(ani-skip -q "$mal_id" -e "$ep_no")"
     [ -z "$episode" ] && get_episode_url
     prepare_mpv_window_state_flags
     if [ "$selected_source" = "HQQ" ] && [ "$hqq_browser_fallback" = "1" ] &&
@@ -3164,6 +3620,7 @@ play_episode() {
     case "$player_function" in
         debug)
             printf "Todos los enlaces:\n%s\nFuente seleccionada:\n%s\n" "$links" "${selected_origin:-desconocida}"
+            [ -n "${selected_language:-}" ] && printf "Idioma seleccionado:\n%s\n" "$selected_language"
             [ "$selected_source" = "HQQ" ] && [ -n "$generic_refr" ] && printf "Accion manual HQQ:\n%s\n" "$generic_refr"
             printf "Enlace seleccionado:\n"
             printf "%s\n" "$episode"
@@ -3175,41 +3632,41 @@ play_episode() {
             elif [ "$persistent_episode_loaded" = "1" ]; then
                 :
             elif [ "$no_detach" = 0 ]; then
-                nohup $player_function $skip_flag $mpv_window_script_flag $mpv_geometry_flag $mpv_maximized_flag $mpv_fullscreen_flag --force-media-title="${media_title}Episode ${ep_no}" "$episode" $subs_flag $refr_flag $headers_flag >/dev/null 2>&1 &
+                nohup $player_function $skip_flag $mpv_window_script_flag $mpv_geometry_flag $mpv_maximized_flag $mpv_fullscreen_flag --force-media-title="$display_title" "$episode" $subs_flag $refr_flag $headers_flag >/dev/null 2>&1 &
                 player_pid=$!
             else
-                $player_function $skip_flag $mpv_window_script_flag $mpv_geometry_flag $mpv_maximized_flag $mpv_fullscreen_flag $subs_flag $refr_flag $headers_flag --force-media-title="${media_title}Episode ${ep_no}" "$episode"
+                $player_function $skip_flag $mpv_window_script_flag $mpv_geometry_flag $mpv_maximized_flag $mpv_fullscreen_flag $subs_flag $refr_flag $headers_flag --force-media-title="$display_title" "$episode"
                 mpv_exitcode=$?
                 [ "$exit_after_play" = 1 ] && [ -z "$range" ] && exit "$mpv_exitcode"
             fi
             ;;
         android_mpv) nohup am start --user 0 -a android.intent.action.VIEW -d "$episode" -n is.xyz.mpv/.MPVActivity >/dev/null 2>&1 & ;;
-        android_vlc) nohup am start --user 0 -a android.intent.action.VIEW -d "$episode" -n org.videolan.vlc/org.videolan.vlc.gui.video.VideoPlayerActivity -e "title" "${media_title}Episode ${ep_no}" >/dev/null 2>&1 & ;;
+        android_vlc) nohup am start --user 0 -a android.intent.action.VIEW -d "$episode" -n org.videolan.vlc/org.videolan.vlc.gui.video.VideoPlayerActivity -e "title" "$display_title" >/dev/null 2>&1 & ;;
         *iina*)
             [ -n "$refr_flag" ] && refr_flag="--mpv-${refr_flag#--}"
             [ -n "$headers_flag" ] && headers_flag="--mpv-${headers_flag#--}"
             if pgrep -f "IINA" >/dev/null 2>&1; then
                 # omit --keep-running when an IINA instance exists to prevent hanging
-                nohup $player_function --no-stdin --mpv-force-media-title="${media_title}Episode ${ep_no}" $iina_subs_flag $refr_flag $headers_flag "$episode" >/dev/null 2>&1 &
+                nohup $player_function --no-stdin --mpv-force-media-title="$display_title" $iina_subs_flag $refr_flag $headers_flag "$episode" >/dev/null 2>&1 &
             else
-                nohup $player_function --no-stdin --keep-running --mpv-force-media-title="${media_title}Episode ${ep_no}" $iina_subs_flag $refr_flag $headers_flag "$episode" >/dev/null 2>&1 &
+                nohup $player_function --no-stdin --keep-running --mpv-force-media-title="$display_title" $iina_subs_flag $refr_flag $headers_flag "$episode" >/dev/null 2>&1 &
             fi
             ;;
         flatpak_mpv)
             if [ "$persistent_episode_loaded" = "1" ]; then
                 :
             elif [ "$no_detach" = 0 ]; then
-                flatpak run io.mpv.Mpv $mpv_window_script_flag $mpv_geometry_flag $mpv_maximized_flag $mpv_fullscreen_flag --force-media-title="${media_title}Episode ${ep_no}" "$episode" $subs_flag $refr_flag $headers_flag >/dev/null 2>&1 &
+                flatpak run io.mpv.Mpv $mpv_window_script_flag $mpv_geometry_flag $mpv_maximized_flag $mpv_fullscreen_flag --force-media-title="$display_title" "$episode" $subs_flag $refr_flag $headers_flag >/dev/null 2>&1 &
                 player_pid=$!
             else
-                flatpak run io.mpv.Mpv $mpv_window_script_flag $mpv_geometry_flag $mpv_maximized_flag $mpv_fullscreen_flag --force-media-title="${media_title}Episode ${ep_no}" "$episode" $subs_flag $refr_flag $headers_flag
+                flatpak run io.mpv.Mpv $mpv_window_script_flag $mpv_geometry_flag $mpv_maximized_flag $mpv_fullscreen_flag --force-media-title="$display_title" "$episode" $subs_flag $refr_flag $headers_flag
                 mpv_exitcode=$?
                 [ "$exit_after_play" = 1 ] && [ -z "$range" ] && exit "$mpv_exitcode"
             fi
             ;;
-        vlc*) nohup $player_function --http-referrer="${generic_refr:-$animeflv_refr}" --play-and-exit --meta-title="${media_title}Episode ${ep_no}" "$episode" >/dev/null 2>&1 & ;;
-        *yncpla*) nohup $player_function "$episode" -- --force-media-title="${media_title}Episode ${ep_no}" $subs_flag $refr_flag >/dev/null 2>&1 & ;;
-        download) "$player_function" "$episode" "${media_title}Episode ${ep_no}" "$subtitle" ;;
+        vlc*) nohup $player_function --http-referrer="${generic_refr:-$animeflv_refr}" --play-and-exit --meta-title="$display_title" "$episode" >/dev/null 2>&1 & ;;
+        *yncpla*) nohup $player_function "$episode" -- --force-media-title="$display_title" $subs_flag $refr_flag >/dev/null 2>&1 & ;;
+        download) "$player_function" "$episode" "$display_title" "$subtitle" ;;
         catt) nohup catt cast "$episode" -s "$subtitle" >/dev/null 2>&1 & ;;
         iSH)
             printf "\e]8;;vlc://%s\a~~~~~~~~~~~~~~~~~~~~\n~ Tap to open VLC ~\n~~~~~~~~~~~~~~~~~~~~\e]8;;\a\n" "$episode"
@@ -3495,24 +3952,30 @@ download_available_for_selected_provider() {
 
 playback_menu_options() {
     playback_option_index=1
-    printf '%s\t%s\t%s\n' "$playback_option_index" siguiente 'Siguiente episodio'
-    playback_option_index=$((playback_option_index + 1))
-    printf '%s\t%s\t%s\n' "$playback_option_index" anterior 'Episodio anterior'
-    playback_option_index=$((playback_option_index + 1))
-    printf '%s\t%s\t%s\n' "$playback_option_index" repetir_episodio_actual 'Repetir episodio actual'
-    playback_option_index=$((playback_option_index + 1))
-    printf '%s\t%s\t%s\n' "$playback_option_index" elegir_episodio 'Elegir otro capitulo'
+    if [ "${media_kind:-anime}" = movie ]; then
+        printf '%s\t%s\t%s\n' "$playback_option_index" repetir_episodio_actual 'Repetir película'
+    else
+        printf '%s\t%s\t%s\n' "$playback_option_index" siguiente 'Siguiente episodio'
+        playback_option_index=$((playback_option_index + 1))
+        printf '%s\t%s\t%s\n' "$playback_option_index" anterior 'Episodio anterior'
+        playback_option_index=$((playback_option_index + 1))
+        printf '%s\t%s\t%s\n' "$playback_option_index" repetir_episodio_actual 'Repetir episodio actual'
+        playback_option_index=$((playback_option_index + 1))
+        printf '%s\t%s\t%s\n' "$playback_option_index" elegir_episodio 'Elegir otro capítulo'
+    fi
     playback_option_index=$((playback_option_index + 1))
     if download_available_for_selected_provider; then
         printf '%s\t%s\t%s\n' "$playback_option_index" descargar_episodio_actual 'Descargar episodio actual'
         playback_option_index=$((playback_option_index + 1))
     fi
-    if continuous_enabled; then
-        printf '%s\t%s\t%s\n' "$playback_option_index" desactivar_modo_continuo 'Desactivar modo continuo'
-    else
-        printf '%s\t%s\t%s\n' "$playback_option_index" activar_modo_continuo 'Activar modo continuo'
+    if [ "${media_kind:-anime}" != movie ]; then
+        if continuous_enabled; then
+            printf '%s\t%s\t%s\n' "$playback_option_index" desactivar_modo_continuo 'Desactivar modo continuo'
+        else
+            printf '%s\t%s\t%s\n' "$playback_option_index" activar_modo_continuo 'Activar modo continuo'
+        fi
+        playback_option_index=$((playback_option_index + 1))
     fi
-    playback_option_index=$((playback_option_index + 1))
     if [ "${1:-}" != "persistent" ]; then
         if close_previous_enabled; then
             printf '%s\t%s\t%s\n' "$playback_option_index" desactivar_cerrar_reproductor_anterior 'No cerrar el reproductor anterior'
@@ -3527,7 +3990,7 @@ playback_menu_options() {
         printf '%s\t%s\t%s\n' "$playback_option_index" volver_resultados 'Volver a resultados'
     fi
     playback_option_index=$((playback_option_index + 1))
-    printf '%s\t%s\t%s\n' "$playback_option_index" buscar_otro_anime 'Buscar otro anime'
+    printf '%s\t%s\t%s\n' "$playback_option_index" buscar_otro_anime 'Buscar otro contenido'
     playback_option_index=$((playback_option_index + 1))
     printf '%s\t%s\t%s\n' "$playback_option_index" volver_inicio 'Volver al inicio'
     playback_option_index=$((playback_option_index + 1))
@@ -3536,6 +3999,10 @@ playback_menu_options() {
 
 playback_menu_prompt() {
     menu_ep="$(current_episode_number)"
+    if [ "${media_kind:-anime}" = movie ]; then
+        printf "Reproduciendo %s..." "$title"
+        return
+    fi
     if continuous_enabled; then
         playback_mode="continuo"
         playback_note="el proximo capitulo reproducido avanzara automaticamente"
@@ -3586,6 +4053,7 @@ animeav1_refr="https://animeav1.com"
 animeav1_slug=""
 animeav1_slug_key=""
 hentaila_refr="https://hentaila.com"
+pelisplus_refr="${ANI_CLI_PELISPLUS_URL:-https://pelisplushd.bz}"
 hentaila_mode=0
 for hidden_arg in "$@"; do
     [ "$hidden_arg" = "-ha" ] && hentaila_mode=1
@@ -3648,6 +4116,11 @@ else
 fi
 [ ! -f "$histfile" ] && : >"$histfile"
 search="${ANI_CLI_DEFAULT_SOURCE:-scrape}"
+media_kind=""
+source_option_set=0
+[ -n "${ANI_CLI_MEDIA_TYPE:-}" ] && media_kind="$(normalize_media_kind "$ANI_CLI_MEDIA_TYPE")" || {
+    [ -z "${ANI_CLI_MEDIA_TYPE:-}" ] || die "ANI_CLI_MEDIA_TYPE inválido. Usa: anime, movie, series o dorama"
+}
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -3708,10 +4181,17 @@ while [ $# -gt 0 ]; do
             ep_no="$2"
             shift
             ;;
+        -t | --type)
+            [ $# -lt 2 ] && die "falta un argumento"
+            media_kind="$(normalize_media_kind "$2")" ||
+                die "Tipo inválido: $2. Usa: anime, movie, series o dorama"
+            shift
+            ;;
         --source | --info-source)
             [ $# -lt 2 ] && die "falta un argumento"
             preferred_info_source="$(normalize_info_source "$2")" ||
                 die "Fuente invalida: $2. Usa: auto, animeflv, jkanime, animeav1, anidb o animex"
+            source_option_set=1
             shift
             ;;
         --dub) mode="dub" ;;
@@ -3731,6 +4211,17 @@ while [ $# -gt 0 ]; do
     esac
     shift
 done
+[ "$hentaila_mode" = "1" ] && media_kind=anime
+[ "$search" = "nextep" ] && media_kind=anime
+[ -n "${query:-}" ] && [ -z "$media_kind" ] &&
+    die "La búsqueda directa requiere -t/--type: anime, movie, series o dorama"
+[ -n "$media_kind" ] && [ "$media_kind" != "anime" ] && [ "$source_option_set" = "1" ] &&
+    die "--source solo se puede usar con contenido de tipo anime"
+[ -n "$media_kind" ] && [ "$media_kind" != "anime" ] && [ "$skip_intro" = "1" ] &&
+    die "--skip solo se puede usar con contenido de tipo anime"
+[ "$media_kind" = movie ] && [ "$continuous_mode" = "1" ] &&
+    die "El modo continuo no aplica a películas"
+[ -n "${ep_no:-}" ] && ep_no="$(printf '%s' "$ep_no" | tr '[:upper:]' '[:lower:]')"
 [ "$use_external_menu" = "0" ] && multi_selection_flag="${ANI_CLI_MULTI_SELECTION:-"-m"}"
 [ "$use_external_menu" = "1" ] && multi_selection_flag="${ANI_CLI_MULTI_SELECTION:-"-multi-select"}"
 [ "$external_menu_normal_window" = "1" ] && external_menu_args="-normal-window"
@@ -3762,7 +4253,8 @@ episode_argument_pending=1
 navigation_context="search"
 app_state="search_results"
 [ "$search" = "history" ] && app_state="history"
-[ "$search" = "scrape" ] && [ -z "$query" ] && app_state="home"
+[ "$search" = "scrape" ] && [ -z "$query" ] && [ -z "$media_kind" ] && app_state="home"
+[ "$search" = "scrape" ] && [ -z "$query" ] && [ -n "$media_kind" ] && app_state="search_query"
 
 reset_provider_session_selection() {
     fast_mode_source=""
@@ -3770,7 +4262,7 @@ reset_provider_session_selection() {
     disabled_spanish_sources=""
     preferred_spanish_site=""
     : >"$fast_mode_mirror_file"
-    unset selected_spanish_site selected_site selected_source selected_origin episode
+    unset selected_spanish_site selected_site selected_source selected_origin selected_language episode
 }
 
 leave_playback_for_navigation() {
@@ -3786,23 +4278,37 @@ while :; do
             [ "$menu_status" -eq 130 ] && exit 130
             [ "$menu_status" -eq 0 ] || exit 0
             case "$home_action" in
-                search) query=""; app_state="search_query" ;;
+                search) query=""; media_kind=""; app_state="media_type_menu" ;;
                 history)
                     if [ -s "$histfile" ]; then
                         app_state="history"
                     else
-                        printf 'No hay series pendientes en el historial.\n' 1>&2
+                        printf 'No hay contenido pendiente en el historial.\n' 1>&2
                     fi
                     ;;
                 exit | '') exit 0 ;;
             esac
+            ;;
+        media_type_menu)
+            media_kind="$(media_type_menu)"
+            menu_status=$?
+            [ "$menu_status" -eq 130 ] && exit 130
+            if [ "$menu_status" -eq 10 ]; then
+                app_state="home"
+                continue
+            fi
+            case "$media_kind" in
+                __nav_home | '') app_state="home"; continue ;;
+            esac
+            query=""
+            app_state="search_query"
             ;;
         search_query)
             query="$(search_query_menu)"
             menu_status=$?
             [ "$menu_status" -eq 130 ] && exit 130
             if [ "$menu_status" -eq 10 ]; then
-                app_state="home"
+                app_state="media_type_menu"
                 continue
             fi
             [ -n "$query" ] || continue
@@ -3811,10 +4317,15 @@ while :; do
         search_results)
             [ -n "$query" ] || { app_state="search_query"; continue; }
             [ "$search" = "nextep" ] && time_until_next_ep "$query"
-            printf '\33[2K\r\033[1;34mBuscando animes...\033[0m\n' 1>&2
+            printf '\33[2K\r\033[1;34mBuscando %s...\033[0m\n' "$(media_kind_plural_label "$media_kind")" 1>&2
             encoded_query="$(printf '%s' "$query" | sed 's| |+|g')"
-            anime_list="$(search_anime "$encoded_query")"
-            [ -z "$anime_list" ] && diagnose_empty_search "$encoded_query"
+            if [ "$media_kind" = "anime" ]; then
+                anime_list="$(search_anime "$encoded_query")"
+                [ -z "$anime_list" ] && diagnose_empty_search "$encoded_query"
+            else
+                anime_list="$(search_pelisplus "$query" "$media_kind")"
+                [ -n "$anime_list" ] || die "No se encontraron $(media_kind_plural_label "$media_kind") en PelisPlusHD"
+            fi
             app_state="search_result_menu"
             ;;
         search_result_menu)
@@ -3822,8 +4333,8 @@ while :; do
                 result="$(printf '%s' "$anime_list" | sed -n "${index}p")"
                 index=""
             else
-                anime_menu="$(printf '%s\n' "$anime_list" | build_anime_menu)"
-                result="$(printf '%s' "$anime_menu" | nth "Selecciona anime: ")"
+                anime_menu="$(printf '%s\n' "$anime_list" | build_media_menu)"
+                result="$(printf '%s' "$anime_menu" | nth "Selecciona $(media_kind_label "$media_kind"): ")"
                 menu_status=$?
                 [ "$menu_status" -eq 130 ] && exit 130
                 if [ "$menu_status" -eq 10 ]; then
@@ -3838,6 +4349,7 @@ while :; do
                 __nav_exit | '') exit 0 ;;
             esac
             id="$result_id"
+            media_kind="$(media_kind_from_id "$id")"
             title="$(printf '%s\n' "$anime_list" | title_for_anime_id "$id")"
             [ -z "$title" ] && title="$(printf '%s' "$result" | cut -f2)"
             navigation_context="search"
@@ -3851,7 +4363,7 @@ while :; do
             app_state="episode_load"
             ;;
         history)
-            [ -s "$histfile" ] || { printf 'No hay series pendientes en el historial.\n' 1>&2; app_state="home"; continue; }
+            [ -s "$histfile" ] || { printf 'No hay contenido pendiente en el historial.\n' 1>&2; app_state="home"; continue; }
             anime_list="$(history_entries)"
             [ -n "$anime_list" ] || { app_state="home"; continue; }
             app_state="history_menu"
@@ -3874,11 +4386,12 @@ while :; do
             fi
             result_id="$(printf '%s' "$history_result" | cut -f1)"
             case "$result_id" in
-                __nav_search) query=""; app_state="search_query"; continue ;;
+                __nav_search) query=""; media_kind=""; app_state="media_type_menu"; continue ;;
                 __nav_home) app_state="home"; continue ;;
                 __nav_exit | '') exit 0 ;;
             esac
             id="$result_id"
+            media_kind="$(media_kind_from_id "$id")"
             title="$(printf '%s\n' "$anime_list" | title_for_anime_id "$id")"
             navigation_context="history"
             reset_provider_session_selection
@@ -3892,9 +4405,10 @@ while :; do
             ;;
         episode_load)
             media_title="$(printf '%s' "$title" | cut -d'(' -f1 | tr -d '[:punct:]')"
-            printf '\33[2K\r\033[1;34mBuscando episodios...\033[0m\n' 1>&2
+            printf '\33[2K\r\033[1;34mBuscando %s...\033[0m\n' "$([ "$media_kind" = movie ] && printf reproducción || printf episodios)" 1>&2
             ep_list="$(episodes_list "$id" "$title")"
             [ -n "$ep_list" ] || die "No se encontraron episodios"
+            [ "$media_kind" = "movie" ] && ep_no=movie
             app_state="episode_menu"
             ;;
         episode_menu)
@@ -3908,7 +4422,7 @@ while :; do
                 fi
                 case "$episode_choice" in
                     __nav_back) [ "$navigation_context" = "history" ] && app_state="history_menu" || app_state="search_result_menu"; continue ;;
-                    __nav_search) query=""; app_state="search_query"; continue ;;
+                    __nav_search) query=""; media_kind=""; app_state="media_type_menu"; continue ;;
                     __nav_home) app_state="home"; continue ;;
                     __nav_exit | '') exit 0 ;;
                 esac
@@ -3917,10 +4431,10 @@ while :; do
             app_state="playback_start"
             ;;
         playback_start)
-            [ "$skip_intro" = 1 ] && mal_id="$(ani-skip -q "${skip_title:-${title}}")"
+            [ "$media_kind" = anime ] && [ "$skip_intro" = 1 ] && mal_id="$(ani-skip -q "${skip_title:-${title}}")"
             tput cuu1 && tput el
             tput sc
-            [ "$continuous_mode" = "1" ] && set_continuous_mode 1
+            [ "$media_kind" != movie ] && [ "$continuous_mode" = "1" ] && set_continuous_mode 1
             play
             { [ "$player_function" = "download" ] || [ "$player_function" = "debug" ]; } && exit 0
             start_continuous_worker_for_current_player
@@ -3940,7 +4454,7 @@ while :; do
             case "$cmd" in
                 siguiente)
                     prepare_for_menu_playback
-                    ep_no="$(printf '%s' "$ep_list" | sed -n "/^${ep_no}$/{n;p;}")" 2>/dev/null
+                    ep_no="$(printf '%s\n' "$ep_list" | awk -v current="$ep_no" 'found { print; exit } $0 == current { found=1 }')"
                     ;;
                 repetir | repetir_episodio_actual)
                     prepare_for_menu_playback
@@ -3948,7 +4462,7 @@ while :; do
                     ;;
                 anterior)
                     prepare_for_menu_playback
-                    ep_no="$(printf '%s' "$ep_list" | sed -n "/^${ep_no}$/{g;1!p;};h")" 2>/dev/null
+                    ep_no="$(printf '%s\n' "$ep_list" | awk -v current="$ep_no" '$0 == current { if (previous != "") print previous; exit } { previous=$0 }')"
                     ;;
                 elegir | elegir_episodio)
                     prepare_for_menu_playback
@@ -3958,7 +4472,7 @@ while :; do
                     [ "$menu_status" -eq 10 ] && { app_state="playback_menu"; continue; }
                     case "$episode_choice" in
                         __nav_back) leave_playback_for_navigation; [ "$navigation_context" = "history" ] && app_state="history" || app_state="search_result_menu"; continue ;;
-                        __nav_search) leave_playback_for_navigation; query=""; app_state="search_query"; continue ;;
+                        __nav_search) leave_playback_for_navigation; query=""; media_kind=""; app_state="media_type_menu"; continue ;;
                         __nav_home) leave_playback_for_navigation; app_state="home"; continue ;;
                         __nav_exit | '') exit 0 ;;
                     esac
@@ -3977,7 +4491,7 @@ while :; do
                         unset episode
                         continue
                     fi
-                    download "$episode" "${media_title}Episode ${ep_no}" "$subtitle"
+                    download "$episode" "$(playback_media_title)" "$subtitle"
                     unset episode
                     printf 'Descarga terminada: %s\n' "$download_dir" 1>&2
                     continue
@@ -4007,7 +4521,8 @@ while :; do
                     leave_playback_for_navigation
                     query=""
                     ep_no=""
-                    app_state="search_query"
+                    media_kind=""
+                    app_state="media_type_menu"
                     continue
                     ;;
                 volver_inicio)

@@ -1,16 +1,38 @@
 # ani-cli-mx
 
-`ani-cli-mx` is a Spanish-first anime CLI for the terminal.
+`ani-cli-mx` is a Spanish-first terminal client for anime, películas, series y doramas.
 
 This is an independent community project. It is not affiliated with, maintained by, or endorsed by any other project or team.
 
-This project prefers these sources in order:
+Anime keeps its existing provider coverage in this order:
 
 1. JKAnime
 2. AnimeAV1
 3. AnimeFLV
 4. AniDB as the maintained English fallback
 5. AnimeX as the second English fallback, with multiple mirrors
+
+Películas, series y doramas use PelisPlusHD. PelisPlusHD is deliberately not
+used for anime.
+
+Version 3.0 adds a single `Buscar` entry to the home menu. It opens the
+`Anime`, `Películas`, `Series`, and `Doramas` submenu, and each choice opens its
+own search input. Direct searches must identify the content type:
+
+```sh
+ani-cli-mx --type anime "blue lock"
+ani-cli-mx --type movie interstellar
+ani-cli-mx --type series -e s1e1 "mythic quest"
+ani-cli-mx --type dorama -e s1e1 "belleza verdadera"
+```
+
+For PelisPlusHD playback, the resolver follows and preserves the complete
+chain: content page → Embed69 → optional SHA-256 proof-of-work and AES-256-CBC
+decryption → Vidhide-compatible host → local P.A.C.K.E.R. unpacking → HLS
+master/variant playlist. Movie pages currently use the encrypted Embed69 path;
+series and doramas expose server embeds directly. Vidhide/P.A.C.K.E.R. and HLS
+selection are shared by all three types. The resolver never evaluates the
+provider's JavaScript and carries the final embed referrer into mpv.
 
 ## Table of Contents
 
@@ -111,7 +133,7 @@ runtime dependencies. Git for Windows supplies the Bash runtime. Windows
 Terminal is recommended; run ani-cli-mx from PowerShell or from its Git Bash profile:
 
 ```powershell
-ani-cli-mx "blue lock"
+ani-cli-mx -t anime "blue lock"
 ```
 
 Optional download and alternate-player tools:
@@ -437,25 +459,25 @@ ani-cli-mx
 Play a specific show:
 
 ```sh
-ani-cli-mx "blue lock"
+ani-cli-mx -t anime "blue lock"
 ```
 
 Play a range:
 
 ```sh
-ani-cli-mx -e 5-6 "blue lock"
+ani-cli-mx -t anime -e 5-6 "blue lock"
 ```
 
 Play dubbed if available:
 
 ```sh
-ani-cli-mx --dub "one piece"
+ani-cli-mx -t anime --dub "one piece"
 ```
 
 Use the maintained English source directly (requires `curl-impersonate`):
 
 ```sh
-ani-cli-mx --source anidb "one piece"
+ani-cli-mx -t anime --source anidb "one piece"
 ```
 
 `ANI_CLI_ANIDB_CURL` can point to a compatible curl-impersonate executable when its installed name is not one of the detected wrappers.
@@ -463,7 +485,7 @@ ani-cli-mx --source anidb "one piece"
 Use AnimeX directly (regular `curl` is sufficient):
 
 ```sh
-ani-cli-mx --source animex "baki"
+ani-cli-mx -t anime --source animex "baki"
 ```
 
 Automatic searches group the selector into contiguous `[ESPAÑOL]` results followed by `[ENGLISH]` results from AniDB and AnimeX.
@@ -471,7 +493,7 @@ Automatic searches group the selector into contiguous `[ESPAÑOL]` results follo
 By default, ani-cli-mx keeps using the chosen Spanish source for the rest of the session, falling back to the normal source search if it stops producing valid links:
 
 ```sh
-ani-cli-mx "one piece"
+ani-cli-mx -t anime "one piece"
 ```
 
 Fast mode starts playback from the first Spanish source that produces a valid playable link, instead of waiting for every source to finish checking.
@@ -489,29 +511,29 @@ Selecciona episodio (* ultimo visto):
 Use the previous classic source search behavior:
 
 ```sh
-ani-cli-mx --classic "one piece"
+ani-cli-mx -t anime --classic "one piece"
 ```
 
 Start in continuous playback mode:
 
 ```sh
-ani-cli-mx --continuous "one piece"
+ani-cli-mx -t anime --continuous "one piece"
 ```
 
 Detached interactive mpv playback reuses one player process and window for Next, Previous, Repeat, and episode selection. Each selected episode replaces the media in that window, so fullscreen, maximized state, window geometry, and volume remain unchanged naturally. Leaving the ani-cli-mx playback controls closes this managed mpv window. `--no-detach`, `--exit-after-play`, episode ranges, and `--skip` retain the separate-process behavior required by those modes.
 
-Managed mpv playback keeps a selectable fzf menu open for Next Episode, Previous Episode, Repeat Current Episode, Choose Another Episode, continuous-mode control, Back to Results/Continue Watching, Search Another Anime, Main Menu, and Exit. Download Current Episode appears only when the resolved playback provider is JKAnime or AnimeX, the providers verified to support the current downloader. When continuous mode loads another episode, the menu header updates to the new episode without provider output being written over the selector. The redundant close-previous action is hidden while one persistent mpv window is active; fallback separate-player flows retain it. The mpv window also provides direct controls: `Shift+N` loads the next episode, `Shift+P` loads the previous episode, `Shift+R` replays, and `Shift+A` toggles continuous mode.
+Managed mpv playback keeps contextual controls. Episodic content offers Next Episode, Previous Episode, Repeat, episode selection, and continuous mode; movies omit episodic and continuous controls and offer Repeat Movie. Search Another Content returns to the media-type submenu. Download Current Episode appears only when the resolved playback provider is JKAnime or AnimeX, the providers verified to support the current downloader. When continuous mode loads another episode, the menu header updates without provider output being written over the selector. The redundant close-previous action is hidden while one persistent mpv window is active; fallback separate-player flows retain it. For episodic content, the mpv window also provides direct controls: `Shift+N` loads the next episode, `Shift+P` loads the previous episode, `Shift+R` replays, and `Shift+A` toggles continuous mode.
 
-Running `ani-cli-mx` without a title opens a home menu with Search, Continue Watching, and Exit. Search accepts the title inside the fzf interface before opening provider-separated results such as `Yani Neko [AnimeAV1]` and `Yani Neko [JKAnime]`; titles are never grouped heuristically across providers. Search results and episode menus include Search Again, Back, Main Menu, and Exit actions.
+Running `ani-cli-mx` without a title opens a home menu with Buscar, Continue Watching, and Exit. Buscar first asks for Anime, Películas, Series, or Doramas, then opens the matching search input. Anime results remain provider-separated; the other three types are labeled PelisPlusHD. Search results and episode menus include Search Again, Back, Main Menu, and Exit actions.
 
-Continue Watching is also provider-specific and ordered by most recently watched. It displays literal entries such as `Yani Neko [AnimeAV1]` and `Yani Neko [JKAnime]`. Selecting one opens that provider's episode list and marks the last watched episode with `*` instead of automatically starting the next episode. In fzf, `Esc` returns one menu level and `Ctrl-C` exits the complete application. Direct title queries continue to bypass the home menu.
+Continue Watching is provider-specific and ordered by most recently watched. It restores the media type from the stored provider-prefixed ID, including PelisPlusHD movies, series, and doramas. Selecting episodic content opens its episode list and marks the last watched episode with `*`; movies go directly to playback. In fzf, `Esc` returns one menu level and `Ctrl-C` exits the complete application. Direct title queries bypass the home menu only when `-t/--type` is present.
 
 The terminal selectors use a bordered, compact fzf layout. Set `ANI_CLI_EXTERNAL_MENU=1` or use `--rofi` to keep using rofi instead.
 
 Restart the tracked player instead of reusing its window when opening another episode from the playback menu:
 
 ```sh
-ani-cli-mx --close-previous "one piece"
+ani-cli-mx -t anime --close-previous "one piece"
 ```
 
 You can also toggle this behavior from the playback menu with `activar_cerrar_reproductor_anterior` or `desactivar_cerrar_reproductor_anterior`.
@@ -519,7 +541,7 @@ You can also toggle this behavior from the playback menu with `activar_cerrar_re
 Download episodes:
 
 ```sh
-ani-cli-mx -d -e 1-3 "cyberpunk edgerunners"
+ani-cli-mx -t anime -d -e 1-3 "cyberpunk edgerunners"
 ```
 
 The playback menu includes `descargar_episodio_actual` only for playback
@@ -564,7 +586,7 @@ Can I change the download directory?
 
 Can I change subtitle language or turn subtitles off?
 
-- Most Spanish sources bake subtitles into the video. When AnimeX supplies external caption tracks, ani-cli-mx loads all of them into mpv automatically; mpv's normal subtitle controls can then switch, show, or hide them.
+- Most Spanish sources—including PelisPlusHD entries labeled `SUB`—bake subtitles into the video. When AnimeX supplies external caption tracks, ani-cli-mx loads all of them into mpv automatically; mpv's normal subtitle controls can then switch, show, or hide them. A provider can occasionally mislabel an individual upload; Backrooms (2026) was observed without visible subtitles despite its `SUB` label.
 
 Can I change dub language?
 
@@ -576,7 +598,7 @@ Can I change media source manually?
 
 Can I adjust resolution?
 
-- Yes. Use `-q`, for example `ani-cli-mx -q 1080 "blue lock"`.
+- Yes. Use `-q`, for example `ani-cli-mx -t anime -q 1080 "blue lock"`.
 
 How can I download?
 
@@ -585,7 +607,7 @@ How can I download?
 
 How can I bulk download?
 
-- Use `-d -e start-end`, for example `ani-cli-mx "one piece" -d -e 1-1000`.
+- Use `-d -e start-end`, for example `ani-cli-mx -t anime "one piece" -d -e 1-1000`.
 
 ## Docs
 
@@ -595,6 +617,6 @@ How can I bulk download?
 
 ## Important
 
-This project accesses public-facing websites for its streaming and downloading capabilities and primarily acts as a Spanish-first anime terminal client. The developer(s) of this application have no affiliation with these content providers. This application hosts zero content and is intended for educational and personal use only. Use at your own risk.
+This project accesses public-facing websites for discovery, streaming, and downloading of anime, películas, series, doramas, and other indexed media. The developer(s) of this application have no affiliation with these content providers. This application hosts zero content and is intended for educational and personal use only. Use at your own risk and follow the laws that apply in your jurisdiction.
 
 [Read the Full Disclaimer](./disclaimer.md)
