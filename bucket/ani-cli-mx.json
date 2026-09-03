@@ -1,6 +1,6 @@
 {
     "version": "3.0.0",
-    "description": "Spanish-first anime CLI for the terminal",
+    "description": "Spanish-first anime, movie, series, and dorama CLI for the terminal",
     "homepage": "https://github.com/Gildedboy/ani-cli-mx",
     "license": "GPL-3.0-or-later",
     "depends": [
