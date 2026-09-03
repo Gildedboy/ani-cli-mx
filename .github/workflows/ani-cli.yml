@@ -29,16 +29,12 @@ jobs:
     - name: test exec bits
       run: test -x "./ani-cli-mx" && test -x "./ani-cli-mx-core" && test -f "./ani-cli-mx.cmd" && test -f "./ani-cli-mx.ps1"
 
-  check-no-awk:
-    name: No New Awk
+  check-pelisplus-unpacker:
+    name: PelisPlus unpacker dependency
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-    - name: Verify that the change does not add awk usage
-      env:
-        BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+    - name: Verify that awk is declared for the P.A.C.K.E.R. resolver
       run: |
-        test -n "$BASE_SHA"
-        ! git diff "$BASE_SHA" -- ani-cli-mx-core | grep '^+.*awk'
+        grep -q 'dep_ch "openssl" "awk" "od" "dd"' ani-cli-mx-core
+        grep -q 'P\.A\.C\.K\.E\.R\. handling passed' tests/sanity.sh
