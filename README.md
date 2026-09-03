@@ -104,26 +104,44 @@ Optional packages:
 Git for Windows provides the shell runtime, while mpv, fzf, and ani-cli-mx run
 as Windows applications.
 
-Install Scoop if it is not already available:
+Copy and run these commands one at a time in PowerShell.
+
+1. Allow local PowerShell scripts for your user:
 
 ```powershell
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+```
+
+2. Install Scoop if it is not already available:
+
+```powershell
 Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression
 ```
 
-Install Git before adding buckets. Scoop buckets are Git repositories, so this
-bootstrap step must happen before Scoop can clone `extras` or the ani-cli-mx
-bucket:
+3. Install Git:
 
 ```powershell
 scoop install git
 ```
 
-Add the required buckets and install ani-cli-mx:
+Git must be installed before adding buckets because Scoop buckets are Git
+repositories.
+
+4. Add the `extras` bucket:
 
 ```powershell
 scoop bucket add extras
+```
+
+5. Add the ani-cli-mx bucket:
+
+```powershell
 scoop bucket add ani-cli-mx https://github.com/Gildedboy/ani-cli-mx
+```
+
+6. Install ani-cli-mx:
+
+```powershell
 scoop install ani-cli-mx
 ```
 
@@ -139,6 +157,9 @@ Optional download and alternate-player tools:
 
 ```powershell
 scoop install aria2 ffmpeg yt-dlp
+```
+
+```powershell
 scoop install vlc
 ```
 
@@ -199,6 +220,9 @@ install -Dm644 ani-cli-mx.1 "$HOME/.local/share/man/man1/ani-cli-mx.1"
 
 ```powershell
 scoop update
+```
+
+```powershell
 scoop update ani-cli-mx
 ```
 
