@@ -1061,6 +1061,12 @@ run_pelisplus_provider_smoke() {
 
         packed_fixture="eval(function(p,a,c,k,e,d){}('b a',36,12,'||||||||||if|var'.split('|')))"
         [ "$(printf '%s\n' "$packed_fixture" | unpack_pelisplus_packer)" = 'var if' ]
+
+        # Keep the successful resolver probe; do not probe the same URL again
+        # when get_episode_url selects the already validated stream.
+        grep -q "printf 'validated >%s>%s" ani-cli-mx-core
+        [ "$(grep -c 'probe_link_with_mpv \"\$episode\"' ani-cli-mx-core)" -eq 1 ]
+        grep -q 'fzf "\$1" --no-sort' ani-cli-mx-core
     )
 
     if env ANI_CLI_HIST_DIR="$tmp_dir/history" ANI_CLI_PLAYER=debug ./ani-cli-mx-core interstellar >"$tmp_dir/direct.out" 2>&1; then

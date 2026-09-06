@@ -75,7 +75,7 @@ launcher() {
             playback_launcher "$1"
             return $?
         else
-            launcher_output="$(fzf "$1" --reverse --cycle --height=90% --border=rounded \
+            launcher_output="$(fzf "$1" --no-sort --reverse --cycle --height=90% --border=rounded \
                 --info=inline --pointer='>' --marker='*' --expect=esc,ctrl-c \
                 --header="$app_name" --prompt "$2")"
             launcher_status=$?
@@ -787,6 +787,7 @@ episode_display_label() {
                 "$(printf '%s' "$1" | sed -nE 's/^s([0-9]+)e([0-9]+)$/\1/p')" \
                 "$(printf '%s' "$1" | sed -nE 's/^s([0-9]+)e([0-9]+)$/\2/p')"
             ;;
+        [0-9]*) printf 'Episodio %s\n' "$1" ;;
         movie) printf '%s\n' Película ;;
         *) printf '%s\n' "$1" ;;
     esac
@@ -2580,12 +2581,24 @@ resolve_pelisplus_media() {
                 *) mirror_label=Vidhide ;;
             esac
             candidate_links="$(pelisplus_packed_host_links "$packed_host_url" "$embed_url" "$pelisplus_language" "$mirror_label")"
-            candidate_url="$(printf '%s\n' "$candidate_links" | grep -E '^[0-9]{3,4} >' | head -n1 | cut -d'>' -f2)"
-            candidate_referrer="$(find_link_referrer "$candidate_links" "$candidate_url")"
-            if [ -n "$candidate_url" ] && probe_link_with_mpv "$candidate_url" "$candidate_referrer" ""; then
-                printf '%s\n' "$candidate_links"
-                return 0
+            candidate_probe_order="$(printf '%s\n' "$candidate_links" | grep -E '^[0-9]{3,4} >')"
+            if [ "$quality" != "best" ] && [ "$quality" != "worst" ]; then
+                requested_quality="$(printf '%s' "$quality" | sed 's|p$||')"
+                requested_entry="$(printf '%s\n' "$candidate_probe_order" | awk -v q="$requested_quality" '$1 == q { print; exit }')"
+                if [ -n "$requested_entry" ]; then
+                    candidate_probe_order="$( { printf '%s\n' "$requested_entry"; printf '%s\n' "$candidate_probe_order" | awk -v q="$requested_quality" '$1 != q'; } )"
+                fi
             fi
+            for candidate_entry in $(printf '%s\n' "$candidate_probe_order" | sed -n 's/^[0-9][0-9]* >//p'); do
+                candidate_url="$candidate_entry"
+                candidate_referrer="$(find_link_referrer "$candidate_links" "$candidate_url")"
+                [ -n "$candidate_url" ] || continue
+                if probe_link_with_mpv "$candidate_url" "$candidate_referrer" ""; then
+                    printf 'validated >%s>%s\n' "$candidate_url" "$candidate_referrer"
+                    printf '%s\n' "$candidate_links"
+                    return 0
+                fi
+            done
         done
         return 1
     else
@@ -2647,10 +2660,20 @@ get_episode_url() {
         dep_ch "openssl" "awk" "od" "dd"
         links="$(resolve_pelisplus_media | sort -g -r -s)"
         [ -n "$links" ] || die "PelisPlusHD no produjo un enlace reproducible"
+        pelisplus_validated_url="$(printf '%s\n' "$links" | awk -F'>' '$1 == "validated " { print $2; exit }')"
         select_quality "$quality"
         [ -n "$episode" ] || die "PelisPlusHD no ofrece la calidad solicitada"
-        if ! probe_link_with_mpv "$episode" "${generic_refr:-}" "${generic_headers:-}"; then
-            die "Vidhide entregó un enlace, pero mpv no pudo decodificar un frame"
+        if [ "$episode" = "${pelisplus_validated_url:-}" ]; then
+            probe_status=0
+        else
+            probe_link_with_mpv "$episode" "${generic_refr:-}" "${generic_headers:-}"
+            probe_status=$?
+        fi
+        if [ "$probe_status" -ne 0 ]; then
+            case "$probe_status" in
+                124) die "PelisPlusHD / ${selected_source:-mirror} agotó el tiempo al decodificar el primer frame" ;;
+                *) die "PelisPlusHD / ${selected_source:-mirror} entregó un enlace que mpv no pudo reproducir (salida $probe_status)" ;;
+            esac
         fi
         printf "Fuente elegida: %s\n" "${selected_origin:-PelisPlusHD / Vidhide}" 1>&2
         return 0
