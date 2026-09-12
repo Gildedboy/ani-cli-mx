@@ -903,6 +903,36 @@ run_search_query_candidates_smoke() {
     rm -rf "$tmp_dir"
 }
 
+run_anime_search_modes_smoke() {
+    tmp_dir="$(mktemp -d)"
+    funcs_file="$tmp_dir/anime-search-functions.sh"
+    sed -n '/^search_anime()/,/^pelisplus_detail_is_dorama()/p' ani-cli-mx-core | sed '$d' >"$funcs_file"
+
+    (
+        # shellcheck disable=SC1090
+        . "$funcs_file"
+        preferred_info_source=auto
+        anidb_curl_exe=''
+        prefix_search_results() { printf '%s:%s\n' "$1" "$2"; }
+        search_animeav1_variants() { printf '%s\n' av1-result; }
+        search_jkanime_variants() { printf '%s\n' jk-result; }
+        search_animeflv_variants() { printf '%s\n' flv-result; }
+        search_animex_catalog() { printf '%s\n' animex-result; }
+        search_hentaila_variants() { printf '%s\n' ha-result; }
+
+        hentaila_mode=0
+        normal_results="$(search_anime sample)"
+        [ "$normal_results" = "$(printf '%s\n' \
+            'animeav1:av1-result' 'jkanime:jk-result' \
+            'animeflv:flv-result' 'animex:animex-result')" ]
+
+        hentaila_mode=1
+        [ "$(search_anime sample)" = 'hentaila:ha-result' ]
+    )
+
+    rm -rf "$tmp_dir"
+}
+
 run_language_sections_smoke() {
     menu_output="$(printf '%b\n' \
         'jkanime:one-piece\tOne Piece\tOne Piece [JKAnime]' \
@@ -1101,6 +1131,7 @@ case "${1:-}" in
         run_windows_compat_smoke
         run_search_diagnostic_smoke
         run_search_query_candidates_smoke
+        run_anime_search_modes_smoke
         run_language_sections_smoke
         run_anidb_provider_smoke
         run_fast_link_selection_smoke
@@ -1122,6 +1153,7 @@ case "${1:-}" in
         run_windows_compat_smoke
         run_search_diagnostic_smoke
         run_search_query_candidates_smoke
+        run_anime_search_modes_smoke
         run_language_sections_smoke
         run_anidb_provider_smoke
         run_fast_link_selection_smoke

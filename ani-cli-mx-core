@@ -2817,12 +2817,12 @@ search_anime() {
     fi
 
     search_results=""
-    jkanime_results="$(search_jkanime_variants "$1")"
-    [ -n "$jkanime_results" ] && search_results="${search_results}$(prefix_search_results "jkanime" "$jkanime_results")
-"
-
     animeav1_results="$(search_animeav1_variants "$1")"
     [ -n "$animeav1_results" ] && search_results="${search_results}$(prefix_search_results "animeav1" "$animeav1_results")
+"
+
+    jkanime_results="$(search_jkanime_variants "$1")"
+    [ -n "$jkanime_results" ] && search_results="${search_results}$(prefix_search_results "jkanime" "$jkanime_results")
 "
 
     animeflv_results="$(search_animeflv_variants "$1")"
