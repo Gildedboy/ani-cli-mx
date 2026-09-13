@@ -26,6 +26,13 @@ ani-cli-mx --type series -e s1e1 "mythic quest"
 ani-cli-mx --type dorama -e s1e1 "belleza verdadera"
 ```
 
+Use `--debug` to report a provider problem. It prints the resolved links,
+referrers, source, language, and selected URL without opening a player:
+
+```sh
+ani-cli-mx --debug --type series -e s5e2 "elementary"
+```
+
 For PelisPlusHD playback, the resolver follows and preserves the complete
 chain: content page → Embed69 → optional SHA-256 proof-of-work and AES-256-CBC
 decryption → Vidhide-compatible host → local P.A.C.K.E.R. unpacking → HLS

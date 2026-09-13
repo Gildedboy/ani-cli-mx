@@ -1,6 +1,6 @@
 #!/bin/sh
 
-version_number="3.0.2"
+version_number="3.0.3"
 app_name="${ANI_CLI_NAME:-${0##*/}}"
 log_tag="${ANI_CLI_LOG_TAG:-$app_name}"
 hist_state_name="${ANI_CLI_STATE_NAME:-$app_name}"
@@ -204,6 +204,11 @@ die() {
     exit 1
 }
 
+debug_log() {
+    { [ "${debug_mode:-0}" = "1" ] || [ "${player_function:-}" = "debug" ]; } || return 0
+    printf '[debug] %s\n' "$*" >&2
+}
+
 help_info() {
     printf "
     Usage:
@@ -237,6 +242,8 @@ help_info() {
         Specify the video quality
       -v, --vlc
         Use VLC to play the video
+      --debug
+        Print resolved links and playback metadata without starting a player
       -V, --version
         Show the version of the script
       -h, --help
@@ -2555,10 +2562,14 @@ pelisplus_packed_host_links() {
 
 resolve_pelisplus_media() {
     pelisplus_page_url="$(pelisplus_episode_page_url "$id" "$ep_no")" || return 1
+    debug_log "PelisPlusHD: solicitando pagina $pelisplus_page_url"
     pelisplus_page="$(pelisplus_request "$pelisplus_page_url")" || return 1
+    debug_log "PelisPlusHD: pagina recibida (${#pelisplus_page} bytes)"
     embed_url="$(printf '%s' "$pelisplus_page" | sed -nE "s|.*video\[[0-9]+\][[:space:]]*=[[:space:]]*'([^']*embed69[^']*)'.*|\1|p" | head -n1)"
+    debug_log "PelisPlusHD: embed encontrado: ${embed_url:-ninguno}"
     [ -n "$embed_url" ] || return 1
     embed_html="$(curl -L --connect-timeout 10 --max-time "$resolver_timeout" -e "$pelisplus_page_url" -sS "$embed_url" -A "$agent")" || return 1
+    debug_log "PelisPlusHD: embed recibido (${#embed_html} bytes)"
 
     vidhide_url="$(printf '%s' "$embed_html" | sed -nE "s|.*playServerVast\('(https?://[^']*vidhide[^']*)'\).*|\1|p" | head -n1)"
     if [ -z "$vidhide_url" ]; then
@@ -2566,10 +2577,13 @@ resolve_pelisplus_media() {
         pow_difficulty="$(printf '%s' "$embed_html" | sed -nE 's|.*POW_DIFFICULTY[[:space:]]*=[[:space:]]*([0-9]+).*|\1|p' | head -n1)"
         pow_salt="$(printf '%s' "$embed_html" | sed -nE "s|.*POW_SALT[[:space:]]*=[[:space:]]*'([^']+)'.*|\1|p" | head -n1)"
         [ -n "$pow_challenge" ] && [ -n "$pow_difficulty" ] && [ -n "$pow_salt" ] || return 1
+        debug_log "PelisPlusHD: usando descifrado POW/AES (dificultad $pow_difficulty)"
         pow_nonce="$(pelisplus_pow_nonce "$pow_challenge" "$pow_difficulty")" || return 1
+        debug_log "PelisPlusHD: POW resuelto"
         requested_language="$(printf '%s' "${ANI_CLI_PELISPLUS_LANGUAGE:-LAT}" | tr '[:lower:]' '[:upper:]')"
         [ "$requested_language" = SUB ] && mirror_order='streamwish vidhide' || mirror_order='vidhide streamwish'
         for mirror_name in $mirror_order; do
+            debug_log "PelisPlusHD: probando espejo $mirror_name"
             encrypted_record="$(pelisplus_encrypted_mirror_link "$embed_html" "$mirror_name")"
             pelisplus_language="$(printf '%s' "$encrypted_record" | cut -f1)"
             encrypted_link="$(printf '%s' "$encrypted_record" | cut -f2)"
@@ -2581,6 +2595,7 @@ resolve_pelisplus_media() {
                 *) mirror_label=Vidhide ;;
             esac
             candidate_links="$(pelisplus_packed_host_links "$packed_host_url" "$embed_url" "$pelisplus_language" "$mirror_label")"
+            debug_log "PelisPlusHD: enlaces HLS encontrados: $(printf '%s\n' "$candidate_links" | grep -cE '^[0-9]{3,4} >' || true)"
             candidate_probe_order="$(printf '%s\n' "$candidate_links" | grep -E '^[0-9]{3,4} >')"
             if [ "$quality" != "best" ] && [ "$quality" != "worst" ]; then
                 requested_quality="$(printf '%s' "$quality" | sed 's|p$||')"
@@ -2594,12 +2609,14 @@ resolve_pelisplus_media() {
                 candidate_referrer="$(find_link_referrer "$candidate_links" "$candidate_url")"
                 [ -n "$candidate_url" ] || continue
                 if probe_link_with_mpv "$candidate_url" "$candidate_referrer" ""; then
+                    debug_log "PelisPlusHD: enlace validado"
                     printf 'validated >%s>%s\n' "$candidate_url" "$candidate_referrer"
                     printf '%s\n' "$candidate_links"
                     return 0
                 fi
             done
         done
+        debug_log "PelisPlusHD: ningún espejo produjo un enlace reproducible"
         return 1
     else
         pelisplus_language="$(printf '%s' "${ANI_CLI_PELISPLUS_LANGUAGE:-LAT}" | tr '[:lower:]' '[:upper:]')"
@@ -4084,6 +4101,7 @@ animeav1_slug_key=""
 hentaila_refr="https://hentaila.com"
 pelisplus_refr="${ANI_CLI_PELISPLUS_URL:-https://pelisplushd.bz}"
 hentaila_mode=0
+debug_mode=0
 for hidden_arg in "$@"; do
     [ "$hidden_arg" = "-ha" ] && hentaila_mode=1
 done
@@ -4171,6 +4189,7 @@ while [ $# -gt 0 ]; do
                 *) player_function="syncplay" ;;
             esac
             ;;
+        --debug) player_function=debug; debug_mode=1; no_detach=1 ;;
         -q | --quality)
             [ $# -lt 2 ] && die "falta un argumento"
             quality="$2"
