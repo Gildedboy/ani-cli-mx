@@ -326,6 +326,7 @@ run_animex_subtitle_smoke() {
     sed -n '/^find_link_referrer()/,/^count_quality_links()/p' ani-cli-mx-core | sed '$d' >"$funcs_file"
     sed -n '/^emit_annotated_link_entry()/,/^quality_menu_entries()/p' ani-cli-mx-core | sed '$d' >>"$funcs_file"
     sed -n '/^animex_request()/,/^animex_proxy_url()/p' ani-cli-mx-core | sed '$d' >>"$funcs_file"
+    sed -n '/^resolve_animex_episode()/,/^pick_animeflv_language()/p' ani-cli-mx-core | sed '$d' >>"$funcs_file"
     sed -n '/^select_quality()/,/^get_episode_url()/p' ani-cli-mx-core | sed '$d' >>"$funcs_file"
 
     (
@@ -391,6 +392,15 @@ neko
 uwu
 loli
 sora' ]
+
+        animex_provider_ids() { printf '%s\n' yuki neko loli sora; }
+        resolve_animex_provider() { printf '%s\n' "$2"; }
+        debug_log() { :; }
+        id='animex:baki-hanma-vqcl4'
+        [ "$(resolve_animex_episode 'hanma baki')" = 'neko
+loli
+sora
+yuki' ]
     )
 
     rm -rf "$tmp_dir"
@@ -837,7 +847,7 @@ run_windows_compat_smoke() {
         ANI_CLI_STATE_NAME=ani-cli-mx LOCALAPPDATA="$local_app_data_env" \
         ANI_CLI_PLAYER=debug ./ani-cli-mx-core -V)"
 
-    [ "$version_output" = "3.0.4" ]
+    [ "$version_output" = "3.0.5" ]
     [ -f "$local_app_data/ani-cli-mx/ani-hsts" ]
     grep -q 'GIT_INSTALL_ROOT' ani-cli-mx.cmd
     grep -q 'ANI_CLI_PACKAGE_MANAGER=scoop' ani-cli-mx.cmd

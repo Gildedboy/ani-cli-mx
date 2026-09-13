@@ -1,6 +1,6 @@
 #!/bin/sh
 
-version_number="3.0.4"
+version_number="3.0.5"
 app_name="${ANI_CLI_NAME:-${0##*/}}"
 log_tag="${ANI_CLI_LOG_TAG:-$app_name}"
 hist_state_name="${ANI_CLI_STATE_NAME:-$app_name}"
@@ -2135,8 +2135,22 @@ resolve_animex_episode() {
 uwu
 kiwi'
     debug_log "AnimeX: proveedores disponibles (${animex_server_type:-sub}): $(printf '%s' "$animex_providers" | tr '\n' ' ')"
+    # Yuki currently serves from MegaPlay. Keep it as a fallback because its
+    # per-IP limits make it less reliable than the other AnimeX providers.
+    animex_deferred_providers=""
     for animex_provider in $animex_providers; do
+        case "$animex_provider" in
+            yuki)
+                animex_deferred_providers="${animex_deferred_providers}${animex_deferred_providers:+
+}${animex_provider}"
+                continue
+                ;;
+        esac
         debug_log "AnimeX: consultando proveedor $animex_provider"
+        resolve_animex_provider "$animex_slug" "$animex_provider"
+    done
+    for animex_provider in $animex_deferred_providers; do
+        debug_log "AnimeX: consultando proveedor $animex_provider (ultimo recurso por limites de MegaPlay)"
         resolve_animex_provider "$animex_slug" "$animex_provider"
     done
 }

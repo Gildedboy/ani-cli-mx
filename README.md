@@ -500,7 +500,8 @@ ani-cli-mx -t anime --source animex "baki"
 
 AnimeX publica los servidores disponibles por episodio. ani-cli-mx consulta esa
 lista, prueba los mirrors en el orden recibido y continúa con otro servidor si
-el primero está caído o entrega una playlist que mpv no puede reproducir.
+el primero está caído o entrega una playlist que mpv no puede reproducir. Los
+servidores MegaPlay se dejan como último recurso por sus límites de reproducción.
 
 Automatic searches group the selector into contiguous `[ESPAÑOL]` results followed by `[ENGLISH]` results from AniDB and AnimeX.
 
