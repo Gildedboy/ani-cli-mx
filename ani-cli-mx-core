@@ -2052,6 +2052,17 @@ episodes_list_animex() {
         grep -oE '"number":[0-9]+(\.[0-9]+)?' | cut -d: -f2
 }
 
+animex_provider_ids() {
+    animex_server_type="sub"
+    [ "$mode" = "dub" ] && animex_server_type="dub"
+    animex_servers="$(animex_request "${animex_api}/rest/api/servers?id=$1&epNum=$ep_no&type=$animex_server_type" 2>/dev/null || true)"
+    animex_provider_block="$(printf '%s' "$animex_servers" | tr -d '\n' | sed -nE "s|.*\"${animex_server_type}Providers\"[[:space:]]*:[[:space:]]*\[([^]]*)\].*|\1|p")"
+    [ -n "$animex_provider_block" ] || return 1
+    printf '%s' "$animex_provider_block" |
+        grep -oE '"id"[[:space:]]*:[[:space:]]*"[^"]+"' |
+        sed -nE 's|.*"id"[[:space:]]*:[[:space:]]*"([^"]+)".*|\1|p'
+}
+
 resolve_animex_provider() {
     animex_slug="$1"
     animex_provider="$2"
@@ -2073,7 +2084,11 @@ resolve_animex_provider() {
     for animex_entry in $animex_entries; do
         animex_quality="$(printf '%s' "$animex_entry" | cut -f1 | sed 's|p$||; s|^auto$|1080|')"
         animex_url="$(printf '%s' "$animex_entry" | cut -f2)"
-        [ "$animex_provider" = "uwu" ] && animex_url="$(animex_proxy_url "$animex_url" "https://kwik.cx/")"
+        case "$animex_provider:$animex_url" in
+            uwu:https://kwik.cx/* | uwu:http://kwik.cx/*)
+                animex_url="$(animex_proxy_url "$animex_url" "https://kwik.cx/")"
+                ;;
+        esac
         [ -n "$animex_url" ] || continue
         if [ -n "$animex_subtitles" ]; then
             emit_annotated_link_entry "${animex_quality} >${animex_url}>cc>" "AnimeX ${animex_provider}" "AnimeX"
@@ -2115,7 +2130,13 @@ resolve_animex_episode() {
     animex_slug="$(animex_slug_from_ref "$id")"
     [ -z "$animex_slug" ] && animex_slug="$(select_animex_ref "$1")"
     [ -n "$animex_slug" ] || return 1
-    for animex_provider in beep uwu kiwi; do
+    animex_providers="$(animex_provider_ids "$animex_slug" || true)"
+    [ -n "$animex_providers" ] || animex_providers='beep
+uwu
+kiwi'
+    debug_log "AnimeX: proveedores disponibles (${animex_server_type:-sub}): $(printf '%s' "$animex_providers" | tr '\n' ' ')"
+    for animex_provider in $animex_providers; do
+        debug_log "AnimeX: consultando proveedor $animex_provider"
         resolve_animex_provider "$animex_slug" "$animex_provider"
     done
 }
@@ -2729,11 +2750,9 @@ get_episode_url() {
 
     if [ "$authoritative_site" = "animex" ]; then
         links="$(resolve_animex_episode "$title" "$ep_no" | sort -g -r -s)"
-        if [ "$fast_mode" = "1" ] && [ "$quality" = "best" ]; then
-            links="$(filter_playable_links "$links" "first")"
-        else
-            links="$(filter_playable_links "$links")"
-        fi
+        # AnimeX may return a stale first provider URL. Probe every provider
+        # so playback can continue with a later working mirror.
+        links="$(filter_playable_links "$links")"
         if [ -n "$links" ]; then
             printf "Fuente inglesa elegida: AnimeX\n" 1>&2
             select_quality "$quality"
@@ -2778,11 +2797,7 @@ get_episode_url() {
         fi
         if [ -z "$links" ]; then
             links="$(resolve_animex_episode "$title" "$ep_no" | sort -g -r -s)"
-            if [ "$fast_mode" = "1" ] && [ "$quality" = "best" ]; then
-                links="$(filter_playable_links "$links" "first")"
-            else
-                links="$(filter_playable_links "$links")"
-            fi
+            links="$(filter_playable_links "$links")"
             [ -n "$links" ] && printf "Fuente inglesa elegida: AnimeX\n" 1>&2
         fi
     fi

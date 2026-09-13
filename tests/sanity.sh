@@ -382,6 +382,15 @@ https://subs.animex.test/kaijuu-8-es.vtt' ]
         [ "$episode" = 'https://video.animex.test/master.m3u8' ]
         [ "$subs_flag" = '--sub-file=https://subs.animex.test/kaijuu-8-en.vtt --sub-file=https://subs.animex.test/kaijuu-8-es.vtt ' ]
         [ "$iina_subs_flag" = '--mpv-sub-file=https://subs.animex.test/kaijuu-8-en.vtt --mpv-sub-file=https://subs.animex.test/kaijuu-8-es.vtt ' ]
+
+        animex_request() {
+            printf '%s\n' '{"subProviders":[{"id":"yuki","default":true},{"id":"neko","default":false},{"id":"uwu","default":false},{"id":"loli","default":false},{"id":"sora","default":false}]}'
+        }
+        [ "$(animex_provider_ids baki-hanma-vqcl4)" = 'yuki
+neko
+uwu
+loli
+sora' ]
     )
 
     rm -rf "$tmp_dir"

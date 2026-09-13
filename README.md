@@ -498,6 +498,10 @@ Use AnimeX directly (regular `curl` is sufficient):
 ani-cli-mx -t anime --source animex "baki"
 ```
 
+AnimeX publica los servidores disponibles por episodio. ani-cli-mx consulta esa
+lista, prueba los mirrors en el orden recibido y continúa con otro servidor si
+el primero está caído o entrega una playlist que mpv no puede reproducir.
+
 Automatic searches group the selector into contiguous `[ESPAÑOL]` results followed by `[ENGLISH]` results from AniDB and AnimeX.
 
 By default, ani-cli-mx keeps using the chosen Spanish source for the rest of the session, falling back to the normal source search if it stops producing valid links:
