@@ -6,11 +6,10 @@ This is an independent community project. It is not affiliated with, maintained 
 
 Anime keeps its existing provider coverage in this order:
 
-1. JKAnime
-2. AnimeAV1
-3. AnimeFLV
-4. AniDB as the maintained English fallback
-5. AnimeX as the second English fallback, with multiple mirrors
+1. AnimeAV1
+2. JKAnime
+3. AniDB as the maintained English fallback
+4. AnimeX as the second English fallback, with multiple mirrors
 
 Películas, series y doramas use PelisPlusHD. PelisPlusHD is deliberately not
 used for anime.
@@ -152,7 +151,7 @@ scoop bucket add ani-cli-mx https://github.com/Gildedboy/ani-cli-mx
 scoop install ani-cli-mx
 ```
 
-The package installs curl, grep, sed, OpenSSL, fzf, Chafa, and mpv as declared
+The package installs curl, grep, sed, OpenSSL, fzf, Python 3, and mpv as declared
 runtime dependencies. Git for Windows supplies the Bash runtime. Windows
 Terminal is recommended; run ani-cli-mx from PowerShell or from its Git Bash profile:
 
@@ -502,6 +501,11 @@ AnimeX publica los servidores disponibles por episodio. ani-cli-mx consulta esa
 lista, prueba los mirrors en el orden recibido y continúa con otro servidor si
 el primero está caído o entrega una playlist que mpv no puede reproducir. Los
 servidores MegaPlay se dejan como último recurso por sus límites de reproducción.
+Las cabeceras requeridas por cada servidor, incluido `Origin` y `User-Agent`, se
+conservan durante la validación y la reproducción.
+Yuki/MegaPlay empaqueta segmentos MPEG-TS detrás de una cabecera PNG que mpv no
+reconoce. Para ese espejo, Python 3 inicia un servidor temporal en `127.0.0.1`
+que quita la cabecera y entrega el video a mpv. Se cierra al salir de ani-cli-mx.
 
 Automatic searches group the selector into contiguous `[ESPAÑOL]` results followed by `[ENGLISH]` results from AniDB and AnimeX.
 

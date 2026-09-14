@@ -1,4 +1,4 @@
-.TH "ANI-CLI-MX" "1" "September 2026" "ani-cli-mx 3.0.5" "User Commands"
+.TH "ANI-CLI-MX" "1" "September 2026" "ani-cli-mx 3.0.6" "User Commands"
 .SH NAME
 ani-cli-mx \- watch anime, movies, series, and doramas from the command line
 .SH SYNOPSIS
@@ -11,7 +11,7 @@ When started without a title, ani-cli-mx opens a home menu for searching, contin
 .PD 0
 .P
 .PD
-Anime searches list AnimeAV1, JKAnime, AnimeFLV, AniDB, and AnimeX in that order. AnimeX discovers the servers available for each episode and probes their mirrors before selecting one. Movies, series, and doramas use PelisPlusHD; PelisPlusHD is not used for anime. Its resolver follows Embed69, optional proof-of-work/AES decryption, Vidhide-compatible embeds, local P.A.C.K.E.R. decoding, and HLS selection while preserving the embed referrer. Windows uses Git for Windows as the shell runtime and native Windows media players.
+Anime searches list AnimeAV1, JKAnime, AniDB, and AnimeX in that order. AnimeX discovers the servers available for each episode, preserves their required HTTP headers, and probes their mirrors before selecting one. Yuki/MegaPlay streams require Python 3 to unwrap PNG-prefixed HLS segments through a temporary localhost proxy. Movies, series, and doramas use PelisPlusHD; PelisPlusHD is not used for anime. Its resolver follows Embed69, optional proof-of-work/AES decryption, Vidhide-compatible embeds, local P.A.C.K.E.R. decoding, and HLS selection while preserving the embed referrer. Windows uses Git for Windows as the shell runtime and native Windows media players.
 .PD 0
 .P
 .PD
@@ -76,7 +76,7 @@ Start in continuous playback mode. Detached interactive mpv playback reuses one 
 \fB\--close-previous\fR
 Restart the tracked player instead of reusing its window when opening another episode from the playback menu. This can also be toggled from the playback menu with activar_cerrar_reproductor_anterior or desactivar_cerrar_reproductor_anterior.
 .TP
-\fB\--source | --info-source\fR \fI\,<auto|animeflv|jkanime|animeav1|anidb|animex>\/\fR
+\fB\--source | --info-source\fR \fI\,<auto|jkanime|animeav1|anidb|animex>\/\fR
 Choose which anime source provides search results and episode information. Default is auto. It cannot be combined with non-anime content types.
 .TP
 \fB\-N | --nextep-countdown\fR
@@ -145,7 +145,7 @@ Controls the directory ani-cli-mx uses for storing history. On Windows the defau
 Controls the default source. Valid is history (equivalent to -c), everything else means search. Default is search.
 .TP
 \fBANI_CLI_INFO_SOURCE\fR
-Controls which source provides search results and episode information. Valid options are auto, animeflv, jkanime, animeav1, anidb, and animex. Default is auto.
+Controls which source provides search results and episode information. Valid options are auto, jkanime, animeav1, anidb, and animex. Default is auto.
 .TP
 \fBANI_CLI_ANIDB_CURL\fR
 Path to a compatible curl-impersonate executable used for AniDB requests.

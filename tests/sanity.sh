@@ -34,7 +34,7 @@ run_debug_smoke() {
         return 1
     }
 
-    for provider_case in 'jkanime:JKAnime' 'animeav1:AnimeAV1' 'animeflv:AnimeFLV' 'anidb:AniDB' 'animex:AnimeX'; do
+    for provider_case in 'jkanime:JKAnime' 'animeav1:AnimeAV1' 'anidb:AniDB' 'animex:AnimeX'; do
         provider="${provider_case%%:*}"
         provider_label="${provider_case#*:}"
         timeout 120 env ANI_CLI_PLAYER=debug ANI_CLI_NO_DETACH=1 ANI_CLI_FAST_MODE=0 \
@@ -326,7 +326,7 @@ run_animex_subtitle_smoke() {
     sed -n '/^find_link_referrer()/,/^count_quality_links()/p' ani-cli-mx-core | sed '$d' >"$funcs_file"
     sed -n '/^emit_annotated_link_entry()/,/^quality_menu_entries()/p' ani-cli-mx-core | sed '$d' >>"$funcs_file"
     sed -n '/^animex_request()/,/^animex_proxy_url()/p' ani-cli-mx-core | sed '$d' >>"$funcs_file"
-    sed -n '/^resolve_animex_episode()/,/^pick_animeflv_language()/p' ani-cli-mx-core | sed '$d' >>"$funcs_file"
+    sed -n '/^resolve_animex_episode()/,/^resolve_spanish_source_links()/p' ani-cli-mx-core | sed '$d' >>"$funcs_file"
     sed -n '/^select_quality()/,/^get_episode_url()/p' ani-cli-mx-core | sed '$d' >>"$funcs_file"
 
     (
@@ -349,7 +349,7 @@ run_animex_subtitle_smoke() {
                     printf '%s\n' '[{"number":1,"titles":{"en":"OVA"},"hasDub":true,"hasSub":true}]'
                     ;;
                 *'/rest/api/sources?id=kaiju-no-8-bqnnd&epNum=1&type=sub&providerId=beep')
-                    printf '%s\n' '{"sources":[{"url":"https://video.animex.test/master.m3u8","quality":"auto","type":"video/mpegurl"}],"tracks":[{"id":"captions-1","url":"https://subs.animex.test/kaijuu-8-en.vtt","lang":"en","label":"English","kind":"captions","default":true},{"id":"captions-2","url":"https://subs.animex.test/kaijuu-8-es.vtt","lang":"es","label":"Spanish","kind":"captions","default":false}],"headers":{"Referer":"https://video.animex.test/"}}'
+                    printf '%s\n' '{"sources":[{"url":"https://video.animex.test/master.m3u8","quality":"auto","type":"video/mpegurl"}],"tracks":[{"id":"captions-1","url":"https://subs.animex.test/kaijuu-8-en.vtt","lang":"en","label":"English","kind":"captions","default":true},{"id":"captions-2","url":"https://subs.animex.test/kaijuu-8-es.vtt","lang":"es","label":"Spanish","kind":"captions","default":false}],"headers":{"Referer":"https://video.animex.test/","Origin":"https://origin.animex.test","User-Agent":"Mozilla/5.0 AnimeX test"}}'
                     ;;
                 *) return 1 ;;
             esac
@@ -376,11 +376,13 @@ run_animex_subtitle_smoke() {
         printf '%s\n' "$links" | grep -q '^1080 >https://video.animex.test/master.m3u8>cc>$'
         printf '%s\n' "$links" | grep -q '^subtitle >https://video.animex.test/master.m3u8>https://subs.animex.test/kaijuu-8-en.vtt$'
         printf '%s\n' "$links" | grep -q '^subtitle >https://video.animex.test/master.m3u8>https://subs.animex.test/kaijuu-8-es.vtt$'
+        printf '%s\n' "$links" | grep -q '^headers >https://video.animex.test/master.m3u8>Origin:https://origin.animex.test,User-Agent:Mozilla/5.0 AnimeX test$'
         [ "$(find_link_subtitles "$links" 'https://video.animex.test/master.m3u8')" = 'https://subs.animex.test/kaijuu-8-en.vtt
 https://subs.animex.test/kaijuu-8-es.vtt' ]
 
         select_quality best
         [ "$episode" = 'https://video.animex.test/master.m3u8' ]
+        [ "$headers_flag" = '--http-header-fields=Origin:https://origin.animex.test,User-Agent:Mozilla/5.0 AnimeX test' ]
         [ "$subs_flag" = '--sub-file=https://subs.animex.test/kaijuu-8-en.vtt --sub-file=https://subs.animex.test/kaijuu-8-es.vtt ' ]
         [ "$iina_subs_flag" = '--mpv-sub-file=https://subs.animex.test/kaijuu-8-en.vtt --mpv-sub-file=https://subs.animex.test/kaijuu-8-es.vtt ' ]
 
@@ -405,6 +407,62 @@ yuki' ]
 
     rm -rf "$tmp_dir"
     printf 'AnimeX external subtitle handling passed.\n' >&2
+}
+
+run_animex_yuki_proxy_smoke() {
+    command -v python3 >/dev/null 2>&1 || return 0
+    printf 'Checking AnimeX Yuki HLS adaptation...\n' >&2
+    tmp_dir="$(mktemp -d)"
+    sed -n '/^import base64$/,/^ANI_CLI_YUKI_PROXY$/p' ani-cli-mx-core | sed '$d' >"$tmp_dir/proxy.py"
+    sed -n '/^def png_prefix_length(body):/,/^class Handler/p' ani-cli-mx-core | sed '$d' >"$tmp_dir/png.py"
+    python3 -m py_compile "$tmp_dir/proxy.py"
+    python3 - "$tmp_dir/png.py" <<'PY'
+from pathlib import Path
+import sys
+
+scope = {}
+exec(Path(sys.argv[1]).read_text(), scope)
+strip = scope['png_prefix_length']
+png = b'\x89PNG\r\n\x1a\n' + b'\x00\x00\x00\x00IEND\x00\x00\x00\x00'
+assert strip(png + b'\x47' + b'\x00' * 187) == len(png)
+assert strip(png) == 0
+assert strip(b'\x47' + b'\x00' * 187) == 0
+PY
+    rm -rf "$tmp_dir"
+    printf 'AnimeX Yuki HLS adaptation passed.\n' >&2
+}
+
+run_debug_probe_player_smoke() {
+    printf 'Checking debug playback probe selection...\n' >&2
+    tmp_dir="$(mktemp -d)"
+    funcs_file="$tmp_dir/probe-functions.sh"
+    probe_args_file="$tmp_dir/probe-args"
+    sed -n '/^run_mpv_probe()/,/^filter_playable_links()/p' ani-cli-mx-core | sed '$d' >"$funcs_file"
+
+    (
+        # shellcheck disable=SC1090
+        . "$funcs_file"
+        timeout() {
+            printf '%s\n' "$@" >"$probe_args_file"
+            printf '%s\n' 'VO: [null] 1920x1080 yuv420p'
+        }
+        debug_mode=1
+        player_function=debug
+        probe_player_function=mpv.exe
+        probe_timeout=1
+        probe_link_with_mpv 'https://video.animex.test/master.m3u8' 'https://referrer.animex.test/' 'Origin:https://referrer.animex.test'
+        grep -qx 'mpv.exe' "$probe_args_file"
+        grep -qx -- '--referrer=https://referrer.animex.test/' "$probe_args_file"
+        grep -qx -- '--http-header-fields=Origin:https://referrer.animex.test' "$probe_args_file"
+        timeout() { printf '%s\n' 'Exiting... (Errors when loading file)'; }
+        if probe_link_with_mpv 'https://video.animex.test/broken.m3u8' '' ''; then
+            printf 'A playlist without a decoded video frame passed the probe.\n' >&2
+            exit 1
+        fi
+    )
+
+    rm -rf "$tmp_dir"
+    printf 'Debug playback probe selection passed.\n' >&2
 }
 
 run_download_menu_smoke() {
@@ -847,7 +905,7 @@ run_windows_compat_smoke() {
         ANI_CLI_STATE_NAME=ani-cli-mx LOCALAPPDATA="$local_app_data_env" \
         ANI_CLI_PLAYER=debug ./ani-cli-mx-core -V)"
 
-    [ "$version_output" = "3.0.5" ]
+    [ "$version_output" = "3.0.6" ]
     [ -f "$local_app_data/ani-cli-mx/ani-hsts" ]
     grep -q 'GIT_INSTALL_ROOT' ani-cli-mx.cmd
     grep -q 'ANI_CLI_PACKAGE_MANAGER=scoop' ani-cli-mx.cmd
@@ -877,7 +935,6 @@ run_search_diagnostic_smoke() {
         . "$funcs_file"
         resolver_timeout=1
         agent=test
-        animeflv_refr=https://animeflv.invalid
         animeav1_refr=https://animeav1.invalid
         jkanime_refr=https://jkanime.invalid
         curl() {
@@ -898,7 +955,6 @@ run_search_diagnostic_smoke() {
 
     if ! grep -q 'No se pudo consultar AnimeAV1' "$output_file" ||
         ! grep -q 'Could not resolve host' "$output_file" ||
-        ! grep -q 'No se pudo consultar AnimeFLV' "$output_file" ||
         ! grep -q 'Revisa DNS, firewall, proxy, antivirus o certificados TLS' "$output_file"; then
         cat "$output_file" >&2
         rm -rf "$tmp_dir"
@@ -935,7 +991,6 @@ run_anime_search_modes_smoke() {
         prefix_search_results() { printf '%s:%s\n' "$1" "$2"; }
         search_animeav1_variants() { printf '%s\n' av1-result; }
         search_jkanime_variants() { printf '%s\n' jk-result; }
-        search_animeflv_variants() { printf '%s\n' flv-result; }
         search_animex_catalog() { printf '%s\n' animex-result; }
         search_hentaila_variants() { printf '%s\n' ha-result; }
 
@@ -943,7 +998,7 @@ run_anime_search_modes_smoke() {
         normal_results="$(search_anime sample)"
         [ "$normal_results" = "$(printf '%s\n' \
             'animeav1:av1-result' 'jkanime:jk-result' \
-            'animeflv:flv-result' 'animex:animex-result')" ]
+            'animex:animex-result')" ]
 
         hentaila_mode=1
         [ "$(search_anime sample)" = 'hentaila:ha-result' ]
@@ -972,7 +1027,7 @@ run_language_sections_smoke() {
 run_anidb_provider_smoke() {
     tmp_dir="$(mktemp -d)"
     funcs_file="$tmp_dir/anidb-functions.sh"
-    sed -n '/^find_anidb_curl_exe()/,/^pick_animeflv_language()/p' ani-cli-mx-core | sed '$d' >"$funcs_file"
+    sed -n '/^find_anidb_curl_exe()/,/^resolve_spanish_source_links()/p' ani-cli-mx-core | sed '$d' >"$funcs_file"
 
     (
         # shellcheck disable=SC1090
@@ -1124,11 +1179,17 @@ run_pelisplus_provider_smoke() {
     fi
     grep -q 'búsqueda directa requiere -t/--type' "$tmp_dir/direct.out"
     if env ANI_CLI_HIST_DIR="$tmp_dir/history" ANI_CLI_PLAYER=debug ./ani-cli-mx-core \
-        --type movie --source animeflv interstellar >"$tmp_dir/incompatible.out" 2>&1; then
+        --type movie --source animex interstellar >"$tmp_dir/incompatible.out" 2>&1; then
         printf 'Non-anime --source combination unexpectedly succeeded.\n' >&2
         return 1
     fi
     grep -q -- '--source solo se puede usar' "$tmp_dir/incompatible.out"
+    if env ANI_CLI_HIST_DIR="$tmp_dir/history" ANI_CLI_PLAYER=debug ./ani-cli-mx-core \
+        --type anime --source animeflv "one piece" >"$tmp_dir/removed-source.out" 2>&1; then
+        printf 'Removed AnimeFLV source unexpectedly succeeded.\n' >&2
+        return 1
+    fi
+    grep -q 'Fuente invalida: animeflv' "$tmp_dir/removed-source.out"
 
     rm -rf "$tmp_dir"
     printf 'PelisPlusHD media model and P.A.C.K.E.R. handling passed.\n' >&2
@@ -1141,6 +1202,8 @@ case "${1:-}" in
         run_continuous_window_state_smoke
         run_persistent_mpv_smoke
         run_animex_subtitle_smoke
+        run_animex_yuki_proxy_smoke
+        run_debug_probe_player_smoke
         run_download_menu_smoke
         run_playback_menu_smoke
         run_history_menu_smoke
@@ -1163,6 +1226,8 @@ case "${1:-}" in
         run_continuous_window_state_smoke
         run_persistent_mpv_smoke
         run_animex_subtitle_smoke
+        run_animex_yuki_proxy_smoke
+        run_debug_probe_player_smoke
         run_download_menu_smoke
         run_playback_menu_smoke
         run_history_menu_smoke

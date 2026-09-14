@@ -24,7 +24,7 @@ Use a concrete title and episode supplied by the user. Preserve the exact title 
 - Do not assume a short query is the problem. Print the final requested URL; shell command substitutions can concatenate outputs that lack terminating newlines.
 - Compare live markup with the parser’s structural assumptions and split records before applying greedy `sed` expressions.
 - Prefer stable public JSON endpoints when HTML search is cached or ignores query parameters.
-- Keep provider references prefixed (`animeflv:`, `animeav1:`, `jkanime:`) so authoritative episode catalogs and fast-mode reuse remain source-aware.
+- Keep provider references prefixed (`animeav1:`, `jkanime:`, `animex:`) so authoritative episode catalogs and fast-mode reuse remain source-aware.
 - For paginated catalogs, parallelize independent page requests and reject the aggregate if a page fails; do not silently accept an incomplete episode list.
 
 ## Validate mirrors as mpv will use them

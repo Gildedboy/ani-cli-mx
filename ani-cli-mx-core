@@ -1,6 +1,6 @@
 #!/bin/sh
 
-version_number="3.0.5"
+version_number="3.0.6"
 app_name="${ANI_CLI_NAME:-${0##*/}}"
 log_tag="${ANI_CLI_LOG_TAG:-$app_name}"
 hist_state_name="${ANI_CLI_STATE_NAME:-$app_name}"
@@ -253,7 +253,7 @@ help_info() {
       -t, --type
         Content type for direct searches: anime, movie, series, dorama
       --source <source>
-        Anime source for search and episode info: auto, animeflv, jkanime, animeav1, anidb, animex
+        Anime source for search and episode info: auto, jkanime, animeav1, anidb, animex
       --dub
         Play dubbed version
       --rofi
@@ -461,10 +461,6 @@ open_browser_url() {
 
 # SCRAPING
 
-animeflv_request() {
-    curl -L --connect-timeout 10 --max-time "$resolver_timeout" -e "$animeflv_refr" -s "$1" -A "$agent"
-}
-
 jkanime_request() {
     curl -L --connect-timeout 10 --max-time "$resolver_timeout" -s "$1" -A "$agent"
 }
@@ -519,7 +515,6 @@ diagnose_empty_search() {
     diagnostic_failed=0
     probe_search_endpoint "AnimeAV1" "${animeav1_refr}/catalogo?search=${diagnostic_query}" || diagnostic_failed=1
     probe_search_endpoint "JKAnime" "${jkanime_refr}/buscar?q=${diagnostic_query}" || diagnostic_failed=1
-    probe_search_endpoint "AnimeFLV" "${animeflv_refr}/wp-json/wp/v2/categories?per_page=1" || diagnostic_failed=1
 
     if [ "$diagnostic_failed" -eq 1 ]; then
         die "No fue posible consultar las fuentes. Revisa DNS, firewall, proxy, antivirus o certificados TLS"
@@ -749,7 +744,6 @@ site_name_from_ref() {
     case "$1" in
         pelisplus:*) printf '%s\n' "pelisplus" ;;
         hentaila:*) printf '%s\n' "hentaila" ;;
-        animeflv:*) printf '%s\n' "animeflv" ;;
         jkanime:*) printf '%s\n' "jkanime" ;;
         animeav1:*) printf '%s\n' "animeav1" ;;
         anidb:*) printf '%s\n' "anidb" ;;
@@ -803,12 +797,7 @@ episode_display_label() {
 show_ref_value_for_site() {
     case "$1" in
         "$2":*) printf '%s\n' "${1#"$2:"}" ;;
-        *)
-            [ "$2" = "animeflv" ] && case "$1" in
-                *:*) return 1 ;;
-                *) printf '%s\n' "$1" ;;
-            esac
-            ;;
+        *) return 1 ;;
     esac
 }
 
@@ -866,7 +855,6 @@ title_for_anime_id() {
 normalize_info_source() {
     case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
         "" | auto) printf '%s\n' "auto" ;;
-        animeflv | flv) printf '%s\n' "animeflv" ;;
         jkanime | jk) printf '%s\n' "jkanime" ;;
         animeav1 | av1) printf '%s\n' "animeav1" ;;
         anidb | ani-db | english) printf '%s\n' "anidb" ;;
@@ -879,7 +867,6 @@ info_source_label() {
     case "$1" in
         hentaila) printf '%s\n' "Hentaila" ;;
         auto) printf '%s\n' "Auto" ;;
-        animeflv) printf '%s\n' "AnimeFLV" ;;
         jkanime) printf '%s\n' "JKAnime" ;;
         animeav1) printf '%s\n' "AnimeAV1" ;;
         anidb) printf '%s\n' "AniDB" ;;
@@ -890,7 +877,6 @@ info_source_label() {
 
 source_key_from_label() {
     case "$1" in
-        AnimeFLV | AnimeFLV\ *) printf '%s\n' "animeflv" ;;
         JKAnime | JKAnime\ *) printf '%s\n' "jkanime" ;;
         AnimeAV1 | AnimeAV1\ *) printf '%s\n' "animeav1" ;;
         *) return 1 ;;
@@ -899,7 +885,7 @@ source_key_from_label() {
 
 is_spanish_source() {
     case "$1" in
-        animeflv | jkanime | animeav1) return 0 ;;
+        jkanime | animeav1) return 0 ;;
         *) return 1 ;;
     esac
 }
@@ -1080,11 +1066,10 @@ quality_menu_entries() {
 
 available_site_entries() {
     menu_index=1
-    for site_name in JKAnime AnimeAV1 AnimeFLV; do
+    for site_name in JKAnime AnimeAV1; do
         case "$site_name" in
-            AnimeFLV) site_links="$1" ;;
-            JKAnime) site_links="$2" ;;
-            AnimeAV1) site_links="$3" ;;
+            JKAnime) site_links="$1" ;;
+            AnimeAV1) site_links="$2" ;;
         esac
         site_count="$(count_quality_links "$site_links")"
         [ "$site_count" -gt 0 ] || continue
@@ -1096,7 +1081,6 @@ available_site_entries() {
 set_links_for_site() {
     site_key="$(source_key_from_label "$1" 2>/dev/null || true)"
     case "$1" in
-        AnimeFLV) links="$animeflv_links" ;;
         JKAnime) links="$jkanime_links" ;;
         AnimeAV1) links="$animeav1_links" ;;
         *) return 1 ;;
@@ -1116,7 +1100,7 @@ set_links_for_site() {
 }
 
 pick_spanish_source_links() {
-    site_options="$(available_site_entries "$1" "$2" "$3")"
+    site_options="$(available_site_entries "$1" "$2")"
     available_sites="$(printf '%s\n' "$site_options" | sed '/^$/d')"
     [ -z "$available_sites" ] && return 1
 
@@ -1136,7 +1120,6 @@ pick_spanish_source_links() {
     fi
 
     case "$selected_spanish_site" in
-        AnimeFLV) set_links_for_site "AnimeFLV" ;;
         JKAnime) set_links_for_site "JKAnime" ;;
         AnimeAV1) set_links_for_site "AnimeAV1" ;;
         *) return 1 ;;
@@ -1167,34 +1150,54 @@ select_ytdlp_url() {
     return 1
 }
 
+run_mpv_probe() {
+    mpv_probe_log="$(mktemp)" || return 1
+    "$@" >"$mpv_probe_log" 2>&1
+    mpv_probe_status=$?
+    # mpv can exit successfully after opening a broken HLS playlist without
+    # decoding video. Its VO line confirms that a video frame reached the output.
+    if [ "$mpv_probe_status" -eq 0 ] && grep -q '^VO: ' "$mpv_probe_log"; then
+        rm -f "$mpv_probe_log"
+        return 0
+    fi
+    if [ "${debug_mode:-0}" = "1" ]; then
+        grep -E -m 6 'HTTP error|Failed to|Error while|Invalid|Refusing to' "$mpv_probe_log" >&2 || true
+        printf '[debug] mpv no decodifico un fotograma (estado %s).\n' "$mpv_probe_status" >&2
+    fi
+    rm -f "$mpv_probe_log"
+    return 1
+}
+
 probe_link_with_mpv() {
     probe_referrer=""
     probe_headers=""
+    probe_player="${probe_player_function:-$player_function}"
     [ -n "$2" ] && probe_referrer="--referrer=$2"
     [ -n "$3" ] && probe_headers="--http-header-fields=$3"
 
-    # Probe candidates with a silent one-frame decode, so only actually playable
-    # sources survive selection.
-    case "$player_function" in
+    # Probe candidates with a one-frame decode, so only actually playable
+    # sources survive selection. Debug preserves the normal player's probe and
+    # exposes its errors instead of silently falling back to another executable.
+    case "$probe_player" in
         flatpak_mpv)
-            timeout "${probe_timeout}s" flatpak run io.mpv.Mpv --no-config --ao=null --vo=null --frames=1 \
-                --really-quiet $probe_referrer $probe_headers "$1" >/dev/null 2>&1
+            run_mpv_probe timeout "${probe_timeout}s" flatpak run io.mpv.Mpv --no-config --ao=null --vo=null --frames=1 \
+                $probe_referrer $probe_headers "$1"
             ;;
         mpv.exe | */mpv.exe)
-            timeout "${probe_timeout}s" "$player_function" --no-config --ao=null --vo=null --frames=1 \
-                --really-quiet $probe_referrer $probe_headers "$1" >/dev/null 2>&1
+            run_mpv_probe timeout "${probe_timeout}s" "$probe_player" --no-config --ao=null --vo=null --frames=1 \
+                $probe_referrer $probe_headers "$1"
             ;;
         mpv | */mpv)
-            timeout "${probe_timeout}s" "$player_function" --no-config --ao=null --vo=null --frames=1 \
-                --really-quiet $probe_referrer $probe_headers "$1" >/dev/null 2>&1
+            run_mpv_probe timeout "${probe_timeout}s" "$probe_player" --no-config --ao=null --vo=null --frames=1 \
+                $probe_referrer $probe_headers "$1"
             ;;
         *)
             if command -v mpv >/dev/null 2>&1; then
-                timeout "${probe_timeout}s" mpv --no-config --ao=null --vo=null --frames=1 \
-                    --really-quiet $probe_referrer $probe_headers "$1" >/dev/null 2>&1
+                run_mpv_probe timeout "${probe_timeout}s" mpv --no-config --ao=null --vo=null --frames=1 \
+                    $probe_referrer $probe_headers "$1"
             elif command -v flatpak >/dev/null 2>&1 && flatpak info io.mpv.Mpv >/dev/null 2>&1; then
-                timeout "${probe_timeout}s" flatpak run io.mpv.Mpv --no-config --ao=null --vo=null --frames=1 \
-                    --really-quiet $probe_referrer $probe_headers "$1" >/dev/null 2>&1
+                run_mpv_probe timeout "${probe_timeout}s" flatpak run io.mpv.Mpv --no-config --ao=null --vo=null --frames=1 \
+                    $probe_referrer $probe_headers "$1"
             else
                 return 0
             fi
@@ -1404,37 +1407,6 @@ search_jkanime() {
         sed -nE 's|.*<a[[:space:]]+href="https://jkanime\.net/([^"/]+)/".*<h5><a[[:space:]]+href="https://jkanime\.net/[^"]+/">([^<]+)</a></h5>.*|\1\t\2|p'
 }
 
-search_animeflv() {
-    animeflv_query="$(printf '%s' "$1" | tr '+' ' ' | tr '[:upper:]' '[:lower:]')"
-    animeflv_catalog=""
-    for page_no in 1 2; do
-        page_results="$(animeflv_request "${animeflv_refr}/wp-json/wp/v2/categories?per_page=100&page=${page_no}" |
-            sed 's|},{"id"|}\
-{"id"|g' |
-            sed -nE 's|^\{"id":[0-9]+,"count":[0-9]+,[^}]*"name":"([^"]*)","slug":"([^"]+)".*|\2\t\1|p')"
-        animeflv_catalog="${animeflv_catalog}${page_results}
-"
-    done
-
-    printf '%s' "$animeflv_catalog" | awk -F '\t' -v query="$animeflv_query" '
-        BEGIN { count = split(query, words, /[[:space:]]+/) }
-        $1 != "anime" {
-            candidate = tolower($1 " " $2)
-            matches = 1
-            for (i = 1; i <= count; i++) {
-                if (words[i] != "" && index(candidate, words[i]) == 0) matches = 0
-            }
-            if (matches) print
-        }
-    '
-}
-
-search_animeflv_variants() {
-    for candidate_query in $(search_query_candidates_from_text "$1"); do
-        search_animeflv "$candidate_query"
-    done | awk '!seen[$0]++'
-}
-
 search_jkanime_variants() {
     for candidate_query in $(search_query_candidates_from_text "$1"); do
         search_jkanime "$candidate_query"
@@ -1445,36 +1417,6 @@ search_animeav1_variants() {
     for candidate_query in $(search_query_candidates_from_text "$1"); do
         search_animeav1 "$candidate_query"
     done | awk '!seen[$0]++'
-}
-
-select_animeflv_id() {
-    cache_key="$1|$id"
-    [ "$animeflv_selected_id_key" = "$cache_key" ] && [ -n "$animeflv_selected_id" ] && printf '%s\n' "$animeflv_selected_id" && return 0
-
-    animeflv_results="$(search_animeflv_variants "$1")"
-    [ -z "$animeflv_results" ] && return 1
-
-    best_id=""
-    best_score=-999999
-    old_ifs=$IFS
-    IFS='
-'
-    for entry in $animeflv_results; do
-        candidate_id="$(printf '%s' "$entry" | cut -f1)"
-        candidate_title="$(printf '%s' "$entry" | cut -f2)"
-        [ -z "$candidate_id" ] && continue
-        score="$(title_match_score "$1" "$candidate_id" "$candidate_title")"
-        [ "$score" -gt "$best_score" ] && best_score="$score" && best_id="$candidate_id"
-    done
-    IFS=$old_ifs
-
-    cross_source_match_is_confident "$best_score" || return 1
-    [ -z "$best_id" ] && best_id="$(printf '%s\n' "$animeflv_results" | sed -n '1p' | cut -f1)"
-    [ -z "$best_id" ] && return 1
-
-    animeflv_selected_id="$best_id"
-    animeflv_selected_id_key="$cache_key"
-    printf '%s\n' "$animeflv_selected_id"
 }
 
 select_jkanime_slug() {
@@ -2072,6 +2014,10 @@ resolve_animex_provider() {
         "${animex_api}/rest/api/sources?id=${animex_slug}&epNum=${ep_no}&type=${animex_type}&providerId=${animex_provider}")" || return 1
     animex_referrer="$(printf '%s' "$animex_data" | sed -nE 's|.*"Referer":"([^"]+)".*|\1|p')"
     animex_origin="$(printf '%s' "$animex_data" | sed -nE 's|.*"Origin":"([^"]+)".*|\1|p')"
+    animex_user_agent="$(printf '%s' "$animex_data" | sed -nE 's|.*"User-Agent":"([^"]+)".*|\1|p')"
+    animex_header_fields=""
+    [ -n "$animex_origin" ] && animex_header_fields="Origin:${animex_origin}"
+    [ -n "$animex_user_agent" ] && animex_header_fields="${animex_header_fields}${animex_header_fields:+,}User-Agent:${animex_user_agent}"
     animex_subtitles="$(printf '%s' "$animex_data" | sed 's|},{|}\
 {|g' | sed -nE 's|.*"url":"([^"]+)".*"kind":"captions".*|\1|p; s|.*"url":"([^"]+)".*"kind":"subtitles".*|\1|p' | sed 's|\\/|/|g')"
     animex_entries="$(printf '%s' "$animex_data" | sed 's|},{"url"|}\
@@ -2090,6 +2036,10 @@ resolve_animex_provider() {
                 ;;
         esac
         [ -n "$animex_url" ] || continue
+        if [ "$animex_provider" = "yuki" ]; then
+            yuki_proxy_url="$(animex_yuki_proxy_url "$animex_url" "$animex_referrer" "$animex_origin" "${animex_user_agent:-$agent}" || true)"
+            [ -n "$yuki_proxy_url" ] && animex_url="$yuki_proxy_url"
+        fi
         if [ -n "$animex_subtitles" ]; then
             emit_annotated_link_entry "${animex_quality} >${animex_url}>cc>" "AnimeX ${animex_provider}" "AnimeX"
             animex_subtitle_ifs=$IFS
@@ -2103,9 +2053,153 @@ resolve_animex_provider() {
             emit_annotated_link_entry "${animex_quality} >${animex_url}" "AnimeX ${animex_provider}" "AnimeX"
         fi
         [ -n "$animex_referrer" ] && printf 'referrer >%s>%s\n' "$animex_url" "$animex_referrer"
-        [ -n "$animex_origin" ] && printf 'headers >%s>Origin:%s\n' "$animex_url" "$animex_origin"
+        [ -n "$animex_header_fields" ] && printf 'headers >%s>%s\n' "$animex_url" "$animex_header_fields"
     done
     IFS=$old_ifs
+}
+
+animex_yuki_proxy_url() {
+    [ -n "${animex_proxy_dir:-}" ] || return 1
+    if command -v python3 >/dev/null 2>&1; then
+        animex_python=python3
+    elif command -v python >/dev/null 2>&1 &&
+        python -c 'import sys; assert sys.version_info.major == 3' >/dev/null 2>&1; then
+        animex_python=python
+    else
+        debug_log 'AnimeX Yuki requiere Python 3.'
+        return 1
+    fi
+    proxy_script="$animex_proxy_dir/yuki-proxy.py"
+    if [ ! -s "$proxy_script" ]; then
+        cat >"$proxy_script" <<'ANI_CLI_YUKI_PROXY'
+import base64
+import http.cookiejar
+import http.server
+import ipaddress
+import re
+import socket
+import sys
+import urllib.parse
+import urllib.request
+
+
+source_url, referer, origin, user_agent, state_file = sys.argv[1:]
+cookies = http.cookiejar.CookieJar()
+
+
+def public_url(url):
+    parsed = urllib.parse.urlsplit(url)
+    if parsed.scheme != "https" or not parsed.hostname:
+        raise ValueError("Only public HTTPS URLs are supported")
+    addresses = socket.getaddrinfo(parsed.hostname, None)
+    if not addresses or any(not ipaddress.ip_address(item[4][0]).is_global for item in addresses):
+        raise ValueError("Private address blocked")
+    return url
+
+
+class SafeRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, request, fp, code, msg, headers, newurl):
+        public_url(newurl)
+        return super().redirect_request(request, fp, code, msg, headers, newurl)
+
+
+opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cookies), SafeRedirect())
+
+
+def encoded_path(url):
+    encoded = base64.urlsafe_b64encode(url.encode()).decode().rstrip("=")
+    return "/h/" + encoded
+
+
+def png_prefix_length(body):
+    if not body.startswith(b"\x89PNG\r\n\x1a\n"):
+        return 0
+    offset = 8
+    while offset + 12 <= len(body):
+        size = int.from_bytes(body[offset:offset + 4], "big")
+        chunk = body[offset + 4:offset + 8]
+        offset += 12 + size
+        if chunk == b"IEND":
+            return offset if body[offset:offset + 1] == b"\x47" else 0
+    return 0
+
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        try:
+            if not self.path.startswith("/h/"):
+                raise ValueError("Invalid path")
+            encoded = self.path[3:]
+            url = base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)).decode()
+            public_url(url)
+            headers = {"User-Agent": user_agent, "Referer": referer}
+            if origin:
+                headers["Origin"] = origin
+            request = urllib.request.Request(url, headers=headers)
+            with opener.open(request, timeout=20) as response:
+                body = response.read()
+                final_url = public_url(response.url)
+            if body.startswith(b"#EXTM3U"):
+                playlist = body.decode("utf-8")
+                def rewrite_uri(match):
+                    return 'URI="' + self.local(urllib.parse.urljoin(final_url, match.group(1))) + '"'
+                lines = []
+                for line in playlist.splitlines():
+                    if line.startswith("#"):
+                        lines.append(re.sub(r'URI="([^"]+)"', rewrite_uri, line))
+                    elif line.strip():
+                        lines.append(self.local(urllib.parse.urljoin(final_url, line.strip())))
+                    else:
+                        lines.append(line)
+                body = ("\n".join(lines) + "\n").encode()
+                content_type = "application/vnd.apple.mpegurl"
+            else:
+                prefix = png_prefix_length(body)
+                if prefix:
+                    body = body[prefix:]
+                content_type = "video/mp2t" if body[:1] == b"\x47" else "application/octet-stream"
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        except Exception as error:
+            self.send_error(502, str(error))
+
+    def local(self, url):
+        public_url(url)
+        return "http://127.0.0.1:" + str(self.server.server_port) + encoded_path(url)
+
+    def log_message(self, *_):
+        pass
+
+
+public_url(source_url)
+server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+with open(state_file, "w", encoding="utf-8") as output:
+    output.write("http://127.0.0.1:" + str(server.server_port) + encoded_path(source_url) + "\n")
+server.serve_forever()
+ANI_CLI_YUKI_PROXY
+    fi
+    proxy_state="$(mktemp "$animex_proxy_dir/state.XXXXXX")" || return 1
+    "$animex_python" -u "$proxy_script" "$1" "$2" "$3" "$4" "$proxy_state" \
+        >"$proxy_state.log" 2>&1 </dev/null &
+    proxy_pid=$!
+    printf '%s\n' "$proxy_pid" >>"$animex_proxy_dir/pids"
+    proxy_attempt=0
+    while [ ! -s "$proxy_state" ] && [ "$proxy_attempt" -lt 30 ]; do
+        kill -0 "$proxy_pid" 2>/dev/null || break
+        sleep 0.1
+        proxy_attempt=$((proxy_attempt + 1))
+    done
+    if [ -s "$proxy_state" ]; then
+        sed -n '1p' "$proxy_state"
+    else
+        kill "$proxy_pid" 2>/dev/null || true
+        return 1
+    fi
 }
 
 animex_proxy_url() {
@@ -2155,216 +2249,8 @@ kiwi'
     done
 }
 
-pick_animeflv_language() {
-    case "$mode" in
-        dub)
-            for lang in LAT ESP SUB; do
-                printf '%s' "$1" | grep -q "\"$lang\":\\[" && printf '%s\n' "$lang" && return 0
-            done
-            ;;
-        *)
-            for lang in SUB ESP LAT; do
-                printf '%s' "$1" | grep -q "\"$lang\":\\[" && printf '%s\n' "$lang" && return 0
-            done
-            ;;
-    esac
-    return 1
-}
-
-extract_animeflv_links() {
-    lang_entries="$(printf '%s' "$1" | tr -d '\n' | sed "s|.*\"$2\":\\[||" | sed 's|],"[A-Z][A-Z][A-Z]":.*||; s|]}$||; s|},{|}\
-{|g')"
-    disabled_mirrors="$(disabled_source_mirrors_for_source "animeflv")"
-    failed_mirrors=""
-    ok_mirrors=""
-    primary_links=""
-    fallback_links=""
-    old_ifs=$IFS
-    IFS='
-'
-    for entry in $lang_entries; do
-        [ -z "$entry" ] && continue
-        server="$(printf '%s' "$entry" | sed -nE 's|.*"server":"([^"]*)".*|\1|p')"
-        code="$(printf '%s' "$entry" | sed -nE 's|.*"code":"([^"]*)".*|\1|p' | sed 's|\\\/|/|g;s|\\"|"|g')"
-        [ -z "$code" ] && continue
-
-        server_name="$(source_label "$server")"
-        server_key="$(normalize_mirror_name "$server_name")"
-        if source_mirror_is_disabled_in_list "animeflv" "$server_name" "$disabled_mirrors"; then
-            source_status "AnimeFLV ${server_name}" "disabled"
-            continue
-        fi
-
-        direct_link=""
-        case "$server" in
-            mega)
-                [ -n "$server_key" ] && ! printf '%s\n' "$failed_mirrors" | grep -Fxq "$server_key" &&
-                    failed_mirrors="${failed_mirrors}${failed_mirrors:+
-}${server_key}"
-                source_status "AnimeFLV ${server_name}" "skip"
-                ;;
-            netu)
-                [ -n "$server_key" ] && ! printf '%s\n' "$failed_mirrors" | grep -Fxq "$server_key" &&
-                    failed_mirrors="${failed_mirrors}${failed_mirrors:+
-}${server_key}"
-                source_status "AnimeFLV ${server_name}" "skip"
-                ;;
-            stape)
-                direct_link="$(extract_streamtape_link "$code")"
-                if [ -n "$direct_link" ] && probe_stream_link "$code" "$direct_link"; then
-                    primary_links="${primary_links}880 >${direct_link}
-source >${direct_link}>${server_name}
-site >${direct_link}>AnimeFLV
-"
-                    [ -n "$server_key" ] && ! printf '%s\n' "$ok_mirrors" | grep -Fxq "$server_key" &&
-                        ok_mirrors="${ok_mirrors}${ok_mirrors:+
-}${server_key}"
-                    source_status "AnimeFLV ${server_name}" "ok"
-                else
-                    [ -n "$server_key" ] && ! printf '%s\n' "$failed_mirrors" | grep -Fxq "$server_key" &&
-                        failed_mirrors="${failed_mirrors}${failed_mirrors:+
-}${server_key}"
-                    source_status "AnimeFLV ${server_name}" "skip"
-                fi
-                ;;
-            yu)
-                direct_link="$(extract_yourupload_link "$code")"
-                if [ -n "$direct_link" ] && probe_link_with_mpv "$direct_link" "$code"; then
-                    primary_links="${primary_links}910 >${direct_link}
-referrer >${direct_link}>${code}
-source >${direct_link}>${server_name}
-site >${direct_link}>AnimeFLV
-"
-                    [ -n "$server_key" ] && ! printf '%s\n' "$ok_mirrors" | grep -Fxq "$server_key" &&
-                        ok_mirrors="${ok_mirrors}${ok_mirrors:+
-}${server_key}"
-                    source_status "AnimeFLV ${server_name}" "ok"
-                else
-                    [ -n "$server_key" ] && ! printf '%s\n' "$failed_mirrors" | grep -Fxq "$server_key" &&
-                        failed_mirrors="${failed_mirrors}${failed_mirrors:+
-}${server_key}"
-                    source_status "AnimeFLV ${server_name}" "skip"
-                fi
-                ;;
-            *)
-                direct_link="$(extract_with_ytdlp "$code")"
-                if [ -n "$direct_link" ]; then
-                    case "$server" in
-                        sw) priority="880" ;;
-                        mega) priority="860" ;;
-                        *) priority="480" ;;
-                    esac
-                    primary_links="${primary_links}${priority} >${direct_link}
-source >${direct_link}>${server_name}
-site >${direct_link}>AnimeFLV
-"
-                    [ -n "$server_key" ] && ! printf '%s\n' "$ok_mirrors" | grep -Fxq "$server_key" &&
-                        ok_mirrors="${ok_mirrors}${ok_mirrors:+
-}${server_key}"
-                    source_status "AnimeFLV ${server_name}" "ok"
-                else
-                    [ -n "$server_key" ] && ! printf '%s\n' "$failed_mirrors" | grep -Fxq "$server_key" &&
-                        failed_mirrors="${failed_mirrors}${failed_mirrors:+
-}${server_key}"
-                    source_status "AnimeFLV ${server_name}" "skip"
-                fi
-                ;;
-        esac
-    done
-    IFS=$old_ifs
-
-    old_ifs=$IFS
-    IFS='
-'
-    for mirror_key in $failed_mirrors; do
-        printf '%s\n' "$ok_mirrors" | grep -Fxq "$mirror_key" && continue
-        disable_source_mirror "animeflv" "$mirror_key"
-    done
-    IFS=$old_ifs
-
-    if [ -n "$primary_links" ]; then
-        printf '%s' "$primary_links"
-    else
-        printf '%s' "$fallback_links"
-    fi
-}
-
-extract_animeflv_wp_links() {
-    episode_page="$1"
-    player_urls="$(printf '%s' "$episode_page" |
-        grep -oE 'data-src="[[:alnum:]+/=]+"' | cut -d'"' -f2)"
-    primary_links=""
-    old_ifs=$IFS
-    IFS='
-'
-    for encoded_url in $player_urls; do
-        remote_url="$(printf '%s' "$encoded_url" | base64 -d 2>/dev/null)"
-        [ -n "$remote_url" ] || continue
-        direct_link=""
-        case "$remote_url" in
-            *player.zilla-networks.com/play/*)
-                server_name="HLS"
-                direct_link="$(extract_animeav1_hls_link "$remote_url")"
-                [ -n "$direct_link" ] && probe_link_with_mpv "$direct_link" "$remote_url" "$zilla_header_fields" || direct_link=""
-                ;;
-            *mp4upload*)
-                server_name="MP4Upload"
-                direct_link="$(extract_with_ytdlp "$remote_url")"
-                ;;
-            *uns.bio* | *upnshare*)
-                server_name="UPNShare"
-                direct_link="$(extract_with_ytdlp "$remote_url")"
-                ;;
-            *)
-                server_name="Mirror"
-                direct_link="$(extract_with_ytdlp "$remote_url")"
-                ;;
-        esac
-
-        if [ -n "$direct_link" ]; then
-            primary_links="${primary_links}$(animeav1_server_priority "$server_name") >${direct_link}
-referrer >${direct_link}>${remote_url}
-source >${direct_link}>${server_name}
-site >${direct_link}>AnimeFLV
-"
-            source_status "AnimeFLV ${server_name}" "ok"
-            if fast_first_link_mode; then
-                IFS=$old_ifs
-                printf '%s' "$primary_links"
-                return 0
-            fi
-        else
-            source_status "AnimeFLV ${server_name}" "skip"
-        fi
-    done
-    IFS=$old_ifs
-    [ -n "$primary_links" ] && printf '%s' "$primary_links"
-}
-
 resolve_spanish_source_links() {
     case "$1" in
-        animeflv)
-            animeflv_id="$(show_ref_value_for_site "$id" "animeflv")"
-            [ -z "$animeflv_id" ] && animeflv_id="$(select_animeflv_id "$title")"
-            if [ -n "$animeflv_id" ]; then
-                anime_page="$(animeflv_request "${animeflv_refr}/anime/${animeflv_id}/")" || anime_page=""
-                episode_path="$(printf '%s' "$anime_page" | sed 's|},{|}\
-{|g' | grep -F '"number":'"${ep_no}" | sed -nE 's|.*"permalink":"([^"]+)".*|\1|p' | head -n1 | sed 's|\\/|/|g')"
-                [ -n "$episode_path" ] && episode_page="$(animeflv_request "$episode_path")" || episode_page=""
-            else
-                episode_page=""
-            fi
-
-            if [ -n "$episode_page" ]; then
-                [ "$mode" = "dub" ] && printf "No hay doblaje disponible en AnimeFLV, usando subtitulado\n" 1>&2
-                extract_animeflv_wp_links "$episode_page" | sort -g -r -s
-            elif [ -n "$animeflv_id" ]; then
-                printf "AnimeFLV no respondio.\n" 1>&2
-                return 1
-            else
-                return 1
-            fi
-            ;;
         jkanime)
             resolve_jkanime_episode "$title" "$ep_no" | sort -g -r -s
             ;;
@@ -2388,7 +2274,6 @@ store_spanish_links_for_source() {
     site_links="$(filter_links_by_episode_catalog "$site_name" "$site_links" "$authoritative_site" "$authoritative_ep_list")"
 
     case "$site_name" in
-        animeflv) animeflv_links="$site_links" ;;
         jkanime) jkanime_links="$site_links" ;;
         animeav1) animeav1_links="$site_links" ;;
         *) return 1 ;;
@@ -2703,9 +2588,9 @@ select_quality() {
 }
 
 get_episode_url() {
-    animeflv_links=""
     jkanime_links=""
     animeav1_links=""
+    animex_tried=0
     unset selected_spanish_site selected_site selected_source selected_origin
     authoritative_site="$(site_name_from_ref "$id" 2>/dev/null || true)"
     if [ "$authoritative_site" = "pelisplus" ]; then
@@ -2763,6 +2648,7 @@ get_episode_url() {
     fi
 
     if [ "$authoritative_site" = "animex" ]; then
+        animex_tried=1
         links="$(resolve_animex_episode "$title" "$ep_no" | sort -g -r -s)"
         # AnimeX may return a stale first provider URL. Probe every provider
         # so playback can continue with a later working mirror.
@@ -2783,9 +2669,8 @@ get_episode_url() {
         fi
     fi
 
-    for site_name in jkanime animeav1 animeflv; do
+    for site_name in jkanime animeav1; do
         case "$site_name" in
-            animeflv) [ -n "$animeflv_links" ] && continue ;;
             jkanime) [ -n "$jkanime_links" ] && continue ;;
             animeav1) [ -n "$animeav1_links" ] && continue ;;
         esac
@@ -2795,7 +2680,7 @@ get_episode_url() {
         fi
     done
 
-    if pick_spanish_source_links "$animeflv_links" "$jkanime_links" "$animeav1_links"; then
+    if pick_spanish_source_links "$jkanime_links" "$animeav1_links"; then
         [ -n "$selected_spanish_site" ] && printf "Fuente elegida: %s\n" "$selected_spanish_site" 1>&2
     else
         printf "Las fuentes en espanol no funcionaron. Probando fuente en ingles...\n" 1>&2
@@ -2809,7 +2694,7 @@ get_episode_url() {
             fi
             [ -n "$links" ] && printf "Fuente inglesa elegida: AniDB\n" 1>&2
         fi
-        if [ -z "$links" ]; then
+        if [ -z "$links" ] && [ "$animex_tried" -eq 0 ]; then
             links="$(resolve_animex_episode "$title" "$ep_no" | sort -g -r -s)"
             links="$(filter_playable_links "$links")"
             [ -n "$links" ] && printf "Fuente inglesa elegida: AnimeX\n" 1>&2
@@ -2825,10 +2710,6 @@ get_episode_url() {
 
 search_anime_for_source() {
     case "$1" in
-        animeflv)
-            source_results="$(search_animeflv_variants "$2")"
-            [ -n "$source_results" ] && prefix_search_results "animeflv" "$source_results"
-            ;;
         jkanime)
             source_results="$(search_jkanime_variants "$2")"
             [ -n "$source_results" ] && prefix_search_results "jkanime" "$source_results"
@@ -2869,10 +2750,6 @@ search_anime() {
 
     jkanime_results="$(search_jkanime_variants "$1")"
     [ -n "$jkanime_results" ] && search_results="${search_results}$(prefix_search_results "jkanime" "$jkanime_results")
-"
-
-    animeflv_results="$(search_animeflv_variants "$1")"
-    [ -n "$animeflv_results" ] && search_results="${search_results}$(prefix_search_results "animeflv" "$animeflv_results")
 "
 
     if [ -n "$anidb_curl_exe" ]; then
@@ -2946,15 +2823,6 @@ time_until_next_ep() {
 }
 
 # get the episodes list of the selected anime
-episodes_list_animeflv() {
-    animeflv_slug="$(show_ref_value_for_site "$1" "animeflv")"
-    [ -z "$animeflv_slug" ] && animeflv_slug="$(select_animeflv_id "$2")"
-    [ -n "$animeflv_slug" ] || return 1
-    animeflv_request "${animeflv_refr}/anime/${animeflv_slug}/" |
-        grep -oE '"number":[0-9]+(\.[0-9]+)?' | cut -d: -f2 |
-        awk '!seen[$0]++' | sort -n -k 1
-}
-
 episodes_list_animeav1() {
     animeav1_match="$(show_ref_value_for_site "$1" "animeav1")"
     [ -z "$animeav1_match" ] && animeav1_match="$(select_animeav1_slug "$2")"
@@ -3067,9 +2935,6 @@ episodes_list_for_source() {
         hentaila)
             episodes_list_hentaila "$2" "$3"
             ;;
-        animeflv)
-            episodes_list_animeflv "$2" "$3"
-            ;;
         jkanime)
             episodes_list_jkanime "$2" "$3"
             ;;
@@ -3169,7 +3034,7 @@ episodes_list() {
 
     selected_site="$(site_name_from_ref "$1" 2>/dev/null || true)"
     episodes=""
-    for site_name in "$selected_site" animeav1 jkanime animeflv anidb animex; do
+    for site_name in "$selected_site" animeav1 jkanime anidb animex; do
         [ -n "$site_name" ] || continue
         [ -n "$episodes" ] && break
         episodes="$(episodes_list_for_source "$site_name" "$1" "$2")"
@@ -3315,7 +3180,7 @@ update_history() {
 
 download() {
     prepare_download
-    download_referrer="${generic_refr:-$animeflv_refr}"
+    download_referrer="${generic_refr:-$animex_refr}"
     # download subtitle if it's set
     [ -n "$subtitle" ] && curl -s "$subtitle" -o "$download_dir/$2.vtt"
     case $1 in
@@ -3530,7 +3395,7 @@ create_mpv_window_state_files() {
         mpv_window_state_player_script="${HOME}/.cache/ani-cli-mx/${mpv_window_state_script##*/}"
     else
         mpv_window_state_file="$(mktemp)"
-        mpv_window_state_script="$(mktemp)"
+        mpv_window_state_script="$(mktemp "${TMPDIR:-/tmp}/ani-cli-mx-window-state.XXXXXX.lua")"
         case "$player_function" in
             mpv.exe | */mpv.exe)
                 mpv_window_state_player_file="$(posix_path_to_windows "$mpv_window_state_file")"
@@ -3738,7 +3603,7 @@ play_episode() {
                 [ "$exit_after_play" = 1 ] && [ -z "$range" ] && exit "$mpv_exitcode"
             fi
             ;;
-        vlc*) nohup $player_function --http-referrer="${generic_refr:-$animeflv_refr}" --play-and-exit --meta-title="$display_title" "$episode" >/dev/null 2>&1 & ;;
+        vlc*) nohup $player_function --http-referrer="${generic_refr:-$animex_refr}" --play-and-exit --meta-title="$display_title" "$episode" >/dev/null 2>&1 & ;;
         *yncpla*) nohup $player_function "$episode" -- --force-media-title="$display_title" $subs_flag $refr_flag >/dev/null 2>&1 & ;;
         download) "$player_function" "$episode" "$display_title" "$subtitle" ;;
         catt) nohup catt cast "$episode" -s "$subtitle" >/dev/null 2>&1 & ;;
@@ -4118,9 +3983,6 @@ animex_proxy_key="10b06cdc1ca48c9fb0b94af97cc040cf"
 animex_selected_ref=""
 animex_selected_ref_key=""
 zilla_header_fields="Origin:https://player.zilla-networks.com,Sec-Fetch-Dest:empty,Sec-Fetch-Mode:cors,Sec-Fetch-Site:same-origin"
-animeflv_refr="https://animeflv.or.at"
-animeflv_selected_id=""
-animeflv_selected_id_key=""
 jkanime_refr="https://jkanime.net"
 jkanime_slug=""
 jkanime_slug_key=""
@@ -4141,7 +4003,7 @@ log_episode="${ANI_CLI_LOG:-1}"
 quality="${ANI_CLI_QUALITY:-best}"
 resolver_timeout="${ANI_CLI_RESOLVER_TIMEOUT:-15}"
 probe_timeout="${ANI_CLI_PROBE_TIMEOUT:-20}"
-preferred_info_source="$(normalize_info_source "${ANI_CLI_INFO_SOURCE:-auto}")" || die "ANI_CLI_INFO_SOURCE invalido. Usa: auto, animeflv, jkanime, animeav1, anidb o animex"
+preferred_info_source="$(normalize_info_source "${ANI_CLI_INFO_SOURCE:-auto}")" || die "ANI_CLI_INFO_SOURCE invalido. Usa: auto, jkanime, animeav1, anidb o animex"
 case "$(uname -a | cut -d " " -f 1,3-)" in
     *Darwin*) player_function="${ANI_CLI_PLAYER:-$(where_iina)}" ;;   # mac OS
     *ndroid*) player_function="${ANI_CLI_PLAYER:-android_mpv}" ;;     # Android OS (termux)
@@ -4149,6 +4011,8 @@ case "$(uname -a | cut -d " " -f 1,3-)" in
     *ish*) player_function="${ANI_CLI_PLAYER:-iSH}" ;;                # iOS (iSH)
     *) player_function="${ANI_CLI_PLAYER:-$(where_mpv)}" ;;           # Linux OS
 esac
+probe_player_function="$player_function"
+[ "$player_function" = "debug" ] && debug_mode=1
 
 no_detach="${ANI_CLI_NO_DETACH:-0}"
 exit_after_play="${ANI_CLI_EXIT_AFTER_PLAY:-0}"
@@ -4163,12 +4027,20 @@ fast_mode_source=""
 fast_mode_ep_list=""
 disabled_spanish_sources=""
 fast_mode_mirror_file="$(mktemp)"
+animex_proxy_dir="$(mktemp -d)"
+: >"$animex_proxy_dir/pids"
 continuous_state_file="$(mktemp)"
 current_episode_file="$(mktemp)"
 continuous_worker_log_file="$(mktemp)"
 create_mpv_window_state_files
 continuous_worker_pid=""
 cleanup() {
+    if [ -f "$animex_proxy_dir/pids" ]; then
+        while IFS= read -r proxy_pid; do
+            [ -n "$proxy_pid" ] && kill "$proxy_pid" 2>/dev/null || true
+        done <"$animex_proxy_dir/pids"
+    fi
+    rm -rf "$animex_proxy_dir"
     stop_continuous_worker
     persistent_mpv_alive && close_tracked_player
     rm -f "$fast_mode_mirror_file" "$continuous_state_file" "$current_episode_file" \
@@ -4267,7 +4139,7 @@ while [ $# -gt 0 ]; do
         --source | --info-source)
             [ $# -lt 2 ] && die "falta un argumento"
             preferred_info_source="$(normalize_info_source "$2")" ||
-                die "Fuente invalida: $2. Usa: auto, animeflv, jkanime, animeav1, anidb o animex"
+                die "Fuente invalida: $2. Usa: auto, jkanime, animeav1, anidb o animex"
             source_option_set=1
             shift
             ;;
