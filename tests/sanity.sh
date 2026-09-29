@@ -905,7 +905,7 @@ run_windows_compat_smoke() {
         ANI_CLI_STATE_NAME=ani-cli-mx LOCALAPPDATA="$local_app_data_env" \
         ANI_CLI_PLAYER=debug ./ani-cli-mx-core -V)"
 
-    [ "$version_output" = "3.0.6" ]
+    [ "$version_output" = "3.0.7" ]
     [ -f "$local_app_data/ani-cli-mx/ani-hsts" ]
     grep -q 'GIT_INSTALL_ROOT' ani-cli-mx.cmd
     grep -q 'ANI_CLI_PACKAGE_MANAGER=scoop' ani-cli-mx.cmd
@@ -1125,6 +1125,58 @@ site >https://video.example/first.m3u8>AnimeAV1'
             printf 'Classic mode bypassed the player probe\n' >&2
             return 1
         }
+        printf '%s\n' "$(filter_playable_links "$links" verified)" |
+            grep -q '^970 >https://video.example/first.m3u8$' || {
+            printf 'Verified links were probed twice\n' >&2
+            return 1
+        }
+    )
+
+    rm -rf "$tmp_dir"
+}
+
+run_animeav1_mp4upload_smoke() {
+    tmp_dir="$(mktemp -d)"
+    funcs_file="$tmp_dir/animeav1-functions.sh"
+    sed -n '/^animeav1_server_priority()/,/^find_anidb_curl_exe()/p' ani-cli-mx-core | sed '$d' >"$funcs_file"
+
+    (
+        . "$funcs_file"
+        animeav1_request() {
+            case "$1" in
+                https://www.mp4upload.com/embed-uhgpxfezm49q.html)
+                    printf '%s\n' 'player.src({ src: "https://cdn.example/video.mp4" });' ;;
+                *) return 1 ;;
+            esac
+        }
+        extract_with_ytdlp() { printf '%s\n' "$1" >>"$tmp_dir/ytdlp-calls"; return 1; }
+        probe_link_with_mpv() { [ "$1" = 'https://cdn.example/video.mp4' ]; }
+        disabled_source_mirrors_for_source() { :; }
+        source_mirror_is_disabled_in_list() { return 1; }
+        disable_source_mirror() { :; }
+        normalize_mirror_name() { printf '%s\n' "$1" | tr '[:upper:]' '[:lower:]'; }
+        source_status() { :; }
+        fast_first_link_mode() { return 1; }
+        links="$(extract_animeav1_links \
+            'SUB:[{server:"UPNShare",url:"https://uns.example/#one"},{server:"MP4Upload",url:"https://www.mp4upload.com/embed-uhgpxfezm49q.html"}]' \
+            'SUB:[{server:"TransferIt",url:"https://transfer.example/one"},{server:"1Fichier",url:"https://fichier.example/one"},{server:"MP4Upload",url:"https://www.mp4upload.com/uhgpxfezm49q"}]' SUB)"
+        printf '%s\n' "$links" | grep -q '^930 >https://cdn.example/video.mp4$'
+        printf '%s\n' "$links" | grep -q '^referrer >https://cdn.example/video.mp4>https://www.mp4upload.com/embed-uhgpxfezm49q.html$'
+        [ ! -f "$tmp_dir/ytdlp-calls" ]
+
+        animeav1_request() { :; }
+        extract_with_ytdlp() {
+            case "$1" in
+                https://voe.example/e/one) printf '%s\n' 'https://cdn.example/voe.mp4' ;;
+                *) printf '%s\n' "$1" >>"$tmp_dir/ytdlp-calls" ;;
+            esac
+        }
+        probe_link_with_mpv() { [ "$1" = 'https://cdn.example/voe.mp4' ]; }
+        links="$(extract_animeav1_links \
+            'SUB:[{server:"MP4Upload",url:"https://www.mp4upload.com/embed-uhgpxfezm49q.html"},{server:"Voe",url:"https://voe.example/e/one"}]' \
+            'SUB:[{server:"TransferIt",url:"https://transfer.example/one"},{server:"1Fichier",url:"https://fichier.example/one"}]' SUB)"
+        printf '%s\n' "$links" | grep -q '^880 >https://cdn.example/voe.mp4$'
+        ! grep -q 'transfer.example\|fichier.example' "$tmp_dir/ytdlp-calls"
     )
 
     rm -rf "$tmp_dir"
@@ -1217,6 +1269,7 @@ case "${1:-}" in
         run_language_sections_smoke
         run_anidb_provider_smoke
         run_fast_link_selection_smoke
+        run_animeav1_mp4upload_smoke
         run_pelisplus_provider_smoke
         run_debug_smoke
         ;;
@@ -1241,6 +1294,7 @@ case "${1:-}" in
         run_language_sections_smoke
         run_anidb_provider_smoke
         run_fast_link_selection_smoke
+        run_animeav1_mp4upload_smoke
         run_pelisplus_provider_smoke
         ;;
     *)

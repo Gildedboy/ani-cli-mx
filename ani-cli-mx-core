@@ -1,6 +1,6 @@
 #!/bin/sh
 
-version_number="3.0.6"
+version_number="3.0.7"
 app_name="${ANI_CLI_NAME:-${0##*/}}"
 log_tag="${ANI_CLI_LOG_TAG:-$app_name}"
 hist_state_name="${ANI_CLI_STATE_NAME:-$app_name}"
@@ -1218,10 +1218,10 @@ filter_playable_links() {
         candidate_referrer="$(find_link_referrer "$1" "$candidate_url")"
         candidate_headers="$(find_link_headers "$1" "$candidate_url")"
         candidate_subtitles="$(find_link_subtitles "$1" "$candidate_url")"
-        # Fast mode has already resolved a concrete stream URL. Starting mpv
-        # here would make the user wait for a hidden player before starting the
-        # real one, which is especially noticeable for remote HLS playlists.
-        if [ "$stop_after_first" = "first" ] || probe_link_with_mpv "$candidate_url" "$candidate_referrer" "$candidate_headers"; then
+        # AnimeAV1 has already decoded a frame for every emitted link. Avoid
+        # probing those links a second time while retaining all valid mirrors.
+        if [ "$stop_after_first" = "first" ] || [ "$stop_after_first" = "verified" ] ||
+            probe_link_with_mpv "$candidate_url" "$candidate_referrer" "$candidate_headers"; then
             playable_links="${playable_links}${entry}
 "
             [ -n "$candidate_referrer" ] && playable_links="${playable_links}referrer >${candidate_url}>${candidate_referrer}
@@ -1687,6 +1687,13 @@ extract_animeav1_hls_link() {
     [ -n "$hls_id" ] && printf 'https://player.zilla-networks.com/m3u8/%s\n' "$hls_id"
 }
 
+extract_animeav1_mp4upload_link() {
+    mp4upload_page="$(animeav1_request "$1")" || return 1
+    printf '%s' "$mp4upload_page" |
+        sed -nE 's|.*src:[[:space:]]*"(https?://[^"]+\.mp4[^"]*)".*|\1|p' |
+        head -n 1
+}
+
 extract_animeav1_entries() {
     [ -z "$1" ] && return 1
     printf '%s' "$1" | sed "s|.*$2:\\[||" |
@@ -1704,13 +1711,13 @@ extract_animeav1_links() {
     failed_mirrors=""
     ok_mirrors=""
     primary_links=""
-    if fast_first_link_mode; then
-        animeav1_entries="${embed_entries}
-${download_entries}"
-    else
-        animeav1_entries="${download_entries}
-${embed_entries}"
-    fi
+    # Download pages require a separate flow, often including a wait or captcha.
+    # Resolve the playable MP4Upload embed first, then try other embeds.
+    mp4upload_entries="$(printf '%s\n' "$embed_entries" | grep -i 'server:"MP4Upload"' || true)"
+    [ -n "$mp4upload_entries" ] ||
+        mp4upload_entries="$(printf '%s\n' "$download_entries" | grep -i 'server:"MP4Upload"' || true)"
+    animeav1_entries="${mp4upload_entries}
+$(printf '%s\n' "$embed_entries" | grep -vi 'server:"MP4Upload"' || true)"
     old_ifs=$IFS
     IFS='
 '
@@ -1720,6 +1727,11 @@ ${embed_entries}"
         remote_url="$(printf '%s' "$entry" | sed -nE 's|.*url:"([^"]+)".*|\1|p')"
         [ -z "$server_name" ] && continue
         [ -z "$remote_url" ] && continue
+        case "$(printf '%s' "$server_name" | tr '[:upper:]' '[:lower:]')" in
+            mp4upload)
+                remote_url="$(printf '%s' "$remote_url" | sed -E 's|/([[:alnum:]]+)$|/embed-\1.html|')"
+                ;;
+        esac
         server_key="$(normalize_mirror_name "$server_name")"
         if source_mirror_is_disabled_in_list "animeav1" "$server_name" "$disabled_mirrors"; then
             source_status "AnimeAV1 ${server_name}" "disabled"
@@ -1759,7 +1771,13 @@ site >${direct_link}>AnimeAV1
                 ;;
         esac
 
-        direct_link="$(extract_with_ytdlp "$remote_url")"
+        case "$(printf '%s' "$server_name" | tr '[:upper:]' '[:lower:]')" in
+            mp4upload)
+                direct_link="$(extract_animeav1_mp4upload_link "$remote_url")"
+                [ -n "$direct_link" ] || direct_link="$(extract_with_ytdlp "$remote_url")"
+                ;;
+            *) direct_link="$(extract_with_ytdlp "$remote_url")" ;;
+        esac
         if [ -n "$direct_link" ] && probe_link_with_mpv "$direct_link" "$remote_url"; then
             if ! printf '%s' "$primary_links" | grep -Fq ">${direct_link}"; then
                 primary_links="${primary_links}$(animeav1_server_priority "$server_name") >${direct_link}
@@ -1772,7 +1790,9 @@ site >${direct_link}>AnimeAV1
                 ok_mirrors="${ok_mirrors}${ok_mirrors:+
 }${server_key}"
             source_status "AnimeAV1 ${server_name}" "ok"
-            if fast_first_link_mode; then
+            # This host exposes one file per episode. Once its frame decodes,
+            # querying the remaining embeds only delays playback.
+            if fast_first_link_mode || [ "$server_key" = "mp4upload" ]; then
                 IFS=$old_ifs
                 printf '%s' "$primary_links"
                 return 0
@@ -2268,6 +2288,8 @@ store_spanish_links_for_source() {
     site_links="$(resolve_spanish_source_links "$site_name")"
     if [ "$fast_mode" = "1" ] && [ "$quality" = "best" ]; then
         site_links="$(filter_playable_links "$site_links" "first")"
+    elif [ "$site_name" = "animeav1" ]; then
+        site_links="$(filter_playable_links "$site_links" "verified")"
     else
         site_links="$(filter_playable_links "$site_links")"
     fi
