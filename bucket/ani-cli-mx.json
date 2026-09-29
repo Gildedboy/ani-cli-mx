@@ -1,5 +1,5 @@
 {
-    "version": "3.0.6",
+    "version": "3.0.7",
     "description": "Spanish-first anime CLI for the terminal",
     "homepage": "https://github.com/Gildedboy/ani-cli-mx",
     "license": "GPL-3.0-or-later",
@@ -22,11 +22,11 @@
         "alternate player": "extras/vlc"
     },
     "url": [
-        "https://raw.githubusercontent.com/Gildedboy/ani-cli-mx/refs/tags/v3.0.6/ani-cli-mx-core",
-        "https://raw.githubusercontent.com/Gildedboy/ani-cli-mx/refs/tags/v3.0.6/ani-cli-mx.ps1"
+        "https://raw.githubusercontent.com/Gildedboy/ani-cli-mx/refs/tags/v3.0.7/ani-cli-mx-core",
+        "https://raw.githubusercontent.com/Gildedboy/ani-cli-mx/refs/tags/v3.0.7/ani-cli-mx.ps1"
     ],
     "hash": [
-        "0ce4a81dc03d6719fa249e372cc8151edd389eae2fa5193380817fd97db88511",
+        "aa9080e71e6ee32fba5ed25e1ec28894c7328a5ffc3d0d5d20fadf7e07c2e1c4",
         "176f25c35cf3d41cc81606caebb4eac3d327bc310fb67de4c1fd6205fda14252"
     ],
     "bin": "ani-cli-mx.ps1",
