@@ -11,6 +11,11 @@ Anime keeps its existing provider coverage in this order:
 3. AniDB as the maintained English fallback
 4. AnimeX as the second English fallback, with multiple mirrors
 
+AnimeAV1 currently exposes MP4Upload as its verified playback mirror. The
+client resolves its embed first and skips download-only pages during playback.
+See the [AnimeAV1 audit](docs/animeav1-audit-2026-09-29.md) for the status of
+the other hosts.
+
 Películas, series y doramas use PelisPlusHD. PelisPlusHD is deliberately not
 used for anime.
 
