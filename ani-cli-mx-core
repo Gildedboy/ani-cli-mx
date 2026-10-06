@@ -1,6 +1,6 @@
 #!/bin/sh
 
-version_number="3.0.8"
+version_number="3.0.9"
 app_name="${ANI_CLI_NAME:-${0##*/}}"
 log_tag="${ANI_CLI_LOG_TAG:-$app_name}"
 hist_state_name="${ANI_CLI_STATE_NAME:-$app_name}"
@@ -491,6 +491,11 @@ animeav1_request() {
 pelisplus_request() {
     curl -L --connect-timeout 10 --max-time "$resolver_timeout" --retry 2 --retry-delay 1 \
         -e "$pelisplus_refr/" -sS "$1" -A "$agent"
+}
+
+pelisplus_media_request() {
+    curl -L --connect-timeout 10 --max-time "$pelisplus_resolver_timeout" \
+        -e "$2" -sS "$1" -A "$agent"
 }
 
 pelisplus_search_request() {
@@ -1198,6 +1203,7 @@ run_mpv_probe() {
 }
 
 probe_link_with_mpv() {
+    probe_deadline="${4:-$probe_timeout}"
     probe_referrer=""
     probe_headers=""
     probe_player="${probe_player_function:-$player_function}"
@@ -1209,23 +1215,23 @@ probe_link_with_mpv() {
     # exposes its errors instead of silently falling back to another executable.
     case "$probe_player" in
         flatpak_mpv)
-            run_mpv_probe timeout "${probe_timeout}s" flatpak run io.mpv.Mpv --no-config --ao=null --vo=null --frames=1 \
+            run_mpv_probe timeout "${probe_deadline}s" flatpak run io.mpv.Mpv --no-config --ao=null --vo=null --frames=1 \
                 $probe_referrer $probe_headers "$1"
             ;;
         mpv.exe | */mpv.exe)
-            run_mpv_probe timeout "${probe_timeout}s" "$probe_player" --no-config --ao=null --vo=null --frames=1 \
+            run_mpv_probe timeout "${probe_deadline}s" "$probe_player" --no-config --ao=null --vo=null --frames=1 \
                 $probe_referrer $probe_headers "$1"
             ;;
         mpv | */mpv)
-            run_mpv_probe timeout "${probe_timeout}s" "$probe_player" --no-config --ao=null --vo=null --frames=1 \
+            run_mpv_probe timeout "${probe_deadline}s" "$probe_player" --no-config --ao=null --vo=null --frames=1 \
                 $probe_referrer $probe_headers "$1"
             ;;
         *)
             if command -v mpv >/dev/null 2>&1; then
-                run_mpv_probe timeout "${probe_timeout}s" mpv --no-config --ao=null --vo=null --frames=1 \
+                run_mpv_probe timeout "${probe_deadline}s" mpv --no-config --ao=null --vo=null --frames=1 \
                     $probe_referrer $probe_headers "$1"
             elif command -v flatpak >/dev/null 2>&1 && flatpak info io.mpv.Mpv >/dev/null 2>&1; then
-                run_mpv_probe timeout "${probe_timeout}s" flatpak run io.mpv.Mpv --no-config --ao=null --vo=null --frames=1 \
+                run_mpv_probe timeout "${probe_deadline}s" flatpak run io.mpv.Mpv --no-config --ao=null --vo=null --frames=1 \
                     $probe_referrer $probe_headers "$1"
             else
                 return 0
@@ -2592,14 +2598,20 @@ unpack_pelisplus_packer() {
 pelisplus_packed_host_links() {
     packed_host_url="$1"
     packed_host_body="$(mktemp)"
-    packed_host_effective_url="$(curl -L --connect-timeout 10 --max-time "$resolver_timeout" --retry 2 \
-        -e "$2" -sS -o "$packed_host_body" -w '%{url_effective}' "$packed_host_url" -A "$agent")"
+    debug_log "PelisPlusHD: solicitando espejo $packed_host_url (límite ${pelisplus_resolver_timeout}s)"
+    if ! packed_host_effective_url="$(curl -L --connect-timeout 10 --max-time "$pelisplus_resolver_timeout" \
+        -e "$2" -sS -o "$packed_host_body" -w '%{url_effective}' "$packed_host_url" -A "$agent")"; then
+        rm -f "$packed_host_body"
+        debug_log "PelisPlusHD: falló la consulta del espejo $packed_host_url"
+        return 1
+    fi
     packed_output="$(unpack_pelisplus_packer <"$packed_host_body" 2>/dev/null)"
     rm -f "$packed_host_body"
     master_url="$(printf '%s' "$packed_output" | grep -Eo 'https?://[^"'"'"'[:space:]\\]+\.m3u8[^"'"'"'[:space:]\\]*' | head -n1)"
     [ -n "$master_url" ] || return 1
 
-    master_body="$(pelisplus_request "$master_url" 2>/dev/null || true)"
+    debug_log "PelisPlusHD: solicitando HLS (límite ${pelisplus_resolver_timeout}s)"
+    master_body="$(pelisplus_media_request "$master_url" "$packed_host_effective_url" 2>/dev/null || true)"
     variant_links="$(printf '%s\n' "$master_body" | awk -v base="${master_url%/*}/" '
         /#EXT-X-STREAM-INF:/ {
             height = $0
@@ -2670,7 +2682,7 @@ resolve_pelisplus_media() {
                 candidate_url="$candidate_entry"
                 candidate_referrer="$(find_link_referrer "$candidate_links" "$candidate_url")"
                 [ -n "$candidate_url" ] || continue
-                if probe_link_with_mpv "$candidate_url" "$candidate_referrer" ""; then
+                if probe_link_with_mpv "$candidate_url" "$candidate_referrer" "" "$pelisplus_probe_timeout"; then
                     debug_log "PelisPlusHD: enlace validado"
                     printf 'validated >%s>%s\n' "$candidate_url" "$candidate_referrer"
                     printf '%s\n' "$candidate_links"
@@ -2745,7 +2757,7 @@ get_episode_url() {
         if [ "$episode" = "${pelisplus_validated_url:-}" ]; then
             probe_status=0
         else
-            probe_link_with_mpv "$episode" "${generic_refr:-}" "${generic_headers:-}"
+            probe_link_with_mpv "$episode" "${generic_refr:-}" "${generic_headers:-}" "$pelisplus_probe_timeout"
             probe_status=$?
         fi
         if [ "$probe_status" -ne 0 ]; then
@@ -4369,6 +4381,8 @@ log_episode="${ANI_CLI_LOG:-1}"
 quality="${ANI_CLI_QUALITY:-best}"
 resolver_timeout="${ANI_CLI_RESOLVER_TIMEOUT:-15}"
 probe_timeout="${ANI_CLI_PROBE_TIMEOUT:-20}"
+pelisplus_resolver_timeout="${ANI_CLI_PELISPLUS_RESOLVER_TIMEOUT:-${ANI_CLI_RESOLVER_TIMEOUT:-45}}"
+pelisplus_probe_timeout="${ANI_CLI_PELISPLUS_PROBE_TIMEOUT:-${ANI_CLI_PROBE_TIMEOUT:-45}}"
 preferred_info_source="$(normalize_info_source "${ANI_CLI_INFO_SOURCE:-auto}")" || die "ANI_CLI_INFO_SOURCE invalido. Usa: auto, jkanime, animeav1, anidb o animex"
 case "$(uname -a | cut -d " " -f 1,3-)" in
     *Darwin*) player_function="${ANI_CLI_PLAYER:-$(where_iina)}" ;;   # mac OS

@@ -111,6 +111,12 @@ Default content type for direct or prompted searches: anime, movie, series, or d
 \fBANI_CLI_PELISPLUS_LANGUAGE\fR
 Preferred PelisPlusHD language code. Supported priorities are LAT, ESP, and SUB; the default is LAT with fallback to another available entry.
 .TP
+\fBANI_CLI_PELISPLUS_RESOLVER_TIMEOUT\fR
+Time limit in seconds for PelisPlusHD mirror pages and HLS manifests. Default is 45, or ANI_CLI_RESOLVER_TIMEOUT when explicitly set. Failed mirror requests move to the next mirror without automatic retries.
+.TP
+\fBANI_CLI_PELISPLUS_PROBE_TIMEOUT\fR
+Time limit in seconds for PelisPlusHD video probes. Default is 45, or ANI_CLI_PROBE_TIMEOUT when explicitly set.
+.TP
 \fBANI_CLI_PELISPLUS_URL\fR
 Overrides the PelisPlusHD base URL when the provider changes domains.
 .TP

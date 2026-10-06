@@ -1036,7 +1036,7 @@ run_windows_compat_smoke() {
         ANI_CLI_STATE_NAME=ani-cli-mx LOCALAPPDATA="$local_app_data_env" \
         ANI_CLI_PLAYER=debug ./ani-cli-mx-core -V)"
 
-    [ "$version_output" = "3.0.8" ]
+    [ "$version_output" = "3.0.9" ]
     [ -f "$local_app_data/ani-cli-mx/ani-hsts" ]
     grep -q 'GIT_INSTALL_ROOT' ani-cli-mx.cmd
     grep -q 'ANI_CLI_PACKAGE_MANAGER=scoop' ani-cli-mx.cmd
@@ -1441,6 +1441,82 @@ run_pelisplus_provider_smoke() {
     printf 'PelisPlusHD media model and P.A.C.K.E.R. handling passed.\n' >&2
 }
 
+run_pelisplus_timeout_smoke() {
+    printf 'Checking Elementary s7e2 slow mirror timeouts...\n' >&2
+    timeout_test_dir="$(mktemp -d)"
+    sed -n '/^pelisplus_media_request()/,/^pelisplus_search_request()/p' ani-cli-mx-core | sed '$d' >"$timeout_test_dir/functions.sh"
+    sed -n '/^pelisplus_packed_host_links()/,/^resolve_pelisplus_media()/p' ani-cli-mx-core | sed '$d' >>"$timeout_test_dir/functions.sh"
+    sed -n '/^probe_link_with_mpv()/,/^}/p' ani-cli-mx-core >>"$timeout_test_dir/functions.sh"
+    sed -n '/^resolver_timeout=/p; /^probe_timeout=/p; /^pelisplus_resolver_timeout=/p; /^pelisplus_probe_timeout=/p' ani-cli-mx-core >"$timeout_test_dir/defaults.sh"
+    (
+        . "$timeout_test_dir/functions.sh"
+        unset ANI_CLI_RESOLVER_TIMEOUT ANI_CLI_PROBE_TIMEOUT ANI_CLI_PELISPLUS_RESOLVER_TIMEOUT ANI_CLI_PELISPLUS_PROBE_TIMEOUT
+        . "$timeout_test_dir/defaults.sh"
+        [ "$resolver_timeout:$probe_timeout:$pelisplus_resolver_timeout:$pelisplus_probe_timeout" = '15:20:45:45' ]
+        ANI_CLI_RESOLVER_TIMEOUT=60 ANI_CLI_PROBE_TIMEOUT=55
+        . "$timeout_test_dir/defaults.sh"
+        [ "$pelisplus_resolver_timeout:$pelisplus_probe_timeout" = '60:55' ]
+        ANI_CLI_PELISPLUS_RESOLVER_TIMEOUT=70 ANI_CLI_PELISPLUS_PROBE_TIMEOUT=65
+        . "$timeout_test_dir/defaults.sh"
+        [ "$pelisplus_resolver_timeout:$pelisplus_probe_timeout" = '70:65' ]
+        unset ANI_CLI_RESOLVER_TIMEOUT ANI_CLI_PROBE_TIMEOUT ANI_CLI_PELISPLUS_RESOLVER_TIMEOUT ANI_CLI_PELISPLUS_PROBE_TIMEOUT
+        . "$timeout_test_dir/defaults.sh"
+        agent=test
+        debug_log() { :; }
+        unpack_pelisplus_packer() {
+            printf 'parsed\n' >>"$timeout_test_dir/parsed"
+            printf 'https://cdn.test/elementary-s7e2/master.m3u8\n'
+        }
+        curl() {
+            fixture_max='' fixture_out='' fixture_ref='' fixture_url='' fixture_prev=''
+            for fixture_arg in "$@"; do
+                case "$fixture_prev" in
+                    --max-time) fixture_max="$fixture_arg" ;;
+                    -o) fixture_out="$fixture_arg" ;;
+                    -e) fixture_ref="$fixture_arg" ;;
+                esac
+                case "$fixture_arg" in
+                    --retry) return 99 ;;
+                    https://*) fixture_url="$fixture_arg" ;;
+                esac
+                fixture_prev="$fixture_arg"
+            done
+            printf '%s %s %s\n' "$fixture_max" "$fixture_url" "$fixture_ref" >>"$timeout_test_dir/requests"
+            # Simulate a host that needs 30 seconds without sleeping in tests.
+            [ "$fixture_max" -ge 30 ] || return 28
+            if [ -n "$fixture_out" ]; then
+                printf 'packed fixture\n' >"$fixture_out"
+                [ ! -f "$timeout_test_dir/fail" ] || return 28
+                printf 'https://mirror.test/embed/elementary-s7e2'
+            else
+                printf '#EXTM3U\n#EXT-X-STREAM-INF:RESOLUTION=1280x720\n720/index.m3u8\n'
+            fi
+        }
+        pelisplus_resolver_timeout=15
+        if pelisplus_packed_host_links https://mirror.test/video https://embed.test/ LAT Vidhide >"$timeout_test_dir/short"; then exit 1; fi
+        [ ! -s "$timeout_test_dir/short" ]
+        [ ! -f "$timeout_test_dir/parsed" ]
+        pelisplus_resolver_timeout=45
+        links="$(pelisplus_packed_host_links https://mirror.test/video https://embed.test/ LAT Vidhide)"
+        printf '%s\n' "$links" | grep -q '^720 >https://cdn.test/elementary-s7e2/720/index.m3u8$'
+        printf '%s\n' "$links" | grep -q '^referrer >.*>https://mirror.test/embed/elementary-s7e2$'
+        grep -q '^45 https://cdn.test/elementary-s7e2/master.m3u8 https://mirror.test/embed/elementary-s7e2$' "$timeout_test_dir/requests"
+        rm -f "$timeout_test_dir/parsed"
+        touch "$timeout_test_dir/fail"
+        if pelisplus_packed_host_links https://mirror.test/video https://embed.test/ LAT Vidhide >"$timeout_test_dir/failed"; then exit 1; fi
+        [ ! -s "$timeout_test_dir/failed" ]
+        [ ! -f "$timeout_test_dir/parsed" ]
+        probe_player_function=mpv.exe
+        run_mpv_probe() { printf '%s\n' "$@" >"$timeout_test_dir/probe"; }
+        probe_link_with_mpv https://cdn.test/elementary-s7e2/master.m3u8 https://mirror.test/ '' "$pelisplus_probe_timeout"
+        grep -qx '45s' "$timeout_test_dir/probe"
+        grep -qx -- '--referrer=https://mirror.test/' "$timeout_test_dir/probe"
+        probe_link_with_mpv https://anime.test/video https://anime.test/ ''
+        grep -qx '20s' "$timeout_test_dir/probe"
+    )
+    rm -rf "$timeout_test_dir"
+}
+
 case "${1:-}" in
     --network)
         run_syntax_checks
@@ -1467,6 +1543,7 @@ case "${1:-}" in
         run_fast_link_selection_smoke
         run_animeav1_mp4upload_smoke
         run_pelisplus_provider_smoke
+        run_pelisplus_timeout_smoke
         run_debug_smoke
         ;;
     "" | --syntax)
@@ -1494,6 +1571,7 @@ case "${1:-}" in
         run_fast_link_selection_smoke
         run_animeav1_mp4upload_smoke
         run_pelisplus_provider_smoke
+        run_pelisplus_timeout_smoke
         ;;
     *)
         printf 'Usage: %s [--syntax|--network]\n' "$0" >&2

@@ -54,6 +54,14 @@ series and doramas expose server embeds directly. Vidhide/P.A.C.K.E.R. and HLS
 selection are shared by all three types. The resolver never evaluates the
 provider's JavaScript and carries the final embed referrer into mpv.
 
+PelisPlusHD mirror pages, HLS manifests, and video probes allow 45 seconds by
+default. A failed mirror request moves to the next mirror without repeating
+the same 45-second request. Search and catalog requests keep their shorter
+limits. This fixes the timeout reported for Elementary season 7, episode 2.
+`ANI_CLI_PELISPLUS_RESOLVER_TIMEOUT` and `ANI_CLI_PELISPLUS_PROBE_TIMEOUT`
+override these limits; explicitly configured `ANI_CLI_RESOLVER_TIMEOUT` and
+`ANI_CLI_PROBE_TIMEOUT` remain respected.
+
 ## Table of Contents
 
 - [Install](#install)
