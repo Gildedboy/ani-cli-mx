@@ -52,6 +52,137 @@ run_debug_smoke() {
     done
 }
 
+run_jkanime_backoff_smoke() {
+    tmp_dir="$(mktemp -d)"
+    sed -n '/^jkanime_request()/,/^animeav1_request()/p' ani-cli-mx-core | sed '$d' >"$tmp_dir/functions.sh"
+    sed -n '/^probe_search_endpoint()/,/^diagnose_empty_search()/p' ani-cli-mx-core | sed '$d' >>"$tmp_dir/functions.sh"
+    (
+        . "$tmp_dir/functions.sh"
+        hist_dir="$tmp_dir"
+        resolver_timeout=10
+        agent=test
+        curl() {
+            printf 'request\n' >>"$tmp_dir/requests"
+            fixture_output=''
+            fixture_previous=''
+            for fixture_arg in "$@"; do
+                [ "$fixture_previous" != -o ] || fixture_output="$fixture_arg"
+                fixture_previous="$fixture_arg"
+            done
+            if [ -f "$tmp_dir/allow" ]; then
+                printf 'valid page\n' >"$fixture_output"
+                printf '200'
+                return 0
+            fi
+            printf '429'
+            return 22
+        }
+        if jkanime_request https://jkanime.net/one-piece/ >/dev/null 2>&1; then exit 1; fi
+        if jkanime_request https://jkanime.net/one-piece/ >/dev/null 2>&1; then exit 1; fi
+        if probe_search_endpoint JKAnime https://jkanime.net/buscar >/dev/null 2>&1; then exit 1; fi
+        [ "$(wc -l <"$tmp_dir/requests")" -eq 1 ]
+        printf '0\n' >"$tmp_dir/jkanime-blocked-until"
+        : >"$tmp_dir/allow"
+        [ "$(jkanime_request https://jkanime.net/one-piece/)" = 'valid page' ]
+        [ "$(wc -l <"$tmp_dir/requests")" -eq 2 ]
+    )
+    rm -rf "$tmp_dir"
+}
+
+run_jkanime_pagination_smoke() {
+    tmp_dir="$(mktemp -d)"
+    sed -n '/^jkanime_page_anime_id()/,/^episodes_list_anidb()/p' ani-cli-mx-core | sed '$d' >"$tmp_dir/functions.sh"
+    sed -n '/^jkanime_episode_query()/,/^update_history()/p' ani-cli-mx-core | sed '$d' >>"$tmp_dir/functions.sh"
+    (
+        . "$tmp_dir/functions.sh"
+        hist_dir="$tmp_dir/history"
+        jkanime_refr=https://jkanime.net
+        resolver_timeout=10
+        agent=test
+        id=jkanime:one-piece
+        ep_no=''
+        show_ref_value_for_site() { printf '%s\n' "${1#jkanime:}"; }
+        sleep() { :; }
+        jkanime_request() {
+            request_url=''
+            for request_arg in "$@"; do
+                case "$request_arg" in https://*) request_url="$request_arg" ;; esac
+            done
+            printf '%s\n' "$request_url" >>"$tmp_dir/requests"
+            case "$request_url" in
+                */one-piece/)
+                    printf '%s\n' "<meta name=\"csrf-token\" content=\"test\"> anime_checks('slug', '21') <a href=\"https://jkanime.net/one-piece/1180/\" id=\"uep\">Último</a>" ;;
+                */episodes/21/1) printf '%s\n' '{"last_page":118,"data":[{"number":1},{"number":2.5},{"number":3},{"number":10}]}' ;;
+                */episodes/21/*)
+                    request_page="${request_url##*/}"
+                    [ "$request_page" != 2 ] || [ ! -f "$tmp_dir/fail-page" ] || return 22
+                    printf '{"last_page":118,"data":[{"number":%s},{"number":%s}]}\n' \
+                        "$((request_page * 10 - 9))" "$((request_page * 10))" ;;
+                *) return 1 ;;
+            esac
+        }
+        numbers="$(episodes_list_jkanime "$id" 'One Piece')"
+        [ "$(wc -l <"$tmp_dir/requests")" -eq 2 ]
+        printf '%s\n' "$numbers" | grep -Fxq 2.5
+        printf '%s\n' "$numbers" | grep -Fxq 1180
+        ! printf '%s\n' "$numbers" | grep -Fxq 2
+        episodes_list_jkanime "$id" 'One Piece' >/dev/null
+        [ "$(wc -l <"$tmp_dir/requests")" -eq 2 ]
+        test_dir="$(jkanime_catalog_dir one-piece)"
+        [ "$(jkanime_neighbor_episode "$test_dir" 10 next)" = 11 ]
+        [ "$(wc -l <"$tmp_dir/requests")" -eq 3 ]
+        [ "$(jkanime_neighbor_episode "$test_dir" 11 previous)" = 10 ]
+        [ "$(jkanime_neighbor_episode "$test_dir" 1 next)" = 2.5 ]
+        ep_no=1180
+        episodes_list_jkanime "$id" 'One Piece' >/dev/null
+        [ "$(wc -l <"$tmp_dir/requests")" -le 10 ]
+        before="$(wc -l <"$tmp_dir/requests")"
+        episodes_list_jkanime "$id" 'One Piece' >/dev/null
+        [ "$(wc -l <"$tmp_dir/requests")" -eq "$before" ]
+        if jkanime_catalog_find "$test_dir" 2 >/dev/null; then
+            printf 'JKAnime invented an absent episode\n' >&2; exit 1
+        fi
+        range="$(jkanime_range_numbers "$test_dir" 1 20)"
+        [ "$range" = "$(printf '1\n2.5\n3\n10\n11\n20')" ]
+        select_episode() {
+            cat >"$tmp_dir/shown-menu"
+            sed -n '1p' "$tmp_dir/choices"
+            sed '1d' "$tmp_dir/choices" >"$tmp_dir/choices.next"
+            mv "$tmp_dir/choices.next" "$tmp_dir/choices"
+        }
+        jkanime_episode_query() { printf '2\n'; }
+        printf '1\n' >"$test_dir/view.$$"
+        printf '__jk_next\n11\n' >"$tmp_dir/choices"
+        [ "$(printf '%s\n' "$numbers" | choose_episode)" = 11 ]
+        [ "$(cat "$test_dir/view.$$")" = 2 ]
+        ! grep -Fxq 1180 "$tmp_dir/shown-menu"
+        printf '__jk_find\n__nav_back\n' >"$tmp_dir/choices"
+        [ "$(printf '%s\n' "$numbers" | choose_episode)" = __nav_back ]
+        rm -f "$test_dir/page-2.json"
+        : >"$tmp_dir/fail-page"
+        if jkanime_catalog_page "$test_dir" 2 >/dev/null; then
+            printf 'JKAnime accepted a blocked page\n' >&2; exit 1
+        fi
+        [ ! -f "$test_dir/page-2.json" ]
+        # Descending server order must navigate to the next real episode too.
+        printf '%s\n' '{"last_page":2,"data":[{"number":3},{"number":2.5}]}' >"$test_dir/page-1.json"
+        printf '%s\n' '{"last_page":2,"data":[{"number":1}]}' >"$test_dir/page-2.json"
+        printf '%s\n' "$(date +%s)" 21 test 2 3 descending >"$test_dir/meta"
+        [ "$(jkanime_neighbor_episode "$test_dir" 1 next)" = 2.5 ]
+        [ "$(jkanime_neighbor_episode "$test_dir" 2.5 previous)" = 1 ]
+        # Expired cache refreshes the initial page, never the complete series.
+        rm -f "$tmp_dir/fail-page"
+        sed '1s/.*/0/' "$test_dir/meta" >"$test_dir/meta.old"
+        mv "$test_dir/meta.old" "$test_dir/meta"
+        ep_no=''
+        before="$(wc -l <"$tmp_dir/requests")"
+        episodes_list_jkanime "$id" 'One Piece' >/dev/null
+        [ "$(wc -l <"$tmp_dir/requests")" -eq "$((before + 2))" ]
+        [ ! -f "$test_dir/page-2.json" ]
+    )
+    rm -rf "$tmp_dir"
+}
+
 run_continuous_toggle_smoke() {
     tmp_dir="$(mktemp -d)"
     funcs_file="$tmp_dir/continuous-functions.sh"
@@ -905,7 +1036,7 @@ run_windows_compat_smoke() {
         ANI_CLI_STATE_NAME=ani-cli-mx LOCALAPPDATA="$local_app_data_env" \
         ANI_CLI_PLAYER=debug ./ani-cli-mx-core -V)"
 
-    [ "$version_output" = "3.0.7" ]
+    [ "$version_output" = "3.0.8" ]
     [ -f "$local_app_data/ani-cli-mx/ani-hsts" ]
     grep -q 'GIT_INSTALL_ROOT' ani-cli-mx.cmd
     grep -q 'ANI_CLI_PACKAGE_MANAGER=scoop' ani-cli-mx.cmd
@@ -1142,6 +1273,15 @@ run_animeav1_mp4upload_smoke() {
 
     (
         . "$funcs_file"
+        player_function=mpv
+        debug_log() { :; }
+        mpv() { printf '%s\n' 'FFmpeg version: 6.1.1'; }
+        if zilla_mpv_supports_hls_seek; then
+            printf 'Legacy FFmpeg was accepted for Zilla AV1 seeking\n' >&2
+            exit 1
+        fi
+        mpv() { printf '%s\n' 'FFmpeg version: 8.1'; }
+        zilla_mpv_supports_hls_seek
         animeav1_request() {
             case "$1" in
                 https://www.mp4upload.com/embed-uhgpxfezm49q.html)
@@ -1163,6 +1303,7 @@ run_animeav1_mp4upload_smoke() {
         printf '%s\n' "$links" | grep -q '^930 >https://cdn.example/video.mp4$'
         printf '%s\n' "$links" | grep -q '^referrer >https://cdn.example/video.mp4>https://www.mp4upload.com/embed-uhgpxfezm49q.html$'
         [ ! -f "$tmp_dir/ytdlp-calls" ]
+        : >"$tmp_dir/ytdlp-calls"
 
         animeav1_request() { :; }
         extract_with_ytdlp() {
@@ -1175,8 +1316,61 @@ run_animeav1_mp4upload_smoke() {
         links="$(extract_animeav1_links \
             'SUB:[{server:"MP4Upload",url:"https://www.mp4upload.com/embed-uhgpxfezm49q.html"},{server:"Voe",url:"https://voe.example/e/one"}]' \
             'SUB:[{server:"TransferIt",url:"https://transfer.example/one"},{server:"1Fichier",url:"https://fichier.example/one"}]' SUB)"
-        printf '%s\n' "$links" | grep -q '^880 >https://cdn.example/voe.mp4$'
+        printf '%s\n' "$links" | grep -q '^960 >https://cdn.example/voe.mp4$'
         ! grep -q 'transfer.example\|fichier.example' "$tmp_dir/ytdlp-calls"
+
+        animeav1_request() {
+            case "$1" in
+                https://voe.sx/e/example)
+                    printf '%s\n' "<script>window.location.href = 'https://voe-player.example/e/example';</script>" ;;
+                https://voe-player.example/e/example)
+                    printf '%s\n' '<script type="application/json">["DQAkGQqLAyO3BSMqrI02G297FzM3FHcbomufMJ5EAH95pa1zryIYM3WAoSWfJQIpsSx2MK1AsTt="]</script>' ;;
+                https://www.mp4upload.com/embed-uhgpxfezm49q.html)
+                    printf '%s\n' 'player.src({ src: "https://cdn.example/video.mp4" });' ;;
+                *) return 1 ;;
+            esac
+        }
+        extract_with_ytdlp() { printf '%s\n' "$1" >>"$tmp_dir/ytdlp-calls"; return 1; }
+        probe_link_with_mpv() {
+            { [ "$1" = 'https://cdn.example/voe.m3u8' ] &&
+                [ "$2" = 'https://voe-player.example/e/example' ]; } ||
+                [ "$1" = 'https://cdn.example/video.mp4' ]
+        }
+        links="$(extract_animeav1_links \
+            'SUB:[{server:"UPNShare",url:"https://uns.example/#one"},{server:"MP4Upload",url:"https://www.mp4upload.com/embed-uhgpxfezm49q.html"},{server:"Voe",url:"https://voe.sx/e/example"}]' \
+            'SUB:[{server:"TransferIt",url:"https://transfer.example/one"}]' SUB)"
+        printf '%s\n' "$links" | grep -q '^960 >https://cdn.example/voe.m3u8$'
+        printf '%s\n' "$links" | grep -q '^referrer >https://cdn.example/voe.m3u8>https://voe-player.example/e/example$'
+        ! printf '%s\n' "$links" | grep -q 'cdn.example/video.mp4'
+        ! grep -q 'uns.example' "$tmp_dir/ytdlp-calls"
+
+        probe_link_with_mpv() { [ "$1" = 'https://cdn.example/video.mp4' ]; }
+        links="$(extract_animeav1_links \
+            'SUB:[{server:"Voe",url:"https://voe.sx/e/example"},{server:"MP4Upload",url:"https://www.mp4upload.com/embed-uhgpxfezm49q.html"}]' \
+            '' SUB)"
+        printf '%s\n' "$links" | grep -q '^930 >https://cdn.example/video.mp4$'
+
+        probe_link_with_mpv() {
+            [ "$1" = 'https://pixeldrain.com/api/file/SuUoCfue' ] &&
+                [ "$2" = 'https://pixeldrain.com/u/SuUoCfue?embed' ]
+        }
+        links="$(extract_animeav1_links \
+            'SUB:[{server:"UPNShare",url:"https://uns.example/#one"},{server:"PDrain",url:"https://pixeldrain.com/u/SuUoCfue?embed"},{server:"Voe",url:"https://voe.sx/e/example"}]' \
+            '' SUB)"
+        printf '%s\n' "$links" | grep -q '^950 >https://pixeldrain.com/api/file/SuUoCfue$'
+        printf '%s\n' "$links" | grep -q '^referrer >https://pixeldrain.com/api/file/SuUoCfue>https://pixeldrain.com/u/SuUoCfue?embed$'
+        ! grep -q 'uns.example' "$tmp_dir/ytdlp-calls"
+
+        zilla_header_fields='Origin:https://player.zilla-networks.com,Sec-Fetch-Dest:empty,Sec-Fetch-Mode:cors,Sec-Fetch-Site:same-origin'
+        probe_link_with_mpv() {
+            [ "$1" = 'https://player.zilla-networks.com/m3u8/abc123' ] &&
+                [ "$2" = 'https://player.zilla-networks.com/play/abc123' ] &&
+                [ "$3" = "$zilla_header_fields" ]
+        }
+        links="$(extract_animeav1_links \
+            'SUB:[{server:"Voe",url:"https://voe.sx/e/example"},{server:"HLS",url:"https://player.zilla-networks.com/play/abc123"}]' '' SUB)"
+        printf '%s\n' "$links" | grep -q '^970 >https://player.zilla-networks.com/m3u8/abc123$'
+        ! printf '%s\n' "$links" | grep -q 'cdn.example/voe'
     )
 
     rm -rf "$tmp_dir"
@@ -1250,6 +1444,8 @@ run_pelisplus_provider_smoke() {
 case "${1:-}" in
     --network)
         run_syntax_checks
+        run_jkanime_backoff_smoke
+        run_jkanime_pagination_smoke
         run_continuous_toggle_smoke
         run_continuous_window_state_smoke
         run_persistent_mpv_smoke
@@ -1275,6 +1471,8 @@ case "${1:-}" in
         ;;
     "" | --syntax)
         run_syntax_checks
+        run_jkanime_backoff_smoke
+        run_jkanime_pagination_smoke
         run_continuous_toggle_smoke
         run_continuous_window_state_smoke
         run_persistent_mpv_smoke

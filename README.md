@@ -11,10 +11,19 @@ Anime keeps its existing provider coverage in this order:
 3. AniDB as the maintained English fallback
 4. AnimeX as the second English fallback, with multiple mirrors
 
-AnimeAV1 currently exposes MP4Upload as its verified playback mirror. The
-client resolves its embed first and skips download-only pages during playback.
-See the [AnimeAV1 audit](docs/animeav1-audit-2026-09-29.md) for the status of
-the other hosts.
+AnimeAV1 prefers HLS when published, then Voe, PDrain, YourUpload, and MP4Upload as a
+fallback. Voe requires Python 3 to decode its player data and preserves the
+final embed referrer. Players using FFmpeg 6 or older prefer the next mirror
+because seeking Zilla AV1 HLS failed in validation. Every selected mirror is checked with mpv. Download-only
+pages are skipped during playback. See the
+[current AnimeAV1 audit](docs/animeav1-audit-2026-10-05.md) for coverage and
+the status of the other hosts.
+
+JKAnime loads episode pages on demand instead of fetching the complete catalog.
+The episode picker supports page navigation, a specific episode number, and the
+latest episode. Pages are cached for five minutes; next/previous playback loads
+an adjacent page only when needed. Decimal episodes and catalog gaps are preserved.
+An HTTP 429 pauses further JKAnime requests for 65 seconds.
 
 Películas, series y doramas use PelisPlusHD. PelisPlusHD is deliberately not
 used for anime.

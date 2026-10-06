@@ -1,6 +1,6 @@
 #!/bin/sh
 
-version_number="3.0.7"
+version_number="3.0.8"
 app_name="${ANI_CLI_NAME:-${0##*/}}"
 log_tag="${ANI_CLI_LOG_TAG:-$app_name}"
 hist_state_name="${ANI_CLI_STATE_NAME:-$app_name}"
@@ -462,7 +462,26 @@ open_browser_url() {
 # SCRAPING
 
 jkanime_request() {
-    curl -L --connect-timeout 10 --max-time "$resolver_timeout" -s "$1" -A "$agent"
+    jkr_url="$1"
+    shift
+    jkr_backoff="${hist_dir:-${TMPDIR:-/tmp}}/jkanime-blocked-until"
+    if [ -s "$jkr_backoff" ] && [ "$(cat "$jkr_backoff")" -gt "$(date +%s)" ]; then
+        printf 'JKAnime pidió esperar; no se enviará otra petición todavía.\n' >&2
+        return 1
+    fi
+    jkr_body="$(mktemp)"
+    if jkr_status="$(curl -f -L --connect-timeout 10 --max-time "$resolver_timeout" -s \
+        "$jkr_url" -A "$agent" "$@" -o "$jkr_body" -w '%{http_code}')"; then
+        cat "$jkr_body"
+        rm -f "$jkr_body"
+        return 0
+    fi
+    if [ "$jkr_status" = 429 ]; then
+        printf '%s\n' "$(($(date +%s) + 65))" >"$jkr_backoff"
+        printf 'JKAnime bloqueó temporalmente las consultas (HTTP 429). Espera al menos 65 segundos.\n' >&2
+    fi
+    rm -f "$jkr_body"
+    return 1
 }
 
 animeav1_request() {
@@ -491,6 +510,12 @@ pelisplus_search_request() {
 probe_search_endpoint() {
     probe_name="$1"
     probe_url="$2"
+    diagnostic_backoff="${hist_dir:-${TMPDIR:-/tmp}}/jkanime-blocked-until"
+    if [ "$probe_name" = JKAnime ] && [ -s "$diagnostic_backoff" ] &&
+        [ "$(cat "$diagnostic_backoff")" -gt "$(date +%s)" ]; then
+        printf 'JKAnime sigue en pausa tras HTTP 429; no se repetirá la consulta de diagnóstico.\n' >&2
+        return 1
+    fi
     probe_output="$(curl -L --connect-timeout 10 --max-time "$resolver_timeout" \
         -sS -o /dev/null -w '%{http_code}' "$probe_url" -A "$agent" 2>&1)"
     probe_exit=$?
@@ -783,6 +808,10 @@ pelisplus_episode_page_url() {
 
 episode_display_label() {
     case "$1" in
+        __jk_next) printf '%s\n' 'Ver bloque siguiente' ;;
+        __jk_previous) printf '%s\n' 'Ver bloque anterior' ;;
+        __jk_last) printf '%s\n' 'Ir al último episodio' ;;
+        __jk_find) printf '%s\n' 'Buscar número de episodio' ;;
         s[0-9]*e[0-9]*)
             printf 'Temporada %s · Episodio %s\n' \
                 "$(printf '%s' "$1" | sed -nE 's/^s([0-9]+)e([0-9]+)$/\1/p')" \
@@ -1673,7 +1702,9 @@ pick_animeav1_language() {
 animeav1_server_priority() {
     case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
         hls) printf '%s' "970" ;;
-        pdrain | pixeldrain) printf '%s' "960" ;;
+        voe) printf '%s' "960" ;;
+        pdrain | pixeldrain) printf '%s' "950" ;;
+        yourupload) printf '%s' "940" ;;
         mp4upload) printf '%s' "930" ;;
         upnshare) printf '%s' "920" ;;
         terabox) printf '%s' "910" ;;
@@ -1687,11 +1718,81 @@ extract_animeav1_hls_link() {
     [ -n "$hls_id" ] && printf 'https://player.zilla-networks.com/m3u8/%s\n' "$hls_id"
 }
 
+zilla_mpv_supports_hls_seek() {
+    # FFmpeg 6 fails to seek these AV1 fragmented MP4 playlists even when the
+    # first frame decodes. Prefer Voe on those players instead of a false probe.
+    zilla_probe_player="${probe_player_function:-$player_function}"
+    case "$zilla_probe_player" in
+        flatpak_mpv)
+            zilla_player_version="$(flatpak run io.mpv.Mpv --version 2>/dev/null)" || return 0
+            ;;
+        mpv | */mpv | mpv.exe | */mpv.exe)
+            zilla_player_version="$("$zilla_probe_player" --version 2>/dev/null)" || return 0
+            ;;
+        *)
+            command -v mpv >/dev/null 2>&1 || return 0
+            zilla_player_version="$(mpv --version 2>/dev/null)" || return 0
+            ;;
+    esac
+    if printf '%s\n' "$zilla_player_version" | grep -qE '^FFmpeg version: [0-6]\.'; then
+        debug_log 'AnimeAV1 HLS requiere FFmpeg reciente para buscar en AV1; intentando otros mirrors.'
+        return 1
+    fi
+    return 0
+}
+
 extract_animeav1_mp4upload_link() {
     mp4upload_page="$(animeav1_request "$1")" || return 1
     printf '%s' "$mp4upload_page" |
         sed -nE 's|.*src:[[:space:]]*"(https?://[^"]+\.mp4[^"]*)".*|\1|p' |
         head -n 1
+}
+
+extract_animeav1_pdrain_link() {
+    pdrain_id="$(printf '%s' "$1" |
+        sed -nE 's|^https://pixeldrain\.com/u/([[:alnum:]]+)(\?.*)?$|\1|p')"
+    [ -n "$pdrain_id" ] && printf 'https://pixeldrain.com/api/file/%s\n' "$pdrain_id"
+}
+
+extract_animeav1_voe_link() {
+    command -v python3 >/dev/null 2>&1 || return 1
+    voe_embed="$1"
+    voe_page="$(animeav1_request "$voe_embed")" || return 1
+    voe_redirect="$(printf '%s' "$voe_page" |
+        sed -nE "s|.*window.location.href = '(https://[^']+/e/[[:alnum:]]+)'.*|\1|p" | head -n 1)"
+    if [ -n "$voe_redirect" ]; then
+        voe_embed="$voe_redirect"
+        voe_page="$(animeav1_request "$voe_embed")" || return 1
+    fi
+
+    printf '%s' "$voe_page" | python3 -c '
+from base64 import b64decode
+import codecs
+import json
+import re
+import sys
+from urllib.parse import urlparse
+
+match = re.search(r"<script\s+type=[\x27\x22]application/json[\x27\x22]>(.*?)</script>", sys.stdin.read(), re.S)
+if not match:
+    sys.exit(1)
+try:
+    value = json.loads(match.group(1))[0]
+    value = codecs.decode(value, "rot_13")
+    for marker in ("@$", "^^", "~@", "%?", "*~", "!!", "#&"):
+        value = value.replace(marker, "")
+    value = b64decode(value + "=" * (-len(value) % 4)).decode()
+    value = "".join(chr(ord(char) - 3) for char in value)[::-1]
+    payload = json.loads(b64decode(value + "=" * (-len(value) % 4)))
+    media_url = payload.get("source", "")
+    parsed = urlparse(media_url)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc or ".m3u8" not in parsed.path:
+        sys.exit(1)
+except (ValueError, KeyError, IndexError, TypeError, UnicodeError):
+    sys.exit(1)
+print(media_url)
+print(sys.argv[1])
+' "$voe_embed"
 }
 
 extract_animeav1_entries() {
@@ -1705,19 +1806,27 @@ extract_animeav1_links() {
     embeds_blob="$1"
     downloads_blob="$2"
     selected_lang="$3"
-    embed_entries="$(extract_animeav1_entries "$embeds_blob" "$selected_lang")"
-    download_entries="$(extract_animeav1_entries "$downloads_blob" "$selected_lang")"
+    embed_entries="$(extract_animeav1_entries "$embeds_blob" "$selected_lang")" || embed_entries=""
+    download_entries="$(extract_animeav1_entries "$downloads_blob" "$selected_lang")" || download_entries=""
     disabled_mirrors="$(disabled_source_mirrors_for_source "animeav1")"
     failed_mirrors=""
     ok_mirrors=""
     primary_links=""
     # Download pages require a separate flow, often including a wait or captcha.
-    # Resolve the playable MP4Upload embed first, then try other embeds.
+    # Prefer HLS and Voe, then PDrain when published; MP4Upload is the fallback.
     mp4upload_entries="$(printf '%s\n' "$embed_entries" | grep -i 'server:"MP4Upload"' || true)"
     [ -n "$mp4upload_entries" ] ||
         mp4upload_entries="$(printf '%s\n' "$download_entries" | grep -i 'server:"MP4Upload"' || true)"
-    animeav1_entries="${mp4upload_entries}
-$(printf '%s\n' "$embed_entries" | grep -vi 'server:"MP4Upload"' || true)"
+    hls_entries="$(printf '%s\n' "$embed_entries" | grep -i 'server:"HLS"' || true)"
+    pdrain_entries="$(printf '%s\n' "$embed_entries" | grep -Ei 'server:"(PDrain|Pixeldrain)"' || true)"
+    voe_entries="$(printf '%s\n' "$embed_entries" | grep -i 'server:"Voe"' || true)"
+    yourupload_entries="$(printf '%s\n' "$embed_entries" | grep -i 'server:"YourUpload"' || true)"
+    animeav1_entries="${hls_entries}
+${voe_entries}
+${pdrain_entries}
+${yourupload_entries}
+${mp4upload_entries}
+$(printf '%s\n' "$embed_entries" | grep -Evi 'server:"(HLS|MP4Upload|PDrain|Pixeldrain|Voe|YourUpload)"' || true)"
     old_ifs=$IFS
     IFS='
 '
@@ -1744,7 +1853,8 @@ $(printf '%s\n' "$embed_entries" | grep -vi 'server:"MP4Upload"' || true)"
                 ;;
             hls)
                 direct_link="$(extract_animeav1_hls_link "$remote_url")"
-                if [ -n "$direct_link" ] && probe_link_with_mpv "$direct_link" "$remote_url" "$zilla_header_fields"; then
+                if [ -n "$direct_link" ] && zilla_mpv_supports_hls_seek &&
+                    probe_link_with_mpv "$direct_link" "$remote_url" "$zilla_header_fields"; then
                     if ! printf '%s' "$primary_links" | grep -Fq ">${direct_link}"; then
                         primary_links="${primary_links}$(animeav1_server_priority "$server_name") >${direct_link}
 referrer >${direct_link}>${remote_url}
@@ -1756,11 +1866,9 @@ site >${direct_link}>AnimeAV1
                         ok_mirrors="${ok_mirrors}${ok_mirrors:+
 }${server_key}"
                     source_status "AnimeAV1 ${server_name}" "ok"
-                    if fast_first_link_mode; then
-                        IFS=$old_ifs
-                        printf '%s' "$primary_links"
-                        return 0
-                    fi
+                    IFS=$old_ifs
+                    printf '%s' "$primary_links"
+                    return 0
                 else
                     [ -n "$server_key" ] && ! printf '%s\n' "$failed_mirrors" | grep -Fxq "$server_key" &&
                         failed_mirrors="${failed_mirrors}${failed_mirrors:+
@@ -1771,17 +1879,28 @@ site >${direct_link}>AnimeAV1
                 ;;
         esac
 
+        media_referrer="$remote_url"
         case "$(printf '%s' "$server_name" | tr '[:upper:]' '[:lower:]')" in
             mp4upload)
                 direct_link="$(extract_animeav1_mp4upload_link "$remote_url")"
                 [ -n "$direct_link" ] || direct_link="$(extract_with_ytdlp "$remote_url")"
                 ;;
+            pdrain | pixeldrain)
+                direct_link="$(extract_animeav1_pdrain_link "$remote_url")"
+                ;;
+            voe)
+                voe_result="$(extract_animeav1_voe_link "$remote_url")" || voe_result=""
+                direct_link="$(printf '%s\n' "$voe_result" | sed -n '1p')"
+                media_referrer="$(printf '%s\n' "$voe_result" | sed -n '2p')"
+                [ -n "$direct_link" ] || direct_link="$(extract_with_ytdlp "$remote_url")"
+                [ -n "$media_referrer" ] || media_referrer="$remote_url"
+                ;;
             *) direct_link="$(extract_with_ytdlp "$remote_url")" ;;
         esac
-        if [ -n "$direct_link" ] && probe_link_with_mpv "$direct_link" "$remote_url"; then
+        if [ -n "$direct_link" ] && probe_link_with_mpv "$direct_link" "$media_referrer"; then
             if ! printf '%s' "$primary_links" | grep -Fq ">${direct_link}"; then
                 primary_links="${primary_links}$(animeav1_server_priority "$server_name") >${direct_link}
-referrer >${direct_link}>${remote_url}
+referrer >${direct_link}>${media_referrer}
 source >${direct_link}>${server_name}
 site >${direct_link}>AnimeAV1
 "
@@ -1790,9 +1909,10 @@ site >${direct_link}>AnimeAV1
                 ok_mirrors="${ok_mirrors}${ok_mirrors:+
 }${server_key}"
             source_status "AnimeAV1 ${server_name}" "ok"
-            # This host exposes one file per episode. Once its frame decodes,
-            # querying the remaining embeds only delays playback.
-            if fast_first_link_mode || [ "$server_key" = "mp4upload" ]; then
+            # A decoded frame is enough; other players only delay playback.
+            if fast_first_link_mode || [ "$server_key" = "mp4upload" ] ||
+                [ "$server_key" = "pdrain" ] || [ "$server_key" = "pixeldrain" ] ||
+                [ "$server_key" = "voe" ] || [ "$server_key" = "yourupload" ]; then
                 IFS=$old_ifs
                 printf '%s' "$primary_links"
                 return 0
@@ -2865,83 +2985,208 @@ jkanime_page_csrf_token() {
         sed -nE 's|.*<meta name="csrf-token" content="([^"]+)".*|\1|p' | head -n1
 }
 
-jkanime_ajax_episode_numbers() {
-    slug="$1"
-    cookie_jar="$(mktemp)"
-    page_html="$(curl -L --connect-timeout 10 --max-time "$resolver_timeout" -s -c "$cookie_jar" "${jkanime_refr}/${slug}/" -A "$agent")" || {
-        rm -f "$cookie_jar"
-        return 1
-    }
+jkanime_catalog_dir() {
+    jkc_key="$(printf '%s' "$jkanime_refr/$1" | cksum | awk '{print $1}')"
+    printf '%s/jkanime-episodes/%s\n' "$hist_dir" "$jkc_key"
+}
 
-    anime_id="$(jkanime_page_anime_id "$page_html")"
-    csrf_token="$(jkanime_page_csrf_token "$page_html")"
-    if [ -z "$anime_id" ] || [ -z "$csrf_token" ]; then
-        rm -f "$cookie_jar"
-        return 1
+jkanime_page_numbers() {
+    grep -oE '"number":[0-9]+(\.[0-9]+)?' "$1" | cut -d: -f2 | sort -n -u
+}
+
+jkanime_catalog_open() {
+    jkc_dir="$1"
+    jkc_slug="$2"
+    jkc_now="$(date +%s)"
+    if [ -s "$jkc_dir/meta" ]; then
+        jkc_age=$((jkc_now - $(sed -n '1p' "$jkc_dir/meta")))
+        [ "$jkc_age" -lt 300 ] && [ "$jkc_age" -ge 0 ] && return 0
     fi
+    mkdir -p "$jkc_dir" || return 1
+    # A new generation keeps old pages from being mixed with an updated catalog.
+    rm -f "$jkc_dir"/page-*.json "$jkc_dir/meta" "$jkc_dir/cookies" "$jkc_dir/view.$$"
+    jkc_html="$(jkanime_request "$jkanime_refr/$jkc_slug/" -c "$jkc_dir/cookies")" || return 1
+    jkc_anime_id="$(jkanime_page_anime_id "$jkc_html")"
+    jkc_csrf="$(jkanime_page_csrf_token "$jkc_html")"
+    [ -n "$jkc_anime_id" ] && [ -n "$jkc_csrf" ] || return 1
+    jkc_first="$(jkanime_request "$jkanime_refr/ajax/episodes/$jkc_anime_id/1" \
+        -b "$jkc_dir/cookies" -c "$jkc_dir/cookies" -X POST --data "_token=$jkc_csrf" \
+        -H 'X-Requested-With: XMLHttpRequest')" || return 1
+    jkc_last="$(printf '%s' "$jkc_first" | sed -nE 's|.*"last_page":([0-9]+).*|\1|p' | head -n1)"
+    case "$jkc_last" in '' | *[!0-9]* | 0) return 1 ;; esac
+    printf '%s\n' "$jkc_first" >"$jkc_dir/page-1.json.tmp.$$"
+    jkc_numbers="$(jkanime_page_numbers "$jkc_dir/page-1.json.tmp.$$")"
+    [ -n "$jkc_numbers" ] || return 1
+    mv "$jkc_dir/page-1.json.tmp.$$" "$jkc_dir/page-1.json"
+    jkc_latest="$(printf '%s' "$jkc_html" | tr '\n' ' ' |
+        grep -oE 'href="https://jkanime\.net/[^"/]+/[0-9]+(\.[0-9]+)?/"[^>]*id="uep"' |
+        sed -nE 's|.*\/([0-9]+(\.[0-9]+)?)/".*|\1|p' | head -n1)"
+    # Some layouts put the ID before href. Limit the fallback to this series.
+    [ -n "$jkc_latest" ] || jkc_latest="$(printf '%s' "$jkc_html" |
+        grep -oE "https://jkanime\.net/${jkc_slug}/[0-9]+(\.[0-9]+)?/" |
+        sed -nE 's|.*/([0-9]+(\.[0-9]+)?)/$|\1|p' | sort -n | tail -n1)"
+    jkc_order=ascending
+    jkc_max="$(printf '%s\n' "$jkc_numbers" | tail -n1)"
+    jkc_raw_first="$(printf '%s' "$jkc_first" | grep -oE '"number":[0-9]+(\.[0-9]+)?' | head -n1 | cut -d: -f2)"
+    if [ "$(printf '%s\n' "$jkc_numbers" | wc -l)" -gt 1 ] && [ "$jkc_raw_first" = "$jkc_max" ]; then
+        jkc_order=descending
+    fi
+    [ -z "$jkc_latest" ] || [ "$jkc_max" != "$jkc_latest" ] || jkc_order=descending
+    printf '%s\n' "$jkc_now" "$jkc_anime_id" "$jkc_csrf" "$jkc_last" "$jkc_latest" "$jkc_order" \
+        >"$jkc_dir/meta.tmp.$$"
+    mv "$jkc_dir/meta.tmp.$$" "$jkc_dir/meta"
+}
 
-    first_page="$(curl -L --connect-timeout 10 --max-time "$resolver_timeout" -s -b "$cookie_jar" -c "$cookie_jar" \
-        -X POST "${jkanime_refr}/ajax/episodes/${anime_id}/1" --data "_token=${csrf_token}" \
-        -H "X-Requested-With: XMLHttpRequest" -A "$agent")" || {
-        rm -f "$cookie_jar"
-        return 1
-    }
+jkanime_catalog_page() {
+    jkc_dir="$1"
+    jkc_page="$2"
+    jkc_last="$(sed -n '4p' "$jkc_dir/meta")"
+    [ "$jkc_page" -ge 1 ] && [ "$jkc_page" -le "$jkc_last" ] || return 1
+    if [ ! -s "$jkc_dir/page-$jkc_page.json" ]; then
+        if [ -s "$jkc_dir/request-time" ]; then
+            jkc_elapsed=$(($(date +%s) - $(cat "$jkc_dir/request-time")))
+            [ "$jkc_elapsed" -ge 1 ] || sleep 1
+        fi
+        date +%s >"$jkc_dir/request-time"
+        jkc_anime_id="$(sed -n '2p' "$jkc_dir/meta")"
+        jkc_csrf="$(sed -n '3p' "$jkc_dir/meta")"
+        jkanime_request "$jkanime_refr/ajax/episodes/$jkc_anime_id/$jkc_page" \
+            -b "$jkc_dir/cookies" -X POST --data "_token=$jkc_csrf" -H 'X-Requested-With: XMLHttpRequest' \
+            >"$jkc_dir/page-$jkc_page.json.tmp.$$" || {
+                rm -f "$jkc_dir/page-$jkc_page.json.tmp.$$"
+                printf 'No se pudo consultar el bloque de episodios de JKAnime.\n' >&2
+                return 1
+            }
+        jkc_numbers="$(jkanime_page_numbers "$jkc_dir/page-$jkc_page.json.tmp.$$")"
+        [ -n "$jkc_numbers" ] || {
+            rm -f "$jkc_dir/page-$jkc_page.json.tmp.$$"
+            return 1
+        }
+        mv "$jkc_dir/page-$jkc_page.json.tmp.$$" "$jkc_dir/page-$jkc_page.json"
+    fi
+    jkanime_page_numbers "$jkc_dir/page-$jkc_page.json"
+}
 
-    last_page="$(printf '%s' "$first_page" | sed -nE 's|.*"last_page":([0-9]+).*|\1|p' | head -n1)"
-    [ -z "$last_page" ] && last_page=1
-
-    episode_numbers="$(printf '%s' "$first_page" | grep -oE '"number":[0-9]+(\.[0-9]+)?' | cut -d: -f2)"
-    pages_dir="$(mktemp -d)"
-    page_no=2
-    while [ "$page_no" -le "$last_page" ]; do
-        page_file="${pages_dir}/${page_no}"
-        (
-            curl -L --connect-timeout 10 --max-time "$resolver_timeout" -s -b "$cookie_jar" \
-                -X POST "${jkanime_refr}/ajax/episodes/${anime_id}/${page_no}" --data "_token=${csrf_token}" \
-                -H "X-Requested-With: XMLHttpRequest" -A "$agent" >"$page_file" &&
-                : >"${page_file}.ok"
-        ) &
-        page_no=$((page_no + 1))
-    done
-    wait
-
-    page_no=2
-    while [ "$page_no" -le "$last_page" ]; do
-        page_file="${pages_dir}/${page_no}"
-        if [ ! -f "${page_file}.ok" ]; then
-            rm -rf "$pages_dir"
-            rm -f "$cookie_jar"
+jkanime_catalog_find() {
+    # Search page bounds instead of downloading the whole catalog. Numeric
+    # comparison locates the page; exact text membership preserves decimals.
+    jkc_dir="$1"
+    jkc_target="$2"
+    printf '%s\n' "$jkc_target" | grep -qE '^[0-9]+(\.[0-9]+)?$' || return 1
+    for jkc_cached in "$jkc_dir"/page-*.json; do
+        if jkanime_page_numbers "$jkc_cached" | grep -Fxq "$jkc_target"; then
+            jkc_cached="${jkc_cached##*/page-}"
+            printf '%s\n' "${jkc_cached%.json}"
+            return 0
+        fi
+        if jkanime_page_numbers "$jkc_cached" | awk -v n="$jkc_target" 'NR == 1 { min=$0 } { max=$0 } END { exit !(n >= min && n <= max) }'; then
             return 1
         fi
-        episode_numbers="${episode_numbers}
-$(grep -oE '"number":[0-9]+(\.[0-9]+)?' "$page_file" | cut -d: -f2)"
-        page_no=$((page_no + 1))
     done
+    if [ "$jkc_target" = "$(sed -n '5p' "$jkc_dir/meta")" ]; then
+        jkc_last_page="$(sed -n '4p' "$jkc_dir/meta")"
+        [ "$(sed -n '6p' "$jkc_dir/meta")" != descending ] || jkc_last_page=1
+        if jkanime_catalog_page "$jkc_dir" "$jkc_last_page" | grep -Fxq "$jkc_target"; then
+            printf '%s\n' "$jkc_last_page"
+            return 0
+        fi
+        return 1
+    fi
+    jkc_low=1
+    jkc_high="$(sed -n '4p' "$jkc_dir/meta")"
+    jkc_order="$(sed -n '6p' "$jkc_dir/meta")"
+    while [ "$jkc_low" -le "$jkc_high" ]; do
+        jkc_mid=$(((jkc_low + jkc_high) / 2))
+        jkc_numbers="$(jkanime_catalog_page "$jkc_dir" "$jkc_mid")" || return 1
+        if printf '%s\n' "$jkc_numbers" | grep -Fxq "$jkc_target"; then
+            printf '%s\n' "$jkc_mid"
+            return 0
+        fi
+        jkc_relation="$(printf '%s\n' "$jkc_numbers" | awk -v n="$jkc_target" '
+            NR == 1 { min=$0 } { max=$0 } END { if (n < min) print -1; else if (n > max) print 1; else print 0 }')"
+        [ "$jkc_relation" != 0 ] || return 1
+        if { [ "$jkc_relation" = -1 ] && [ "$jkc_order" = ascending ]; } ||
+            { [ "$jkc_relation" = 1 ] && [ "$jkc_order" = descending ]; }; then
+            jkc_high=$((jkc_mid - 1))
+        else
+            jkc_low=$((jkc_mid + 1))
+        fi
+    done
+    return 1
+}
 
-    rm -rf "$pages_dir"
-    rm -f "$cookie_jar"
-    printf '%s\n' "$episode_numbers" | sed '/^$/d' | awk '!seen[$0]++' | sort -n -k 1
+jkanime_cached_numbers() {
+    jkc_dir="$1"
+    { for jkc_cached in "$jkc_dir"/page-*.json; do jkanime_page_numbers "$jkc_cached"; done
+      sed -n '5p' "$jkc_dir/meta"
+    } | sed '/^$/d' | sort -n -u
+}
+
+jkanime_current_dir() {
+    case "${id:-}" in
+        jkanime:*) jkanime_catalog_dir "${id#jkanime:}" ;;
+        *) return 1 ;;
+    esac
 }
 
 episodes_list_jkanime() {
-    jkanime_match="$(show_ref_value_for_site "$1" "jkanime")"
-    [ -z "$jkanime_match" ] && jkanime_match="$(select_jkanime_slug "$2")"
-    [ -z "$jkanime_match" ] && return 1
+    jkc_slug="$(show_ref_value_for_site "$1" jkanime)"
+    [ -n "$jkc_slug" ] || jkc_slug="$(select_jkanime_slug "$2")"
+    [ -n "$jkc_slug" ] || return 1
+    jkc_dir="$(jkanime_catalog_dir "$jkc_slug")"
+    jkanime_catalog_open "$jkc_dir" "$jkc_slug" || return 1
+    jkc_target="$(printf '%s\n' "${ep_no:-}" | sed -nE 's/^([0-9]+(\.[0-9]+)?).*$/\1/p')"
+    [ "${ep_no:-}" != -1 ] || jkc_target="$(sed -n '5p' "$jkc_dir/meta")"
+    if [ -n "$jkc_target" ]; then
+        jkc_view="$(jkanime_catalog_find "$jkc_dir" "$jkc_target")" || {
+            printf 'JKAnime no confirmó el episodio %s en su catálogo.\n' "$jkc_target" >&2
+            return 1
+        }
+        printf '%s\n' "$jkc_view" >"$jkc_dir/view.$$"
+    elif [ ! -s "$jkc_dir/view.$$" ]; then
+        printf '1\n' >"$jkc_dir/view.$$"
+    fi
+    jkanime_cached_numbers "$jkc_dir"
+}
 
-    ajax_episode_numbers="$(jkanime_ajax_episode_numbers "$jkanime_match")"
-    [ -n "$ajax_episode_numbers" ] && printf '%s\n' "$ajax_episode_numbers" && return 0
+jkanime_range_numbers() {
+    jkc_range_dir="$1"
+    jkc_range_start="$2"
+    jkc_range_end="$3"
+    jkc_start_page="$(jkanime_catalog_find "$jkc_range_dir" "$jkc_range_start")" || return 1
+    jkc_end_page="$(jkanime_catalog_find "$jkc_range_dir" "$jkc_range_end")" || return 1
+    jkc_range_low="$jkc_start_page"
+    jkc_range_high="$jkc_end_page"
+    if [ "$jkc_range_low" -gt "$jkc_range_high" ]; then
+        jkc_range_low="$jkc_end_page"
+        jkc_range_high="$jkc_start_page"
+    fi
+    while [ "$jkc_range_low" -le "$jkc_range_high" ]; do
+        jkanime_catalog_page "$jkc_range_dir" "$jkc_range_low" >/dev/null || return 1
+        jkc_range_low=$((jkc_range_low + 1))
+    done
+    jkanime_cached_numbers "$jkc_range_dir" | awk -v a="$jkc_range_start" -v b="$jkc_range_end" '$0+0 >= a+0 && $0+0 <= b+0'
+}
 
-    jkanime_page="$(jkanime_request "${jkanime_refr}/${jkanime_match}/")" || return 1
-    latest_ep="$(printf '%s' "$jkanime_page" | tr '\n' ' ' |
-        sed -nE "s|.*https://jkanime\\.net/${jkanime_match}/([0-9.]+)/.*id=\"uep\".*|\\1|p")"
-    [ -z "$latest_ep" ] && latest_ep="$(printf '%s' "$jkanime_page" | tr '\n' ' ' |
-        sed -nE "s|.*https://jkanime\\.net/${jkanime_match}/([0-9.]+)/.*|\\1|p")"
-    [ -z "$latest_ep" ] && return 1
-
-    case "$latest_ep" in
-        *.*) printf '%s\n' "$latest_ep" ;;
-        *) awk -v max="$latest_ep" 'BEGIN { for (i = 1; i <= max; i++) print i }' ;;
-    esac
+jkanime_neighbor_episode() {
+    jkc_dir="$1"
+    jkc_target="$2"
+    jkc_direction="$3"
+    jkc_page="$(jkanime_catalog_find "$jkc_dir" "$jkc_target")" || return 1
+    jkc_numbers="$(jkanime_catalog_page "$jkc_dir" "$jkc_page")" || return 1
+    jkc_neighbor="$(printf '%s\n' "$jkc_numbers" | awk -v n="$jkc_target" -v d="$jkc_direction" '
+        d == "next" && $0+0 > n+0 { print; exit } d == "previous" && $0+0 < n+0 { previous=$0 }
+        END { if (d == "previous") print previous }')"
+    if [ -z "$jkc_neighbor" ]; then
+        jkc_step=1
+        [ "$(sed -n '6p' "$jkc_dir/meta")" != descending ] || jkc_step=-1
+        [ "$jkc_direction" != previous ] || jkc_step=$((-jkc_step))
+        jkc_page=$((jkc_page + jkc_step))
+        jkc_numbers="$(jkanime_catalog_page "$jkc_dir" "$jkc_page")" || return 1
+        if [ "$jkc_direction" = next ]; then jkc_neighbor="$(printf '%s\n' "$jkc_numbers" | head -n1)"
+        else jkc_neighbor="$(printf '%s\n' "$jkc_numbers" | tail -n1)"; fi
+    fi
+    printf '%s\n' "$jkc_neighbor"
 }
 
 episodes_list_anidb() {
@@ -3170,7 +3415,7 @@ ${episode_menu_index}	__nav_exit	Salir"
     while IFS= read -r selected_index; do
         selected_token="$(printf '%b\n' "$episode_menu" | sed -n "${selected_index}p" | cut -f2)"
         case "$selected_token" in
-            __nav_*) printf '%s\n' "$selected_token"; return 0 ;;
+            __nav_* | __jk_*) printf '%s\n' "$selected_token"; return 0 ;;
         esac
         selected_eps="${selected_eps}${selected_eps:+
 }${selected_token}"
@@ -3191,6 +3436,70 @@ EOF
         '
     fi
 }
+
+jkanime_episode_query() {
+    if [ "$use_external_menu" = 0 ]; then
+        jkc_query_output="$(printf 'Escribe el número del episodio y presiona Enter\n' |
+            fzf --phony --print-query --no-sort --height=90% --border=rounded --expect=esc,ctrl-c \
+                --info=hidden --header="$app_name · JKAnime" --prompt='Episodio: ')" || return 10
+        case "$(printf '%s\n' "$jkc_query_output" | sed -n '2p')" in
+            esc) return 10 ;; ctrl-c) return 130 ;;
+        esac
+        printf '%s\n' "$jkc_query_output" | sed -n '1p'
+    else
+        external_menu '' 'Número de episodio: ' "$external_menu_args" || return 10
+    fi
+}
+
+choose_episode() {
+    jkc_menu_input="$(cat)"
+    jkc_menu_dir="$(jkanime_current_dir)" || {
+        printf '%s\n' "$jkc_menu_input" | select_episode
+        return $?
+    }
+    [ -s "$jkc_menu_dir/meta" ] || { printf '%s\n' "$jkc_menu_input" | select_episode; return $?; }
+    while :; do
+        jkc_menu_page="$(sed -n '1p' "$jkc_menu_dir/view.$$")"
+        jkc_menu_last="$(sed -n '4p' "$jkc_menu_dir/meta")"
+        jkc_menu_numbers="$(jkanime_catalog_page "$jkc_menu_dir" "$jkc_menu_page")" || return 1
+        jkc_choice="$({ printf '%s\n' "$jkc_menu_numbers"
+            [ "$jkc_menu_page" -le 1 ] || printf '__jk_previous\n'
+            [ "$jkc_menu_page" -ge "$jkc_menu_last" ] || printf '__jk_next\n'
+            printf '__jk_last\n__jk_find\n'
+        } | select_episode)" || return $?
+        case "$jkc_choice" in
+            __jk_next) jkc_menu_page=$((jkc_menu_page + 1)) ;;
+            __jk_previous) jkc_menu_page=$((jkc_menu_page - 1)) ;;
+            __jk_last)
+                if [ "$(sed -n '6p' "$jkc_menu_dir/meta")" = ascending ]; then jkc_menu_page="$jkc_menu_last"
+                else jkc_menu_page=1; fi
+                jkc_menu_numbers="$(jkanime_catalog_page "$jkc_menu_dir" "$jkc_menu_page")" || return 1
+                printf '%s\n' "$jkc_menu_page" >"$jkc_menu_dir/view.$$"
+                printf '%s\n' "$jkc_menu_numbers" | tail -n1
+                return 0
+                ;;
+            __jk_find)
+                jkc_query="$(jkanime_episode_query)" || {
+                    jkc_query_status=$?
+                    [ "$jkc_query_status" -ne 130 ] || return 130
+                    continue
+                }
+                jkc_found_page="$(jkanime_catalog_find "$jkc_menu_dir" "$jkc_query")" || {
+                    printf 'No se confirmó ese episodio en JKAnime; no se seleccionó.\n' >&2
+                    continue
+                }
+                printf '%s\n' "$jkc_found_page" >"$jkc_menu_dir/view.$$"
+                printf '%s\n' "$jkc_query"
+                return 0
+                ;;
+            *) printf '%s\n' "$jkc_choice"; return 0 ;;
+        esac
+        # Fetch first, then change the view; a failed page never looks complete.
+        jkanime_catalog_page "$jkc_menu_dir" "$jkc_menu_page" >/dev/null || return 1
+        printf '%s\n' "$jkc_menu_page" >"$jkc_menu_dir/view.$$"
+    done
+}
+
 
 update_history() {
     awk -F '	' -v OFS='	' -v target="$id" -v new_ep="$ep_no" -v new_title="$title" '
@@ -3549,6 +3858,13 @@ playback_media_title() {
 }
 
 play_episode() {
+    jkc_play_dir=''
+    if command -v jkanime_current_dir >/dev/null 2>&1; then
+        jkc_play_dir="$(jkanime_current_dir)" || jkc_play_dir=''
+    fi
+    if [ -n "$jkc_play_dir" ] && [ -s "$jkc_play_dir/meta" ]; then
+        ep_list="$(jkanime_cached_numbers "$jkc_play_dir")"
+    fi
     manual_handoff=0
     persistent_episode_loaded=0
     persistent_mpv_alive || player_pid=""
@@ -3653,7 +3969,13 @@ play() {
     if [ "$line_count" != 1 ] || [ -n "$start" ]; then
         [ -z "$start" ] && start=$(printf "%s\n" "$ep_no" | head -n1)
         [ -z "$end" ] && end=$(printf "%s\n" "$ep_no" | tail -n1)
-        range=$(printf "%s\n" "$ep_list" | sed -nE "/^${start}\$/,/^${end}\$/p")
+        jkc_range_dir="$(jkanime_current_dir)" || jkc_range_dir=''
+        if [ -n "$jkc_range_dir" ] && [ -s "$jkc_range_dir/meta" ]; then
+            range="$(jkanime_range_numbers "$jkc_range_dir" "$start" "$end")" || die 'No se pudo consultar el rango de JKAnime'
+            ep_list="$(jkanime_cached_numbers "$jkc_range_dir")"
+        else
+            range=$(printf "%s\n" "$ep_list" | sed -nE "/^${start}\$/,/^${end}\$/p")
+        fi
         [ -z "$range" ] && die "Invalid range!"
         for i in $range; do
             tput clear
@@ -3686,8 +4008,30 @@ sync_current_episode() {
     [ -n "$synced_ep" ] && ep_no="$synced_ep"
 }
 
+previous_episode_number() {
+    current_ep="${1:-$ep_no}"
+    jkc_neighbor_dir=''
+    if command -v jkanime_current_dir >/dev/null 2>&1; then
+        jkc_neighbor_dir="$(jkanime_current_dir)" || jkc_neighbor_dir=''
+    fi
+    if [ -n "$jkc_neighbor_dir" ] && [ -s "$jkc_neighbor_dir/meta" ]; then
+        jkanime_neighbor_episode "$jkc_neighbor_dir" "$current_ep" previous
+    else
+        printf '%s\n' "$ep_list" | awk -v current="$current_ep" '$0 == current { if (previous != "") print previous; exit } { previous=$0 }'
+    fi
+}
+
+
 next_episode_number() {
     current_ep="${1:-$ep_no}"
+    jkc_neighbor_dir=''
+    if command -v jkanime_current_dir >/dev/null 2>&1; then
+        jkc_neighbor_dir="$(jkanime_current_dir)" || jkc_neighbor_dir=''
+    fi
+    if [ -n "$jkc_neighbor_dir" ] && [ -s "$jkc_neighbor_dir/meta" ]; then
+        jkanime_neighbor_episode "$jkc_neighbor_dir" "$current_ep" next
+        return $?
+    fi
     printf "%s\n" "$ep_list" | sed -n "/^${current_ep}$/{n;p;}" | head -n1
 }
 
@@ -3839,7 +4183,7 @@ persistent_playback_worker_loop() {
                     load_worker_episode "$(next_episode_number "$current_ep")" || true
                     ;;
                 previous)
-                    previous_ep="$(printf "%s\n" "$ep_list" | sed -n "/^${current_ep}$/{g;1!p;};h" | head -n1)"
+                    previous_ep="$(previous_episode_number "$current_ep")"
                     load_worker_episode "$previous_ep" || true
                     ;;
                 replay)
@@ -4384,7 +4728,7 @@ while :; do
             ;;
         episode_menu)
             if [ -z "$ep_no" ]; then
-                episode_choice="$(printf '%s' "$ep_list" | select_episode)"
+                episode_choice="$(printf '%s' "$ep_list" | choose_episode)"
                 menu_status=$?
                 [ "$menu_status" -eq 130 ] && exit 130
                 if [ "$menu_status" -eq 10 ]; then
@@ -4425,7 +4769,7 @@ while :; do
             case "$cmd" in
                 siguiente)
                     prepare_for_menu_playback
-                    ep_no="$(printf '%s\n' "$ep_list" | awk -v current="$ep_no" 'found { print; exit } $0 == current { found=1 }')"
+                    ep_no="$(next_episode_number "$ep_no")"
                     ;;
                 repetir | repetir_episodio_actual)
                     prepare_for_menu_playback
@@ -4433,11 +4777,11 @@ while :; do
                     ;;
                 anterior)
                     prepare_for_menu_playback
-                    ep_no="$(printf '%s\n' "$ep_list" | awk -v current="$ep_no" '$0 == current { if (previous != "") print previous; exit } { previous=$0 }')"
+                    ep_no="$(previous_episode_number "$ep_no")"
                     ;;
                 elegir | elegir_episodio)
                     prepare_for_menu_playback
-                    episode_choice="$(printf '%s' "$ep_list" | select_episode)"
+                    episode_choice="$(printf '%s' "$ep_list" | choose_episode)"
                     menu_status=$?
                     [ "$menu_status" -eq 130 ] && exit 130
                     [ "$menu_status" -eq 10 ] && { app_state="playback_menu"; continue; }
