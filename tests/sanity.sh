@@ -456,6 +456,7 @@ run_animex_subtitle_smoke() {
     tmp_dir="$(mktemp -d)"
     funcs_file="$tmp_dir/animex-functions.sh"
     sed -n '/^find_link_referrer()/,/^count_quality_links()/p' ani-cli-mx-core | sed '$d' >"$funcs_file"
+    sed -n '/^find_link_quality()/,/^quality_cache_current()/p' ani-cli-mx-core | sed '$d' >>"$funcs_file"
     sed -n '/^emit_annotated_link_entry()/,/^quality_menu_entries()/p' ani-cli-mx-core | sed '$d' >>"$funcs_file"
     sed -n '/^animex_request()/,/^animex_proxy_url()/p' ani-cli-mx-core | sed '$d' >>"$funcs_file"
     sed -n '/^resolve_animex_episode()/,/^resolve_spanish_source_links()/p' ani-cli-mx-core | sed '$d' >>"$funcs_file"
