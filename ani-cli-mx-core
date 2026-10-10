@@ -1,6 +1,6 @@
 #!/bin/sh
 
-version_number="3.0.9"
+version_number="3.0.10"
 app_name="${ANI_CLI_NAME:-${0##*/}}"
 log_tag="${ANI_CLI_LOG_TAG:-$app_name}"
 hist_state_name="${ANI_CLI_STATE_NAME:-$app_name}"
@@ -41,6 +41,8 @@ playback_launcher() {
         done
 
         if [ "$playback_picker_refresh" = "1" ]; then
+            prepare_quality_options
+            playback_menu_options persistent | cut -f1,3 | tr '\t' ' ' >"$playback_picker_input"
             continue
         fi
 
@@ -1068,7 +1070,99 @@ count_quality_links() {
 }
 
 find_link_quality() {
-    printf '%s\n' "$1" | awk -F'>' -v ep="$2" '$1 ~ /^[0-9]{3,4} / && $2==ep { sub(/[[:space:]]+$/, "", $1); print $1; exit }'
+    printf '%s\n' "$1" | awk -F'>' -v ep="$2" '$1 == "resolution " && $2 == ep { print $3; exit }'
+}
+
+# Only audited, explicit variants of the active Vidhide source are eligible.
+# The cache is shared with the background episode worker and scoped by episode.
+quality_cache_current() {
+    [ -n "${quality_cache_file:-}" ] && [ -s "$quality_cache_file" ] || return 1
+    [ "$(sed -n '1p' "$quality_cache_file")" = "$id|$(current_episode_number)" ]
+}
+
+validated_quality_links() {
+    awk -F'>' '
+        $1 == "validated " { valid[$2] = 1 }
+        $1 == "resolution " { height[$2] = $3 }
+        $1 == "source " { source[$2] = $3 }
+        $1 == "site " { site[$2] = $3 }
+        $1 == "language " { language[$2] = $3 }
+        $1 == "active " { active = $2 }
+        END {
+            for (url in height)
+                if (valid[url] && source[url] == "Vidhide" && site[url] == "PelisPlusHD" &&
+                    language[url] == language[active] && height[url] ~ /^[0-9]+$/)
+                    print height[url] " >" url
+        }
+    ' | sort -g -r -s
+}
+
+prepare_quality_options() (
+    persistent_mpv_alive && quality_cache_current || return 0
+    quality_snapshot="$(cat "$quality_cache_file")"
+    printf '%s\n' "$quality_snapshot" | grep -qx prepared && return 0
+    quality_active="$(printf '%s\n' "$quality_snapshot" | awk -F'>' '$1 == "active " {print $2; exit}')"
+    [ "$(find_link_source "$quality_snapshot" "$quality_active")" = Vidhide ] || return 0
+    quality_known="$(printf '%s\n' "$quality_snapshot" | awk -F'>' '$1 == "resolution " {print $2}')"
+    for quality_url in $quality_known; do
+        [ "$(find_link_source "$quality_snapshot" "$quality_url")" = Vidhide ] || continue
+        [ "$(find_link_language "$quality_snapshot" "$quality_url")" = "$(find_link_language "$quality_snapshot" "$quality_active")" ] || continue
+        printf '%s\n' "$quality_snapshot" | grep -Fqx "validated >$quality_url>" && continue
+        printf '%s\n' "$quality_snapshot" | grep -Fqx "failed >$quality_url>" && continue
+        if probe_link_with_mpv "$quality_url" "$(find_link_referrer "$quality_snapshot" "$quality_url")" \
+            "$(find_link_headers "$quality_snapshot" "$quality_url")" "$pelisplus_probe_timeout"; then
+            quality_snapshot="$quality_snapshot
+validated >$quality_url>"
+        else
+            quality_snapshot="$quality_snapshot
+failed >$quality_url>"
+        fi
+    done
+    # Do not overwrite a new episode published by the worker during probing.
+    quality_cache_current || return 0
+    [ "$(sed -n '1p' "$quality_cache_file")" = "$(printf '%s\n' "$quality_snapshot" | head -n1)" ] || return 0
+    printf '%s\nprepared\n' "$quality_snapshot" >"${quality_cache_file}.new.$$"
+    mv "${quality_cache_file}.new.$$" "$quality_cache_file"
+)
+
+quality_menu_available() {
+    persistent_mpv_alive && quality_cache_current || return 1
+    [ "$(validated_quality_links <"$quality_cache_file" | cut -d'>' -f1 | sort -u | wc -l)" -gt 1 ]
+}
+
+change_quality_from_menu() {
+    quality_menu_available || return 1
+    quality_choice_key="$(sed -n '1p' "$quality_cache_file")"
+    quality_entries="$(validated_quality_links <"$quality_cache_file" | awk -F'>' '{gsub(/ /,"",$1); print NR "\t" $2 "\t" $1 "p"}')"
+    quality_choice="$(printf '%s\n' "$quality_entries" | nth 'Calidad de video: ')" || return $?
+    quality_url="$(printf '%s\n' "$quality_choice" | cut -f1)"
+    quality_cache_current && [ "$(sed -n '1p' "$quality_cache_file")" = "$quality_choice_key" ] || return 1
+    quality_data="$(cat "$quality_cache_file")"
+    # The URL may have expired since the menu was prepared; keep playing on failure.
+    if ! probe_link_with_mpv "$quality_url" "$(find_link_referrer "$quality_data" "$quality_url")" \
+        "$(find_link_headers "$quality_data" "$quality_url")" "$pelisplus_probe_timeout"; then
+        quality_cache_current && [ "$(sed -n '1p' "$quality_cache_file")" = "$quality_choice_key" ] || return 1
+        awk -F'>' -v url="$quality_url" '!($1 == "validated " && $2 == url)' "$quality_cache_file" >"${quality_cache_file}.new.$$"
+        mv "${quality_cache_file}.new.$$" "$quality_cache_file"
+        printf 'Esa calidad dejó de responder; se mantiene el video actual.\n' >&2
+        return 1
+    fi
+    quality_cache_current && [ "$(sed -n '1p' "$quality_cache_file")" = "$quality_choice_key" ] || return 1
+    stop_continuous_worker
+    sync_current_episode
+    if [ "$id|$ep_no" != "$quality_choice_key" ]; then
+        start_continuous_worker_for_current_player || true
+        return 1
+    fi
+    links="$quality_data"
+    quality="$(find_link_quality "$links" "$quality_url")"
+    select_quality "$quality"
+    quality_keep_position=true
+    queue_persistent_mpv_episode
+    quality_switch_status=$?
+    quality_keep_position=false
+    start_continuous_worker_for_current_player || true
+    return "$quality_switch_status"
 }
 
 emit_annotated_link_entry() {
@@ -1086,8 +1180,9 @@ quality_menu_entries() {
     menu_index=1
     for entry in $1; do
         printf '%s' "$entry" | grep -qE '^[0-9]{3,4} >' || continue
-        candidate_quality="$(printf '%s' "$entry" | cut -d'>' -f1)"
         candidate_url="$(printf '%s' "$entry" | cut -d'>' -f2)"
+        candidate_quality="$(find_link_quality "$1" "$candidate_url")"
+        [ -n "$candidate_quality" ] || continue
         candidate_site="$(find_link_site "$1" "$candidate_url")"
         candidate_source="$(find_link_source "$1" "$candidate_url")"
         origin_label="$(describe_link_origin "$candidate_site" "$candidate_source")"
@@ -2624,9 +2719,14 @@ pelisplus_packed_host_links() {
             }
         }
     ' | sort -nr)"
-    [ -n "$variant_links" ] || variant_links="720 >$master_url"
+    variants_have_resolution=1
+    [ -n "$variant_links" ] || { variant_links="720 >$master_url"; variants_have_resolution=0; }
     printf '%s\n' "$variant_links"
     printf '%s\n' "$variant_links" | cut -d'>' -f2 | while IFS= read -r variant_url; do
+        if [ "$variants_have_resolution" = 1 ]; then
+            variant_height="$(printf '%s\n' "$variant_links" | awk -F'>' -v u="$variant_url" '$2 == u {gsub(/ /,"",$1); print $1; exit}')"
+            printf 'resolution >%s>%s\n' "$variant_url" "$variant_height"
+        fi
         printf 'referrer >%s>%s\n' "$variant_url" "$packed_host_effective_url"
         printf 'site >%s>PelisPlusHD\n' "$variant_url"
         printf 'source >%s>%s\n' "$variant_url" "${4:-Vidhide}"
@@ -2727,7 +2827,7 @@ select_quality() {
             ;;
     esac
     [ -n "$generic_headers" ] && headers_flag="--http-header-fields=$generic_headers"
-    selected_quality="$(printf '%s' "$result" | cut -d'>' -f1 | tr -d '[:space:]')"
+    selected_quality="$(find_link_quality "$links" "$episode")"
     generic_refr="$(printf '%s\n' "$links" | awk -F'>' -v ep="$episode" '$1=="referrer " && $2==ep { print $3; exit }')"
     selected_site="$(find_link_site "$links" "$episode")"
     selected_source="$(find_link_source "$links" "$episode")"
@@ -2760,11 +2860,21 @@ get_episode_url() {
             probe_link_with_mpv "$episode" "${generic_refr:-}" "${generic_headers:-}" "$pelisplus_probe_timeout"
             probe_status=$?
         fi
+        failed_quality_url=''
         if [ "$probe_status" -ne 0 ]; then
-            case "$probe_status" in
-                124) die "PelisPlusHD / ${selected_source:-mirror} agotó el tiempo al decodificar el primer frame" ;;
-                *) die "PelisPlusHD / ${selected_source:-mirror} entregó un enlace que mpv no pudo reproducir (salida $probe_status)" ;;
-            esac
+            failed_quality_url="$episode"
+            [ -n "$pelisplus_validated_url" ] || die 'PelisPlusHD no produjo una variante reproducible'
+            links="$(printf '%s\n' "$links" | awk -F'>' -v url="$episode" '$2 != url')"
+            printf 'La calidad elegida falló; usando la variante ya validada.\n' >&2
+            fallback_height="$(find_link_quality "$links" "$pelisplus_validated_url")"
+            select_quality "${fallback_height:-best}"
+        fi
+        if [ -n "${quality_cache_file:-}" ]; then
+            { printf '%s\n' "$id|$ep_no"; printf '%s\n' "$links"
+                printf 'active >%s>\nvalidated >%s>\n' "$episode" "$episode"
+                [ -z "$failed_quality_url" ] || printf 'failed >%s>\n' "$failed_quality_url"
+            } >"${quality_cache_file}.new.$$"
+            mv "${quality_cache_file}.new.$$" "$quality_cache_file"
         fi
         printf "Fuente elegida: %s\n" "${selected_origin:-PelisPlusHD / Vidhide}" 1>&2
         return 0
@@ -3378,6 +3488,39 @@ last_watched_episode_for_current_anime() {
     awk -F '	' -v target="$id" '$2 == target { print $1; exit }' "$histfile"
 }
 
+random_index() {
+    random_seed="$(od -An -N4 -tu4 /dev/urandom 2>/dev/null | tr -d '[:space:]')"
+    [ -n "$random_seed" ] || random_seed="$(date +%s)$$"
+    awk -v seed="$random_seed" -v count="$1" 'BEGIN { srand(seed); print 1 + int(rand() * count) }'
+}
+
+random_from_catalog() {
+    random_numbers="$(printf '%s\n' "$1" | awk '/^[0-9]+(\.[0-9]+)?$/ || /^s[0-9]+e[0-9]+$/ {if (!seen[$0]++) print}')"
+    [ -n "$random_numbers" ] || return 1
+    random_other="$(printf '%s\n' "$random_numbers" | awk -v current="$2" '$0 != current')"
+    [ -z "$random_other" ] || random_numbers="$random_other"
+    random_count="$(printf '%s\n' "$random_numbers" | wc -l)"
+    printf '%s\n' "$random_numbers" | sed -n "$(random_index "$random_count")p"
+}
+
+random_episode_number() (
+    [ "${media_kind:-anime}" != movie ] || return 1
+    random_dir="$(jkanime_current_dir 2>/dev/null)" || random_dir=''
+    if [ -n "$random_dir" ] && [ -s "$random_dir/meta" ]; then
+        random_last_page="$(sed -n '4p' "$random_dir/meta")"
+        random_page="$(random_index "$random_last_page")"
+        random_page_numbers="$(jkanime_catalog_page "$random_dir" "$random_page")" || return 1
+        # One random block, not a sweep of the series. Every page is reachable.
+        if [ "$random_last_page" -gt 1 ] && [ "$random_page_numbers" = "$2" ]; then
+            random_page=$((random_page % random_last_page + 1))
+            random_page_numbers="$(jkanime_catalog_page "$random_dir" "$random_page")" || return 1
+        fi
+        random_from_catalog "$random_page_numbers" "$2" || return 1
+    else
+        random_from_catalog "$1" "$2"
+    fi
+)
+
 select_episode() {
     stdin=$(cat -)
     [ -z "$stdin" ] && return 1
@@ -3416,6 +3559,11 @@ ${episode_menu_index}	__nav_search	Buscar otro contenido"
     episode_menu="${episode_menu}
 ${episode_menu_index}	__nav_home	Volver al inicio"
     episode_menu_index=$((episode_menu_index + 1))
+    if [ "${media_kind:-anime}" != movie ]; then
+        episode_menu="${episode_menu}
+${episode_menu_index}	__random_episode	Episodio aleatorio"
+        episode_menu_index=$((episode_menu_index + 1))
+    fi
     episode_menu="${episode_menu}
 ${episode_menu_index}	__nav_exit	Salir"
 
@@ -3427,7 +3575,7 @@ ${episode_menu_index}	__nav_exit	Salir"
     while IFS= read -r selected_index; do
         selected_token="$(printf '%b\n' "$episode_menu" | sed -n "${selected_index}p" | cut -f2)"
         case "$selected_token" in
-            __nav_* | __jk_*) printf '%s\n' "$selected_token"; return 0 ;;
+            __nav_* | __jk_* | __random_episode) printf '%s\n' "$selected_token"; return 0 ;;
         esac
         selected_eps="${selected_eps}${selected_eps:+
 }${selected_token}"
@@ -3466,10 +3614,19 @@ jkanime_episode_query() {
 choose_episode() {
     jkc_menu_input="$(cat)"
     jkc_menu_dir="$(jkanime_current_dir)" || {
-        printf '%s\n' "$jkc_menu_input" | select_episode
+        jkc_choice="$(printf '%s\n' "$jkc_menu_input" | select_episode)" || return $?
+        if [ "$jkc_choice" = __random_episode ]; then
+            random_episode_number "$jkc_menu_input" "$(current_episode_number)"
+        else
+            printf '%s\n' "$jkc_choice"
+        fi
         return $?
     }
-    [ -s "$jkc_menu_dir/meta" ] || { printf '%s\n' "$jkc_menu_input" | select_episode; return $?; }
+    if [ ! -s "$jkc_menu_dir/meta" ]; then
+        jkc_choice="$(printf '%s\n' "$jkc_menu_input" | select_episode)" || return $?
+        [ "$jkc_choice" != __random_episode ] || { random_episode_number "$jkc_menu_input" "$(current_episode_number)"; return $?; }
+        printf '%s\n' "$jkc_choice"; return 0
+    fi
     while :; do
         jkc_menu_page="$(sed -n '1p' "$jkc_menu_dir/view.$$")"
         jkc_menu_last="$(sed -n '4p' "$jkc_menu_dir/meta")"
@@ -3480,6 +3637,7 @@ choose_episode() {
             printf '__jk_last\n__jk_find\n'
         } | select_episode)" || return $?
         case "$jkc_choice" in
+            __random_episode) random_episode_number "$jkc_menu_numbers" "$(current_episode_number)"; return $? ;;
             __jk_next) jkc_menu_page=$((jkc_menu_page + 1)) ;;
             __jk_previous) jkc_menu_page=$((jkc_menu_page - 1)) ;;
             __jk_last)
@@ -3591,6 +3749,8 @@ create_mpv_session_controller() {
         'local finished_episode = ""' \
         'local load_pending = false' \
         'local pending_subtitles = {}' \
+        'local pending_position = nil' \
+        'local pending_pause = false' \
         'local owner_gone = false' \
         'local function file_exists(path)' \
         '    local file = io.open(path, "r")' \
@@ -3627,6 +3787,8 @@ create_mpv_session_controller() {
         '    if type(command) ~= "table" then return end' \
         '    if command.action == "message" then mp.osd_message(command.message or "", 2); return end' \
         '    if command.action ~= "load" or not command.url then return end' \
+        '    pending_position = command.keep_position and mp.get_property_number("time-pos", 0) or nil' \
+        '    pending_pause = command.keep_position and mp.get_property_native("pause", false) or false' \
         '    current_episode = tostring(command.episode or "")' \
         '    finished_episode = ""' \
         '    load_pending = true' \
@@ -3638,8 +3800,11 @@ create_mpv_session_controller() {
         'end' \
         'mp.register_event("file-loaded", function()' \
         '    load_pending = false' \
-        '    mp.set_property_native("pause", false)' \
-        '    mp.add_timeout(0.1, function() mp.set_property_native("pause", false) end)' \
+        '    if pending_position then mp.commandv("seek", pending_position, "absolute+exact") end' \
+        '    pending_position = nil' \
+        '    mp.set_property_native("pause", pending_pause)' \
+        '    local restore_pause = pending_pause' \
+        '    mp.add_timeout(0.1, function() mp.set_property_native("pause", restore_pause) end)' \
         '    for _, subtitle in ipairs(pending_subtitles) do mp.commandv("sub-add", subtitle, "auto") end' \
         '    pending_subtitles = {}' \
         'end)' \
@@ -3811,13 +3976,13 @@ queue_persistent_mpv_episode() {
     done
     IFS=$old_ifs
 
-    printf '{"action":"load","episode":"%s","url":"%s","title":"%s","referrer":"%s","headers":"%s","subtitles":[%s]}\n' \
+    printf '{"action":"load","episode":"%s","url":"%s","title":"%s","referrer":"%s","headers":"%s","subtitles":[%s],"keep_position":%s}\n' \
         "$(mpv_json_escape "$ep_no")" \
         "$(mpv_json_escape "$episode")" \
         "$(mpv_json_escape "$(playback_media_title)")" \
         "$(mpv_json_escape "${generic_refr:-}")" \
         "$(mpv_json_escape "${generic_headers:-}")" \
-        "$subtitles_json" >"$command_tmp"
+        "$subtitles_json" "${quality_keep_position:-false}" >"$command_tmp"
     rm -f "$mpv_session_event_file"
     mv "$command_tmp" "$mpv_session_command_file"
     kill -0 "$player_pid" 2>/dev/null
@@ -4279,8 +4444,14 @@ playback_menu_options() {
         printf '%s\t%s\t%s\n' "$playback_option_index" repetir_episodio_actual 'Repetir episodio actual'
         playback_option_index=$((playback_option_index + 1))
         printf '%s\t%s\t%s\n' "$playback_option_index" elegir_episodio 'Elegir otro capítulo'
+        playback_option_index=$((playback_option_index + 1))
+        printf '%s\t%s\t%s\n' "$playback_option_index" aleatorio 'Episodio aleatorio'
     fi
     playback_option_index=$((playback_option_index + 1))
+    if quality_menu_available; then
+        printf '%s\t%s\t%s\n' "$playback_option_index" elegir_calidad 'Elegir calidad de video'
+        playback_option_index=$((playback_option_index + 1))
+    fi
     if download_available_for_selected_provider; then
         printf '%s\t%s\t%s\n' "$playback_option_index" descargar_episodio_actual 'Descargar episodio actual'
         playback_option_index=$((playback_option_index + 1))
@@ -4332,6 +4503,7 @@ playback_menu_prompt() {
 }
 
 playback_command() {
+    prepare_quality_options
     playback_menu_live=0
     if [ "$use_external_menu" = "0" ] && persistent_mpv_alive; then
         playback_menu_live=1
@@ -4411,6 +4583,7 @@ animex_proxy_dir="$(mktemp -d)"
 : >"$animex_proxy_dir/pids"
 continuous_state_file="$(mktemp)"
 current_episode_file="$(mktemp)"
+quality_cache_file="$(mktemp)"
 continuous_worker_log_file="$(mktemp)"
 create_mpv_window_state_files
 continuous_worker_pid=""
@@ -4423,7 +4596,7 @@ cleanup() {
     rm -rf "$animex_proxy_dir"
     stop_continuous_worker
     persistent_mpv_alive && close_tracked_player
-    rm -f "$fast_mode_mirror_file" "$continuous_state_file" "$current_episode_file" \
+    rm -f "$fast_mode_mirror_file" "$continuous_state_file" "$current_episode_file" "$quality_cache_file" \
         "$continuous_worker_log_file"
     rm -f "$mpv_window_state_file" "$mpv_window_state_script" \
         "$mpv_session_command_file" "$mpv_session_event_file" "$mpv_session_action_file" \
@@ -4781,6 +4954,21 @@ while :; do
             fi
             sync_current_episode
             case "$cmd" in
+                aleatorio)
+                    random_choice="$(random_episode_number "$ep_list" "$ep_no")" || {
+                        printf 'No se pudo elegir un episodio del catálogo; se mantiene el actual.\n' >&2
+                        continue
+                    }
+                    prepare_for_menu_playback
+                    ep_no="$random_choice"
+                    unset episode
+                    ;;
+                elegir_calidad)
+                    change_quality_from_menu
+                    quality_menu_status=$?
+                    [ "$quality_menu_status" -eq 130 ] && exit 130
+                    continue
+                    ;;
                 siguiente)
                     prepare_for_menu_playback
                     ep_no="$(next_episode_number "$ep_no")"

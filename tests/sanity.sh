@@ -350,6 +350,7 @@ run_persistent_mpv_smoke() {
         find_link_site() { printf '%s\n' 'AnimeAV1'; }
         find_link_source() { printf '%s\n' 'HLS'; }
         find_link_language() { return 0; }
+        find_link_quality() { return 0; }
         describe_link_origin() { printf '%s / %s' "$1" "$2"; }
         close_tracked_player() {
             kill "$player_pid" 2>/dev/null || true
@@ -615,6 +616,8 @@ run_playback_menu_smoke() {
     (
         # shellcheck disable=SC1090
         . "$funcs_file"
+        quality_menu_available() { return 1; }
+        prepare_quality_options() { return 0; }
         continuous_state_file="$tmp_dir/continuous-state"
         current_episode_file="$tmp_dir/current-episode"
         close_previous_player=0
@@ -1036,7 +1039,7 @@ run_windows_compat_smoke() {
         ANI_CLI_STATE_NAME=ani-cli-mx LOCALAPPDATA="$local_app_data_env" \
         ANI_CLI_PLAYER=debug ./ani-cli-mx-core -V)"
 
-    [ "$version_output" = "3.0.9" ]
+    [ "$version_output" = "3.0.10" ]
     [ -f "$local_app_data/ani-cli-mx/ani-hsts" ]
     grep -q 'GIT_INSTALL_ROOT' ani-cli-mx.cmd
     grep -q 'ANI_CLI_PACKAGE_MANAGER=scoop' ani-cli-mx.cmd
@@ -1520,6 +1523,7 @@ run_pelisplus_timeout_smoke() {
 case "${1:-}" in
     --network)
         run_syntax_checks
+        sh tests/random-quality.sh
         run_jkanime_backoff_smoke
         run_jkanime_pagination_smoke
         run_continuous_toggle_smoke
@@ -1548,6 +1552,7 @@ case "${1:-}" in
         ;;
     "" | --syntax)
         run_syntax_checks
+        sh tests/random-quality.sh
         run_jkanime_backoff_smoke
         run_jkanime_pagination_smoke
         run_continuous_toggle_smoke

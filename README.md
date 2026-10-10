@@ -62,6 +62,25 @@ limits. This fixes the timeout reported for Elementary season 7, episode 2.
 override these limits; explicitly configured `ANI_CLI_RESOLVER_TIMEOUT` and
 `ANI_CLI_PROBE_TIMEOUT` remain respected.
 
+The episode picker and playback menu include `Episodio aleatorio` for anime,
+series and doramas. It selects a real catalog entry, preserves decimal and
+season/episode tokens, and avoids immediately repeating the current episode
+when another is available. JKAnime picks a random catalog page and then an
+episode, loading at most one additional page if necessary; it does not fetch
+the complete series. Pages are selected equally, so episodes on shorter pages
+do not have exactly the same probability as episodes on longer pages.
+
+`Elegir calidad de video` appears only in managed, persistent mpv playback
+when the active PelisPlusHD/Vidhide source exposes at least two distinct,
+explicit resolutions that pass decoding checks. Failed variants are excluded;
+other sources and unsupported players do not offer this action. A selection
+is checked again before loading, retains position and pause state, and carries
+the chosen link's headers/referrer. If that check fails, the current video
+keeps playing. Resolutions are shown as reported, including 1076p when present.
+Alternative checks are cached per episode and may delay the first menu opening
+while playback continues. A successful startup probe does not guarantee future
+availability. See the [quality audit](docs/quality-random-audit-2026-10-10.md).
+
 ## Table of Contents
 
 - [Install](#install)

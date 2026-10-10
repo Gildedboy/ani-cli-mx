@@ -9,7 +9,7 @@ Work in `ani-cli-mx-core`; keep `tests/sanity.sh`, `README.md`, `ani-cli-mx.1`, 
 
 ## Diagnose end to end
 
-Test each layer separately before editing:
+Inspect the affected layer before editing. Use only the diagnostic steps relevant to the reported failure:
 
 1. Fetch the live search endpoint and run the exact parser pipeline from the script.
 2. Run the CLI with `ANI_CLI_PLAYER=debug ANI_CLI_NO_DETACH=1` to inspect IDs, mirrors, referrers, source labels, and the selected URL.
@@ -62,17 +62,48 @@ Integrate a Spanish provider at every peer-source boundary:
 
 Do not replace or rename an existing provider while adding another peer. Keep provider-specific base URLs separate even when old variable names are misleading; refactor shared names only with coverage for every consumer.
 
+## Proportionate testing
+
+Choose the smallest set of checks that can detect a plausible regression in
+the changed behavior. Briefly connect each test group to the behavior or risk
+it covers; a higher test count is not an objective.
+
+- Documentation or wording-only changes need review and `git diff --check`,
+  not provider requests or playback tests. For small shell edits, use `sh -n`
+  on affected scripts plus a focused behavioral check when needed.
+- Prefer existing focused tests. Add a regression only for a meaningful bug,
+  edge case, or new behavior that lacks coverage; avoid implementation-mirroring
+  assertions and redundant tests for trivial reversible changes.
+- For a parser/provider fix, check the affected fixture and provider/title.
+  For playback, headers, or fallback fixes, exercise the affected mirror and
+  verify decoded playback when necessary; a successful manifest alone is insufficient.
+- Run broader checks for shared selection/network/player changes, several
+  affected providers, dependency/packaging changes, unexplained failures, or
+  an explicit request. Publishing alone does not require unrelated live sweeps.
+- `tests/sanity.sh --syntax` also runs local regressions; it is not just a
+  syntax check. The script currently has no per-test filter. Use the full
+  local suite when shared behavior warrants it or a trustworthy focused
+  check is impractical; do not invent filtering flags. Run `--network` only
+  when its broader live coverage is justified.
+- Once relevant checks pass, stop testing unless a new edit, failure, or
+  unresolved concern warrants another run. Reuse results for unchanged code;
+  do not rerun a successful build solely to repeat tests.
+- Keep successful logs out of the conversation. Report a short result and
+  meaningful limitations; inspect failure details only as needed. Shell test
+  execution does not itself consume model tokens, but log ingestion does.
+
 ## Verify and release
 
-Run:
+Always review the diff, and select tests using the policy above:
 
 ```sh
-./tests/sanity.sh --syntax
-./tests/sanity.sh --network
 git diff --check
 ```
 
-Add a focused regression that fails for the observed title, provider, mirror sequence, or player arguments. Verify real playback in attached mode for player bugs.
+When regression coverage is warranted, cover the observed title, provider,
+mirror sequence, or player arguments. Verify real playback in attached mode
+for player bugs. Summarize what was checked and why broader tests were unnecessary
+or remain pending when that distinction matters.
 
 For a release-worthy change:
 

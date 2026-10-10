@@ -1,4 +1,4 @@
-.TH "ANI-CLI-MX" "1" "September 2026" "ani-cli-mx 3.0.7" "User Commands"
+.TH "ANI-CLI-MX" "1" "October 2026" "ani-cli-mx 3.0.10" "User Commands"
 .SH NAME
 ani-cli-mx \- watch anime, movies, series, and doramas from the command line
 .SH SYNOPSIS
@@ -16,6 +16,10 @@ Anime searches list AnimeAV1, JKAnime, AniDB, and AnimeX in that order. AnimeAV1
 .P
 .PD
 \f[B]ani-cli-mx\f[R] without options defaults to iina on macOS, flatpak mpv on Steamdeck, mpv apk on android, vlc on iOS and mpv media player everywhere else.
+.PP
+Episode selection and playback menus offer Episodio aleatorio for anime, series and doramas. Only real catalog entries are eligible; decimal and season/episode tokens are preserved, and immediate repeats are avoided when alternatives exist. JKAnime chooses a random catalog page and an episode without fetching the whole series. This makes every page reachable but does not give episodes on differently sized pages identical probabilities. Movies have no random-episode action.
+.PP
+Elegir calidad de video is available only during managed persistent mpv playback when the active PelisPlusHD/Vidhide source has at least two distinct explicit resolutions that pass decoding checks. Failed variants and unsupported sources/players are excluded. Switching retains position and pause, with the selected URL's referrer and headers. If a fresh pre-switch check fails, the current video continues. Checks are cached per episode; preparing the first menu can take time while playback continues. A startup decode is not a guarantee of continued availability.
 .SH DEPENDENCIES
 .PP
 The required command-line tools are curl, sed, grep, awk, fzf, and a supported media player. PelisPlusHD playback also requires openssl, od, and dd. Native Windows installations use a PowerShell launcher with Git for Windows as the Bash runtime. Scoop declares the required dependencies. Git must be installed before adding the Scoop buckets because buckets are Git repositories.
